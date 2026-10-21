@@ -1,0 +1,30 @@
+# Gaps in the scaffold and the tracker
+
+Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker at **`ee3dee6`**. Each gap lists what softory does in the meantime and a suggested fix upstream. They're ordered by impact.
+
+## Scaffold (agentic-project-scaffold-lite 1.4.0)
+
+| # | Gap | Impact | Softory's workaround | Suggested fix |
+| --- | --- | --- | --- | --- |
+| S1 | **Any active actor can close any task.** `review → done` is an unowned transition. It needs evidence, but no accepted review, no check of open `blocks` dependencies, and no rule about who may close. Verified: Toby closed Greg's story while a blocking child was still `todo` and no review existed. | Role boundaries and review gates are honor-system only | `softory close` runs the gate (reviews, self-review, dependencies, children, closer) before moving to `done`. Agents are told to close only through it, but a raw `task status done` still works. | A closure policy: optionally require an accepted review from a non-assignee and resolved `blocks`/`review_required` dependencies before `done`. Or a pre-transition hook softory can plug its gate into. |
+| S2 | **`blocks` dependencies are advisory.** `task claim` and `task status` never check them. | Work can start before what it depends on is done | `softory gate` checks them at close. The operating-loop skill says not to claim blocked work. | Reject `claim` (or warn in the envelope) while an active `blocks` dependency points at a task that isn't `done`. |
+| S3 | **The SQLite installer edits the target's tracked `.gitignore`** with no opt-out. | Installing makes a visible, committable change | Softory snapshots `.gitignore` and restores it byte for byte after the scaffold installer runs, then hides everything with `.git/info/exclude`. | `--ignore-file PATH` (for example `.git/info/exclude`) or `--no-gitignore`. |
+| S4 | **No task hierarchy or task kind.** There's no parent field and no epic, story, or task type. | Units of work have to be encoded by convention | `unit:*` and `parent:*` tags, `PREFIX-n` IDs, and a `blocks` dependency from parent to child. `softory tree` renders the hierarchy. | A `parent_id` and a `kind` field (or a `contains` dependency type), with rollups in `summary` and `health`. |
+| S5 | **Long-lived parents can't be "in progress".** A claim is a one-hour lease, and the session sweep blocks claimed tasks whose session goes quiet. | Epics and stories can't show as active for days | Epics and stories stay `todo` while children run. Greg claims them only briefly to close them. | An `active` state that isn't a claim, or a per-task lease length. |
+| S6 | **`agent update` can't change profile text.** Only name, role, actor type, and status are editable. | Improved role definitions can't reach agents already registered | Re-installing leaves existing agents untouched and reads profiles from files instead. | Accept `--responsibilities`, `--decision-authority`, and the other profile fields on `agent update`. |
+| S7 | **No release tags.** The repo has `VERSION` files and changelog entries but no git tags. | Consumers pin by commit hash | Softory pins `172df835…` in `dependencies.json`. | Tag `v1.4.0` and `v2.0.0`. |
+| S8 | **`main` is 2.0.0, but the tracker needs a CLI below 2.0.0.** | Installing from `main` breaks the tracker | Softory pins 1.4.0 and refuses a 2.x checkout. | Update the tracker for schema 2, or keep a `1.x` maintenance branch. |
+| S9 | **`task list --tag` takes one tag.** | Can't ask for "unit:task AND lane:frontend" in one call | Softory filters in Python after one tag-filtered call. | Make `--tag` repeatable with AND semantics, like `--status`. |
+| S10 | **Same-second review ordering.** Reviews sort by `created_at` (to the second) then by ID text, so `REV-10` sorts before `REV-9`. | "Latest review wins" can pick the wrong one in a tight loop | Softory uses the CLI's order and recommends unique, time-ordered review IDs. | Expose the audit sequence on review rows, or sort by it. |
+
+## Tracker (agentic-scaffold-project-task-tracker, `ee3dee6`)
+
+| # | Gap | Impact | Softory's workaround | Suggested fix |
+| --- | --- | --- | --- | --- |
+| T1 | **No installer or package.** `pyproject.toml` declares no distribution, and packaging is still open as UI-27. | Every consumer has to copy `coordination_ui/` by hand | Softory copies `coordination_ui/` into `.agents/softory/tracker/` and runs it with `PYTHONPATH` (`softory tracker`). | An `install.sh --target` that mirrors the scaffold's, or a wheel. |
+| T2 | **No hierarchy view.** Epics, stories, and tasks show as a flat list, and `parent:` tags are just text. | Hard to see progress per epic or story | `softory tree` in the terminal | Group or indent by a `parent:` tag (or S4's field), with a unit filter and child counts. |
+| T3 | **No release tags,** and the app reports `1.0.0` with no matching tag. | Pin by commit | Softory pins `ee3dee67…`. | Tag releases. |
+| T4 | **CLI support stops below 2.0.0.** | See S8 | Pin 1.4.0 | Support schema 2, or document the 1.x branch. |
+| T5 | **Reviews don't show gate status.** There's no "required reviewers" or self-review flag. | Operators can't see why a unit can't close | `softory gate` and `softory reviewers` | Optional: read a project-local gates file, or show a "reviewed by assignee" warning. |
+
+S1 matters most. Until the CLI enforces closure rules, softory's boundaries hold only as long as agents follow the operating loop.

@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "description": "What `softory gate` checks before a unit of work may move to done. The RACI in raci.md is the human-readable source; keep both in step.",
+  "units": {
+    "epic": {
+      "id_prefix": "EPIC",
+      "closer": ["greg"],
+      "default_assignee": "greg",
+      "required_reviews": [
+        {"reviewers": ["greg"], "why": "product acceptance"},
+        {"reviewers": ["quinn"], "why": "architecture sign-off"},
+        {"reviewers": ["toby"], "why": "security sign-off"}
+      ],
+      "children_must_be_done": true
+    },
+    "story": {
+      "id_prefix": "STORY",
+      "closer": ["greg"],
+      "default_assignee": "greg",
+      "required_reviews": [
+        {"reviewers": ["greg"], "why": "acceptance against the story's criteria"}
+      ],
+      "children_must_be_done": true
+    },
+    "task": {
+      "id_prefix": "TASK",
+      "closer": ["assignee"],
+      "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold"},
+      "required_reviews": [
+        {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
+      ],
+      "children_must_be_done": false
+    },
+    "bug": {
+      "id_prefix": "BUG",
+      "closer": ["assignee"],
+      "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold"},
+      "required_reviews": [
+        {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
+      ],
+      "children_must_be_done": false
+    }
+  },
+  "tag_reviews": {
+    "arch": {"reviewers": ["quinn"], "why": "architecture-significant change"},
+    "ui": {"reviewers": ["darwin"], "why": "design and accessibility review"},
+    "security": {"reviewers": ["toby"], "why": "security review"},
+    "auth": {"reviewers": ["toby"], "why": "authentication or authorization change"},
+    "data": {"reviewers": ["toby"], "why": "sensitive or user data handling"},
+    "deps": {"reviewers": ["toby"], "why": "new or upgraded third-party dependency"}
+  },
+  "accepting_decisions": ["accepted", "conditionally_accepted"],
+  "rules": {
+    "no_self_review": "For a review entry marked not_self, and for every tag review, a reviewer who is assigned to or holds the claim on the task never counts. Greg's acceptance of a story or epic he owns is an acceptance, not a self code review, so it counts.",
+    "evidence_required": "At least one evidence row (the CLI enforces this too).",
+    "blocks_resolved": "Every active blocks dependency must point at a done task or be resolved."
+  }
+}

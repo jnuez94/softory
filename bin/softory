@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Softory command-line launcher. Works from a softory checkout or an installed bundle."""
+
+import sys
+from pathlib import Path
+
+if sys.version_info < (3, 10):
+    sys.exit("softory requires Python 3.10 or newer")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from softory.cli import main  # noqa: E402
+
+sys.exit(main())
