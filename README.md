@@ -79,6 +79,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
 | `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story |
 | `softory standin add <agent> --for jade,gold` | Lets an existing agent act for softory roles, and records the decision |
+| `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
 | `softory triage` | Lists open tasks that already have an accepted review, which are usually finished work nobody closed |
 | `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
 | `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |

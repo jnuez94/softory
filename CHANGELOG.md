@@ -8,9 +8,10 @@ First release.
 - RACI matrix with one accountable role per activity, flex rules for allowed overlap, and escalation paths.
 - Units of work: epic (project), story (feature), task (function), and bug (fix), with templates and flows.
 - Nine skills: operating loop, code quality, testing, code review, secure coding, design, product spec, architecture, and token economy.
-- `softory` CLI: `start`, `new`, `tree`, `adopt`, `queue`, `reviewers`, `gate`, `close`, `standin`, `triage`, `link`, `worktree`, `coord`, `end`, `roles`, `doctor`, `tracker`, `sync`, `skills`, `uninstall`.
+- `softory` CLI: `start`, `new`, `tree`, `adopt`, `queue`, `reviewers`, `gate`, `close`, `standin`, `triage`, `link`, `worktree`, `coord`, `end`, `feedback`, `roles`, `doctor`, `tracker`, `sync`, `skills`, `uninstall`.
 - Installer that adds scaffold 1.4.0 (SQLite) and the tracker, registers the roles, and hides everything with `.git/info/exclude`.
 - A catalog of recommended open-source skills, pulled at pinned commits.
 - Git worktrees: `softory worktree add` and `softory link` symlink softory into a worktree, hidden by the shared exclude rules; `--share` links installed dependencies too; `softory coord` runs the coordination CLI against the main database from anywhere; `softory end` ends a session; the CLI finds the main checkout from any worktree.
+- `softory feedback` lets agents log friction with softory itself to `.agents/softory/feedback.jsonl`, and the instructions ask them to.
 - `softory triage` lists open tasks that already have an accepted review. `softory doctor` flags an `AGENTS.override.md` that is out of date. The installer reports an existing scaffold and refuses to downgrade a 2.x one, and `uninstall` leaves a scaffold the project had before softory.
 - Joining a project that already has a team: `softory standin` for existing agents, a minimum `legacy` gate for tasks created before softory, `softory adopt` to move them into a story, and no repeated scaffold block when the project's `AGENTS.md` already has it.

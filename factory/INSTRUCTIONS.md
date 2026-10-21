@@ -32,5 +32,6 @@ Read your own profile once per session. Read other profiles only when you need t
 7. **Load skills by need:** `softory-operating-loop` always. `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-design`, `softory-product-spec`, and `softory-architecture` by role and task. `softory-token-economy` always.
 8. **Be brief.** Lead with the result. Read only the lines you need. Don't restate the task.
 9. **Older tasks.** A task without a `unit:` tag predates softory and keeps this project's own process. It still closes with `softory close`, by its assignee or the owner, after one accepted review from anyone but the builder. Check the code before building one: `softory triage` lists old tasks that are probably done. `softory adopt <ID>` moves one into a story.
+10. **Feedback on softory itself.** When softory gets in your way (an unclear rule, a wrong default, a missing command), run `softory feedback "<what happened, what you expected>" --task <ID>` and carry on. No secrets or personal data in the note.
 
 `.agents/softory/bin/softory --help` lists the commands. The tracker console runs with `softory tracker`.

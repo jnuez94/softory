@@ -207,6 +207,16 @@ class WorkflowTest(unittest.TestCase):
                                      "--lane", "backend", "--actor", "quinn").stdout)
         self.assertIn("already accepted", adopted["warning"])
 
+    def test_feedback_is_recorded_locally_and_hidden(self) -> None:
+        recorded = json.loads(softory(self.root, "feedback", "The gate output is long", "--task", "TASK-1",
+                                      env={"SOFTORY_ROLE": "jade"}).stdout)
+        self.assertEqual(recorded["count"], 1)
+        notes = json.loads(softory(self.root, "feedback", "--list").stdout)["notes"]
+        self.assertEqual((notes[0]["role"], notes[0]["task"], notes[0]["kind"]), ("jade", "TASK-1", "friction"))
+        empty = softory(self.root, "feedback", "  ", check=False)
+        self.assertIn("invalid_arguments", empty.stderr)
+        self.assertEqual(git_status(self.root), "")
+
     def test_start_records_harness_and_end_closes(self) -> None:
         session = start(self.root, "toby")["COORDINATION_SESSION"]
         row = coord(self.root, "session", "show", session)["data"]

@@ -124,6 +124,9 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
         else:
             path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
         removed.append(name)
+    notes = project.bundle / "feedback.jsonl"
+    if notes.is_file() and not purge and (root / ".coordination").is_dir():
+        shutil.move(str(notes), root / ".coordination" / "softory-feedback.jsonl")  # keep agents' notes with the history
     keep_scaffold = manifest.get("scaffold_preexisting", True)
     for directory in ([] if keep_scaffold else [SCAFFOLD_DIR]) + [".agents/softory"]:
         shutil.rmtree(root / directory, ignore_errors=True)

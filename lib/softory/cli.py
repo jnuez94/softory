@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, external, ops, team, work, worktree
+from . import __version__, external, feedback, ops, team, work, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -58,6 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", help="Acting role (default: $SOFTORY_ROLE)")
 
     sub.add_parser("triage", help="Open tasks that already have an accepted review (likely done, not closed)")
+
+    p = sub.add_parser("feedback", help="Tell softory's maintainers what got in your way; --list shows the notes")
+    p.add_argument("note", nargs="?", help="What happened, and what you expected")
+    p.add_argument("--kind", choices=["friction", "bug", "idea"], default="friction")
+    p.add_argument("--task", help="The unit you were working on")
+    p.add_argument("--actor", help="Your role (default: $SOFTORY_ROLE)")
+    p.add_argument("--list", action="store_true", help="Show every note recorded in this project")
     sub.add_parser("coord", help="Run the coordination CLI from the main checkout; arguments pass through")
 
     p = sub.add_parser("link", help="Give a git worktree softory's files, as hidden symlinks")
@@ -160,6 +167,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(team.adopt(project, coord, args.id, args.unit, options)), end="")
     elif args.command == "end":
         print(ops.dumps(work.end(coord, args.session)), end="")
+    elif args.command == "feedback":
+        result = {"notes": feedback.entries(project)} if args.list else feedback.add(
+            project, args.note or "", args.kind, args.task, args.actor)
+        print(ops.dumps(result), end="")
     elif args.command == "triage":
         print(ops.dumps(team.triage(project, coord)), end="")
     elif args.command == "link":
