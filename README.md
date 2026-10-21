@@ -104,7 +104,7 @@ Softory's files are untracked, so a new git worktree has none of them: no instru
 ## Uninstall
 
 ```sh
-.agents/softory/bin/softory uninstall           # keeps .coordination (your history), still hidden
+.agents/softory/bin/softory uninstall           # keeps .coordination (your history) and any scaffold you had before
 .agents/softory/bin/softory uninstall --purge   # removes everything
 ```
 
