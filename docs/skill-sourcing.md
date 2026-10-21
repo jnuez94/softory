@@ -42,6 +42,8 @@ Pulled skills go into `.claude/skills/` and `.agents/skills/` next to softory's 
 | `test-driven-development` | [obra/superpowers](https://github.com/obra/superpowers) | MIT | Yes | Enforces the red-green-refactor loop that `softory-testing` asks for |
 | `systematic-debugging` | obra/superpowers | MIT | Yes | Root cause before fix, for `BUG` units |
 | `verification-before-completion` | obra/superpowers | MIT | Yes | "Run the checks before you claim done." Small (3.6 KB) and matches the gate |
+| `ponytail` | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | Yes | The smallest complete change. It reuses what exists and skips speculative code, but never cuts validation, error handling, security, or a test for risky logic. See token savings below. |
+| `ponytail-review` | DietrichGebert/ponytail | MIT | Optional | A lean-code lens for peer review: delete, reuse, stdlib, yagni. `softory-code-review` stays the procedure. |
 | `receiving-code-review` | obra/superpowers | MIT | Optional | How to weigh review feedback before applying it |
 | `property-based-testing` | [trailofbits/skills](https://github.com/trailofbits/skills) | CC-BY-SA-4.0 | Optional | For parsers, serializers, and money or date logic |
 
@@ -64,6 +66,7 @@ The biggest lever is **reading less**, not talking less. `softory-token-economy`
 - **Instructions stay small.** Softory's block in `AGENTS.md` is under 6 KB. Role profiles, the RACI, and the workflows load only when an agent needs them. Codex stops reading project docs at 32 KiB.
 - **Skills load on demand.** Only a skill's name and description sit in context until it's used.
 - **The CLI does the filtering.** `softory queue`, `softory tree`, and `softory gate` return just what an agent needs, instead of the agent paging through `task list`, `review list`, and `inbox list`.
+- **Write less code.** Pull [Ponytail](https://github.com/DietrichGebert/ponytail)'s `ponytail` skill for the builders. Fewer lines means fewer tokens to write, review, and read again later. Its author's benchmark (39 Claude Code tasks, 5 runs each) reports 45% fewer tokens, 53% less code, and more risky logic shipped with a test. Those numbers are self-reported, and softory hasn't reproduced them. Pull the skill, not the plugin: the plugin adds session hooks, a status band, and a local board. Without them the skill runs at its default `full` level. Where the two disagree, softory's rules win: every bug fix still gets a test that fails first, and the gate still needs evidence.
 - **Cherry-pick, don't install whole plugins.** Pulling three superpowers skills costs about 55 KB on disk and nothing in context until used. The full plugin adds a session-start hook that injects instructions into every session.
 
 ### Considered and not recommended

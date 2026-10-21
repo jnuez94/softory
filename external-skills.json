@@ -17,6 +17,11 @@
       "commit": "a3131740a39291e42fd15b9eac07e0b393ad71b1",
       "license": "CC-BY-SA-4.0"
     },
+    "DietrichGebert/ponytail": {
+      "repository": "https://github.com/DietrichGebert/ponytail",
+      "commit": "09c434ab73ca43761c5d8b0c5d341926c2fba710",
+      "license": "MIT"
+    },
     "vercel-labs/agent-skills": {
       "repository": "https://github.com/vercel-labs/agent-skills",
       "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
@@ -36,6 +41,10 @@
      "why": "Root-cause-first debugging for BUG units. It prevents guess-and-patch fixes, which waste tokens and reviews."},
     {"name": "verification-before-completion", "source": "obra/superpowers", "path": "skills/verification-before-completion", "roles": ["jade", "gold", "quinn", "darwin", "toby", "greg"], "recommended": true,
      "why": "Makes agents run the checks before claiming done, which matches softory gate's evidence rule. Small, about 3.6 KB."},
+    {"name": "ponytail", "source": "DietrichGebert/ponytail", "path": "skills/ponytail", "roles": ["jade", "gold", "quinn"], "recommended": true,
+     "why": "The smallest complete change: reuse what exists, no speculative code, while never cutting validation, error handling, security, or a test for risky logic. Its own benchmark reports 45% fewer tokens and 53% less code. Pull the skill only, not the plugin's hooks."},
+    {"name": "ponytail-review", "source": "DietrichGebert/ponytail", "path": "skills/ponytail-review", "roles": ["jade", "gold", "quinn"], "recommended": false,
+     "why": "A lean-code lens for peer review (delete, reuse, stdlib, yagni), each finding backed by a concrete case. softory-code-review stays the procedure."},
     {"name": "receiving-code-review", "source": "obra/superpowers", "path": "skills/receiving-code-review", "roles": ["jade", "gold"], "recommended": false,
      "why": "How to evaluate review feedback before applying it. Optional: softory-code-review covers the author side briefly."},
     {"name": "differential-review", "source": "trailofbits/skills", "path": "plugins/differential-review/skills/differential-review", "roles": ["toby"], "recommended": true,

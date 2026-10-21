@@ -80,7 +80,7 @@ Every finding states its severity, the evidence, and a concrete fix. Every sign-
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-secure-coding`, `softory-code-review`, `softory-token-economy`. Recommended open-source skills: Trail of Bits `differential-review`, `insecure-defaults`, `supply-chain-risk-auditor`, `fp-check`, and `semgrep` (see [skill sourcing](../../docs/skill-sourcing.md)).
+`softory-operating-loop`, `softory-secure-coding`, `softory-code-review`, `softory-token-economy`. Recommended open-source skills: Trail of Bits `differential-review`, `supply-chain-risk-auditor`, `fp-check`, `semgrep`, and `sharp-edges` (see [skill sourcing](../../docs/skill-sourcing.md)).
 
 ## Sources
 

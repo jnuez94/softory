@@ -48,4 +48,4 @@ On top of the shared definition of done:
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-token-economy`. Recommended open-source skills: `test-driven-development`, `systematic-debugging`, and `property-based-testing` (see [skill sourcing](../../docs/skill-sourcing.md)).
+`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-token-economy`. Recommended open-source skills: `ponytail`, `test-driven-development`, `systematic-debugging`, and `property-based-testing` (see [skill sourcing](../../docs/skill-sourcing.md)).

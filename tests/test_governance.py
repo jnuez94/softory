@@ -99,6 +99,14 @@ class SkillsTest(unittest.TestCase):
             self.assertIn(skill["source"], data["sources"])
             self.assertTrue(set(skill["roles"]) <= ROLE_IDS)
 
+    def test_open_source_skills_named_in_profiles_are_in_the_catalog(self) -> None:
+        catalog = {skill["name"] for skill in json.loads((REPO / "external-skills.json").read_text())["skills"]}
+        for profile in (REPO / "factory/roles").glob("*.md"):
+            for line in profile.read_text().splitlines():
+                if "Recommended open-source skills:" in line:
+                    named = set(re.findall(r"`([a-z-]+)`", line.split("Recommended open-source skills:", 1)[1]))
+                    self.assertTrue(named <= catalog, f"{profile.name}: {named - catalog}")
+
     def test_instruction_block_is_small(self) -> None:
         # Codex stops reading project docs at 32 KiB; keep softory's share small.
         self.assertLess(len((REPO / "factory/INSTRUCTIONS.md").read_bytes()), 6 * 1024)
