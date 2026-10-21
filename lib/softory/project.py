@@ -8,6 +8,7 @@ from typing import Any
 
 from . import BUNDLE_DIR, COORDINATION_BIN
 from .errors import SoftoryError
+from .gitlocal import main_checkout
 
 
 class Project:
@@ -18,11 +19,20 @@ class Project:
 
     @classmethod
     def find(cls, start: Path | None = None) -> Project:
-        """Walk up from ``start`` (default: cwd) to the first softory install."""
+        """The softory install for ``start`` (default: cwd).
+
+        Walks up to the first install. In a linked git worktree, where the
+        bundle is a symlink or missing, it answers with the main checkout, so
+        every command uses the one coordination database.
+        """
         here = (start or Path.cwd()).resolve()
         for candidate in (here, *here.parents):
-            if (candidate / BUNDLE_DIR / "manifest.json").is_file():
-                return cls(candidate)
+            bundle = candidate / BUNDLE_DIR
+            if (bundle / "manifest.json").is_file():
+                return cls(bundle.resolve().parents[1])
+        main = main_checkout(here)
+        if main is not None and (main / BUNDLE_DIR / "manifest.json").is_file():
+            return cls(main)
         raise SoftoryError(
             "No softory installation found here or in any parent directory.",
             "not_installed",
@@ -74,6 +84,9 @@ class Project:
     def manifest(self) -> dict[str, Any]:
         path = self.bundle / "manifest.json"
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def save_manifest(self, manifest: dict[str, Any]) -> None:
+        (self.bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     def role_ids(self) -> list[str]:
         roster = self.roster()

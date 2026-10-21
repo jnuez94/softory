@@ -6,7 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
-from tests.helpers import coord, git_project, git_status, install, needs_sources, revision, softory
+from tests.helpers import coord, git_project, git_status, install, needs_sources, revision, run, softory
 
 
 def start(root: Path, role: str) -> dict[str, str]:
@@ -160,10 +160,59 @@ class WorkflowTest(unittest.TestCase):
                         "--actor", "quinn", check=False)
         self.assertIn("already a unit", again.stderr)
 
-    def test_start_records_harness(self) -> None:
+    def test_worktree_add_links_softory_in_hidden(self) -> None:
+        (self.root / "web/node_modules").mkdir(parents=True)
+        added = json.loads(softory(self.root, "worktree", "add", "../wt-jade", "-b", "jade/list",
+                                   "--share", "web/node_modules").stdout)
+        tree = Path(added["worktree"])
+        self.addCleanup(run, ["git", "worktree", "remove", "--force", str(tree)], self.root, None, False)
+        self.assertEqual(added["git_status_changes"], [])
+        self.assertTrue((tree / "CLAUDE.local.md").is_symlink())
+        self.assertTrue((tree / "web/node_modules").is_symlink())
+        self.assertTrue((tree / ".claude/skills/softory-code-quality/SKILL.md").is_file())
+        here = tree / ".agents/softory/bin/softory"
+        queue = json.loads(run([str(here), "queue", "--agent", "jade"], tree).stdout)
+        self.assertEqual([item["id"] for item in queue["assigned"]], ["TASK-1"])
+        shown = json.loads(run([str(here), "coord", "task", "show", "TASK-1"], tree).stdout)
+        self.assertEqual(shown["data"]["id"], "TASK-1")
+        self.assertEqual(git_status(tree), "")
+        self.assertEqual(git_status(self.root), "")
+
+    def test_link_upgrades_old_exclude_patterns(self) -> None:
+        manifest_path = self.root / ".agents/softory/manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        old = [p if "*" in p else p + "/" for p in manifest["exclude_patterns"]]  # as 0.1.0 wrote them
+        manifest["exclude_patterns"] = old
+        manifest_path.write_text(json.dumps(manifest))
+        exclude = self.root / ".git/info/exclude"
+        exclude.write_text("# softory:start (managed by softory; do not edit inside this block)\n" + "\n".join(old) + "\n# softory:end\n")
+        tree = self.root / ".claude/worktrees/plain"
+        run(["git", "worktree", "add", "--detach", str(tree)], self.root)
+        self.addCleanup(run, ["git", "worktree", "remove", "--force", str(tree)], self.root, None, False)
+        linked = json.loads(softory(self.root, "link", str(tree)).stdout)
+        self.assertIn(".agents/softory", linked["linked"])
+        self.assertEqual(git_status(tree), "")
+        self.assertTrue(json.loads(softory(self.root, "doctor").stdout)["pass"])
+
+    def test_triage_finds_accepted_work_left_open(self) -> None:
+        coord(self.root, "task", "create", "--id", "VR-3", "--title", "Done, not closed", "--actor", "owner", "--assignee", "quinn")
+        coord(self.root, "review", "add", "--id", "REV-VR-3", "--task", "VR-3", "--reviewer", "darwin",
+              "--artifact", "commit:1", "--scope", "test", "--decision", "accepted")
+        self.build("TASK-1", "jade")
+        self.review("TASK-1", "gold", "accepted", 1)
+        report = json.loads(softory(self.root, "triage").stdout)
+        self.assertEqual([row["id"] for row in report["ready_to_close"]], ["TASK-1"])
+        self.assertEqual([row["id"] for row in report["accepted_but_open"]], ["VR-3"])
+        adopted = json.loads(softory(self.root, "adopt", "VR-3", "--unit", "task", "--parent", "STORY-1",
+                                     "--lane", "backend", "--actor", "quinn").stdout)
+        self.assertIn("already accepted", adopted["warning"])
+
+    def test_start_records_harness_and_end_closes(self) -> None:
         session = start(self.root, "toby")["COORDINATION_SESSION"]
         row = coord(self.root, "session", "show", session)["data"]
         self.assertEqual((row["agent_id"], row["harness"]), ("toby", "codex"))
+        softory(self.root, "end", "--session", session)
+        self.assertNotEqual(coord(self.root, "session", "show", session)["data"]["status"], "active")
 
 
 if __name__ == "__main__":

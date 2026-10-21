@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, external, ops, team, work
+from . import __version__, external, ops, team, work, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -57,6 +57,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--assignee", help="Reassign it to this agent (default: keep the current assignees)")
     p.add_argument("--actor", help="Acting role (default: $SOFTORY_ROLE)")
 
+    sub.add_parser("triage", help="Open tasks that already have an accepted review (likely done, not closed)")
+    sub.add_parser("coord", help="Run the coordination CLI from the main checkout; arguments pass through")
+
+    p = sub.add_parser("link", help="Give a git worktree softory's files, as hidden symlinks")
+    p.add_argument("path", nargs="?", default=".", help="A path inside the worktree (default: current directory)")
+    p.add_argument("--share", action="append", help="Also link this untracked path, e.g. .web/node_modules (repeatable)")
+
+    p = sub.add_parser("end", help="End your coordination session")
+    p.add_argument("--session", help="Default: $COORDINATION_SESSION")
+
+    p = sub.add_parser("worktree", help="Create a git worktree with softory linked in")
+    wt = p.add_subparsers(dest="worktree_command", required=True)
+    p = wt.add_parser("add")
+    p.add_argument("path")
+    p.add_argument("-b", "--branch", help="Create this branch for it")
+    p.add_argument("start", nargs="?", help="Commit or branch to start from (default: HEAD)")
+    p.add_argument("--share", action="append", help="Also link this untracked path, e.g. .web/node_modules (repeatable)")
+
     p = sub.add_parser("standin", help="Let an existing agent act for a softory role")
     standin = p.add_subparsers(dest="standin_command", required=True)
     standin.add_parser("list")
@@ -101,10 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["tracker"] and not {"-h", "--help"} & set(argv[1:2]):
-        # Everything after "tracker" belongs to the console, flags included.
+    if argv[:1] in (["tracker"], ["coord"]) and not {"-h", "--help"} & set(argv[1:2]):
+        # Everything after the command belongs to the program it runs, flags included.
         try:
-            return ops.tracker(Project.find(), argv[1:])
+            runner = ops.tracker if argv[0] == "tracker" else ops.coord
+            return runner(Project.find(), argv[1:])
         except SoftoryError as error:
             print(json.dumps({"ok": False, "error": {"code": error.code, "message": error.message}}), file=sys.stderr)
             return 1
@@ -139,6 +158,18 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "adopt":
         options = dict(vars(args), actor=work.actor_of(args.actor))
         print(ops.dumps(team.adopt(project, coord, args.id, args.unit, options)), end="")
+    elif args.command == "end":
+        print(ops.dumps(work.end(coord, args.session)), end="")
+    elif args.command == "triage":
+        print(ops.dumps(team.triage(project, coord)), end="")
+    elif args.command == "link":
+        result = worktree.link(project, Path(args.path).resolve(), args.share)
+        print(ops.dumps(result), end="")
+        return 0 if not result["git_status_changes"] else 2
+    elif args.command == "worktree":
+        result = worktree.add(project, Path(args.path).resolve(), args.branch, args.start, args.share)
+        print(ops.dumps(result), end="")
+        return 0 if not result["git_status_changes"] else 2
     elif args.command == "standin":
         if args.standin_command == "list":
             print(ops.dumps(team.stand_ins(project)), end="")

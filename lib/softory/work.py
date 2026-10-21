@@ -43,6 +43,15 @@ def start(project: Project, coord: Coordination, role_id: str, harness: str | No
     return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
 
 
+def end(coord: Coordination, session: str | None) -> dict[str, Any]:
+    """End the session ``softory start`` opened, so its claims don't go stale."""
+    session = session or os.environ.get("COORDINATION_SESSION")
+    if not session:
+        raise SoftoryError("No session to end: pass --session or set COORDINATION_SESSION", "invalid_arguments")
+    coord.run("session", "end", session)
+    return {"ended": session}
+
+
 def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str, Any]) -> dict[str, Any]:
     """Create an epic, story, task, or bug with softory's tags and parent link."""
     gates = project.gates()

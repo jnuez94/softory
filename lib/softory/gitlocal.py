@@ -16,6 +16,10 @@ EXCLUDE_START = "# softory:start (managed by softory; do not edit inside this bl
 EXCLUDE_END = "# softory:end"
 
 
+def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return _git(root, *args)
+
+
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed program, argument list
         ["git", *args], cwd=root, capture_output=True, text=True, check=False
@@ -34,6 +38,24 @@ def exclude_path(root: Path) -> Path:
         raise SoftoryError("Not a git repository: " + str(root), "not_a_repo")
     path = Path(result.stdout.strip())
     return path if path.is_absolute() else root / path
+
+
+def toplevel(path: Path) -> Path | None:
+    """The checkout (main or linked worktree) that contains ``path``."""
+    result = _git(path, "rev-parse", "--show-toplevel")
+    return Path(result.stdout.strip()).resolve() if result.returncode == 0 else None
+
+
+def main_checkout(path: Path) -> Path | None:
+    """The main working tree of the repository ``path`` belongs to, even from a linked worktree."""
+    result = _git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if result.returncode != 0:  # git older than 2.31
+        result = _git(path, "rev-parse", "--git-common-dir")
+    if result.returncode != 0:
+        return None
+    common = Path(result.stdout.strip())
+    common = (common if common.is_absolute() else path / common).resolve()
+    return common.parent if common.name == ".git" else None
 
 
 def is_tracked(root: Path, relative: str) -> bool:

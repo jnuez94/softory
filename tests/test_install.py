@@ -46,7 +46,9 @@ class FreshProjectTest(unittest.TestCase):
         self.assertTrue(report["pass"], report)
 
     def test_reinstall_is_idempotent(self) -> None:
+        self.assertIsNone(self.result["scaffold_found"])
         again = install(self.root)
+        self.assertEqual(again["scaffold_found"], "1.4.0")
         self.assertEqual(again["registered"], [])
         self.assertEqual(git_status(self.root), "")
         self.assertEqual((self.root / "AGENTS.md").read_text().count("softory:start"), 1)
@@ -89,8 +91,11 @@ class TrackedInstructionsTest(unittest.TestCase):
 
     def test_sync_picks_up_agents_md_changes(self) -> None:
         (self.root / "AGENTS.md").write_text("# Team rules\nUse spaces.\n")
+        stale = json.loads(softory(self.root, "doctor", check=False).stdout)
+        self.assertEqual([c["check"] for c in stale["checks"] if not c["pass"]], ["instructions_in_sync"])
         softory(self.root, "sync")
         self.assertIn("Use spaces.", (self.root / "AGENTS.override.md").read_text())
+        self.assertTrue(json.loads(softory(self.root, "doctor").stdout)["pass"])
 
 
 @needs_sources
@@ -126,6 +131,18 @@ class RefusalTest(unittest.TestCase):
                           "--scaffold-src", SCAFFOLD_SRC or "", "--tracker-src", TRACKER_SRC or ""], REPO, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("not_a_repo", result.stderr)
+
+    def test_refuses_to_downgrade_a_newer_scaffold(self) -> None:
+        holder, root = git_project()
+        self.addCleanup(holder.cleanup)
+        (root / ".agents/agentic-project-scaffold-lite").mkdir(parents=True)
+        (root / ".agents/agentic-project-scaffold-lite/VERSION").write_text("2.0.0\n")
+        from tests.helpers import REPO, SCAFFOLD_SRC, TRACKER_SRC, run
+
+        result = run([str(REPO / "bin/softory"), "install", "--target", str(root),
+                      "--scaffold-src", SCAFFOLD_SRC or "", "--tracker-src", TRACKER_SRC or ""], root, check=False)
+        self.assertIn("scaffold_version_conflict", result.stderr)
+        self.assertEqual((root / ".agents/agentic-project-scaffold-lite/VERSION").read_text(), "2.0.0\n")
 
     def test_refuses_tracked_claude_local(self) -> None:
         holder, root = git_project({"CLAUDE.local.md": "mine\n"})

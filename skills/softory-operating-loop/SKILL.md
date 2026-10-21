@@ -81,7 +81,7 @@ Never close with a raw `task status ... done`. Only the closer named in `governa
 
 ## 9. End
 
-Release or finish every claim, then `$C session end $COORDINATION_SESSION`.
+Release or finish every claim, then `$S end`.
 
 ## Never
 

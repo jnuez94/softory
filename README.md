@@ -43,6 +43,8 @@ The target must be the root of a git repository. The installer:
 
 Re-running it upgrades softory in place and keeps your coordination history.
 
+**Run the installer yourself.** It clones code from GitHub and runs it, so a harness with safety checks (Claude Code's auto mode, for example) blocks an agent from doing it, even when you've said yes in chat. Run the two commands above in your own terminal, then hand over to the agents. If you'd rather an agent ran them, add allow rules for the clone and `install.sh` to the project's `.claude/settings.local.json` first.
+
 ## Hidden from git
 
 Everything softory adds is local. Nothing shows in `git status`, and nothing can be committed by accident.
@@ -68,6 +70,7 @@ Each role starts a session, which records the harness and model, and works throu
 | Command | Does |
 | --- | --- |
 | `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
+| `softory end [--session ID]` | Ends the session, so its claims don't go stale |
 | `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
 | `softory queue` | Your claimed work, the reviews waiting on you, and your assigned work |
@@ -76,6 +79,9 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
 | `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story |
 | `softory standin add <agent> --for jade,gold` | Lets an existing agent act for softory roles, and records the decision |
+| `softory triage` | Lists open tasks that already have an accepted review, which are usually finished work nobody closed |
+| `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
+| `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
 | `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
@@ -88,7 +94,12 @@ Softory can join a project that already runs the scaffold, with its own agents a
 
 - **Tasks from before softory** keep the project's own process. `softory close` holds them to a minimum: evidence, and one accepted review from anyone but the builder. `softory adopt` moves one into a story so it gets the full gate.
 - **Existing agents can stand in for a role.** `softory standin add avery --for jade,gold` lets Avery review wherever Jade or Gold would. It's recorded as a decision and added to the instructions every agent reads.
+- **Old "todo" tasks are often finished.** In the Vault Radar pilot, four of four sampled todo tasks were already fixed, merged, and accepted, but never closed. Run `softory triage` before planning new work.
 - **Run the installer on the machine that runs the agents.** The coordination database uses SQLite's WAL mode, which isn't safe to share between a VM or container and the host through a mounted folder.
+
+## Git worktrees
+
+Softory's files are untracked, so a new git worktree has none of them: no instructions, no skills, no CLI. `softory worktree add <path> -b <branch>` creates a worktree and symlinks softory in. For a worktree made some other way, such as by Claude Code, run `softory link <path>` from the main checkout. The links are hidden by the same exclude rules. The database isn't linked, because the scaffold refuses a symlinked `.coordination`, so use `softory coord <args>` for coordination commands in a worktree. Codex reads instructions from the worktree's own root, so link the worktree before starting Codex in it.
 
 ## Uninstall
 

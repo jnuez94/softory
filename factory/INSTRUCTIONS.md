@@ -19,6 +19,8 @@ eval "$(.agents/softory/bin/softory start <role> --harness <claude|codex> --mode
 
 Read your own profile once per session. Read other profiles only when you need them.
 
+**In a git worktree,** softory's files aren't checked out. Create worktrees with `softory worktree add <path> -b <branch>`, or run `softory link` inside an existing one (call the main checkout's `.agents/softory/bin/softory` by its full path). Run coordination commands as `softory coord <args>` from anywhere.
+
 ### Rules every role follows
 
 1. **Stay inside your boundaries.** If a call belongs to another role, message them or escalate. Never make the call yourself. The boundaries are in `.agents/softory/factory/governance/boundaries.md`, and the full RACI is in `governance/raci.md`.
@@ -29,6 +31,6 @@ Read your own profile once per session. Read other profiles only when you need t
 6. **Record decisions** with `decision add`. Chat is not a record.
 7. **Load skills by need:** `softory-operating-loop` always. `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-design`, `softory-product-spec`, and `softory-architecture` by role and task. `softory-token-economy` always.
 8. **Be brief.** Lead with the result. Read only the lines you need. Don't restate the task.
-9. **Older tasks.** A task without a `unit:` tag predates softory and keeps this project's own process. It still closes with `softory close`, which then needs one accepted review from anyone but the builder. `softory adopt <ID>` moves one into a story.
+9. **Older tasks.** A task without a `unit:` tag predates softory and keeps this project's own process. It still closes with `softory close`, by its assignee or the owner, after one accepted review from anyone but the builder. Check the code before building one: `softory triage` lists old tasks that are probably done. `softory adopt <ID>` moves one into a story.
 
 `.agents/softory/bin/softory --help` lists the commands. The tracker console runs with `softory tracker`.

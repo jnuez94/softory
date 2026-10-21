@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from . import gate as gate_rules
 from . import ops
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -75,8 +76,44 @@ def adopt(project: Project, coord: Coordination, task_id: str, unit: str, option
         for flag, agent in changes:
             revision = str(coord.task(task_id)["revision"])
             coord.run("task", "assign", task_id, "--actor", actor, flag, agent, "--if-revision", revision)
-    return {"id": task_id, "unit": unit, "tags": ",".join(tags), "parent": parent_id,
-            "assignees": coord.task(task_id).get("assignees")}
+    result = {"id": task_id, "unit": unit, "tags": ",".join(tags), "parent": parent_id,
+              "assignees": coord.task(task_id).get("assignees")}
+    accepted = _accepted_by(task, gates)
+    if accepted:
+        result["warning"] = (f"{', '.join(accepted)} already accepted this task. Check the code before building it; "
+                             "it may be done and only need closing.")
+    return result
+
+
+def triage(project: Project, coord: Coordination) -> dict[str, Any]:
+    """Open tasks whose latest reviews already accept them.
+
+    In a project with history, many "todo" tasks are finished work nobody
+    closed. This lists them so they get closed instead of rebuilt.
+    """
+    gates = project.gates()
+    ready, accepted_but_open = [], []
+    statuses = ("todo", "in_progress", "blocked", "review")
+    for summary in coord.all_tasks(*[arg for status in statuses for arg in ("--status", status)]):
+        task = coord.task(summary["id"])
+        accepted = _accepted_by(task, gates)
+        if not accepted:
+            continue
+        latest = gate_rules.latest_reviews(task)
+        rejecting = sorted(r for r, review in latest.items() if review.get("decision") not in gates["accepting_decisions"])
+        row = {"id": task["id"], "status": task["status"], "title": task["title"],
+               "assignees": task.get("assignees") or [], "accepted_by": accepted, "changes_requested_by": rejecting}
+        (ready if task["status"] == "review" and not rejecting else accepted_but_open).append(row)
+    return {
+        "ready_to_close": ready,
+        "accepted_but_open": accepted_but_open,
+        "next": "Run softory gate on each ready task. For the others, check the code: close finished work, or say what is left.",
+    }
+
+
+def _accepted_by(task: dict[str, Any], gates: dict[str, Any]) -> list[str]:
+    latest = gate_rules.latest_reviews(task)
+    return sorted(r for r, review in latest.items() if review.get("decision") in gates["accepting_decisions"])
 
 
 def _record(coord: Coordination, owner: str, title: str, decision: str) -> str:

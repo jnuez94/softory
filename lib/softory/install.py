@@ -32,6 +32,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
             raise SoftoryError(f"{relative} is tracked in git; softory keeps it local. Untrack it first.", "tracked_path")
 
     previous = _previous_manifest(target)
+    scaffold_found = _existing_scaffold(target)
     status_before = gitlocal.status_entries(target)
     deps = json.loads((source / "dependencies.json").read_text(encoding="utf-8"))
 
@@ -81,18 +82,20 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     leaked = sorted(gitlocal.status_entries(target) - status_before)
-    return {"target": str(target), "registered": registered, "skills": skills,
-            "instruction_files": actions, "git_status_changes": leaked}
+    return {"target": str(target), "scaffold_found": scaffold_found, "scaffold_installed": deps["scaffold"]["version"],
+            "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
 
 
 def exclude_patterns(skills: list[str], owned_files: list[str]) -> list[str]:
+    # No trailing slashes: in a linked worktree these paths are symlinks, and
+    # a pattern ending in "/" matches only real directories.
     patterns = [
-        f"/{BUNDLE_DIR}/",
-        f"/{SCAFFOLD_DIR}/",
+        f"/{BUNDLE_DIR}",
+        f"/{SCAFFOLD_DIR}",
         "/.agents/.agentic-project-scaffold-lite*",
-        "/.coordination/",
+        "/.coordination",
     ]
-    patterns += [f"/{root}/{name}/" for name in skills for root in SKILL_ROOTS]
+    patterns += [f"/{root}/{name}" for name in skills for root in SKILL_ROOTS]
     patterns += [f"/{name}" for name in owned_files]
     return patterns
 
@@ -100,6 +103,19 @@ def exclude_patterns(skills: list[str], owned_files: list[str]) -> list[str]:
 def _previous_manifest(target: Path) -> dict[str, Any]:
     path = target / BUNDLE_DIR / "manifest.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def _existing_scaffold(target: Path) -> str | None:
+    """The scaffold version already in the project. Refuse anything but 1.x:
+    reinstalling 1.4 over a 2.x scaffold would run old code on a newer database."""
+    version_file = target / SCAFFOLD_DIR / "VERSION"
+    if not version_file.is_file():
+        return None
+    version = version_file.read_text(encoding="utf-8").strip()
+    if not version.startswith("1."):
+        raise SoftoryError(f"This project already runs scaffold {version}; softory pins 1.4.0 and won't downgrade it.",
+                           "scaffold_version_conflict", {"found": version})
+    return version
 
 
 def _install_scaffold(scaffold_src: Path, target: Path) -> None:

@@ -67,6 +67,7 @@ A bug fix always includes a test that fails before the fix and passes after it.
 
 When softory joins a project that already has tasks, those tasks have no `unit:` tag. They keep the project's own process, and `softory tree` leaves them out unless you pass `--all`.
 
+- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review. Check each against the code, and close what's done.
 - `softory close` still works on them, under the minimum rule in `gates.json` (`legacy`): evidence, resolved blocking dependencies, no open rejection, and one accepted review from anyone but the builder. The assignee or the owner closes.
 - To give one the full gate, Quinn adopts it into a story: `softory adopt VR-12 --unit task --parent STORY-3 --lane backend [--tags data] [--assignee gold]`. It keeps its ID and history, gains the unit tags, and the story then waits for it.
 - If the project already has an agent doing a softory role's job, the owner names it a stand-in, for example `softory standin add avery --for jade,gold`.

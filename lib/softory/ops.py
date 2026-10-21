@@ -22,7 +22,7 @@ def roles_table(project: Project) -> str:
     owner = roster["owner"]
     rows.append(f"{owner['id']:<7} {'(you)':<7} {owner['title']:<43} {'-':<13} -")
     for agent, roles in sorted(project.local().get("stand_ins", {}).items()):
-        rows.append(f"{agent:<7} {'':<7} {'stands in for ' + ', '.join(roles):<43} {'-':<13} -")
+        rows.append(f"{agent:<7} {'-':<7} {'stand-in for ' + ', '.join(roles):<43} {'-':<13} -")
     return "\n".join(rows) + "\n"
 
 
@@ -48,12 +48,39 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
     expected = project.manifest()["exclude_patterns"]
     present = gitlocal.read_exclude_block(project.root)
     check("exclude_block", present == expected, "info/exclude block matches" if present == expected else "info/exclude block drifted; re-run the installer")
+    stale = _stale_instruction_files(project)
+    check("instructions_in_sync", not stale, "instruction files match" if not stale else "out of date: " + ", ".join(stale) + "; run softory sync")
     paths = installed_paths(project)
     visible = sorted(e for e in gitlocal.status_entries(project.root) if any(e[3:].startswith(p) for p in paths))
     check("hidden_from_git", not visible, "nothing softory installed shows in git status" if not visible else "visible: " + ", ".join(visible))
     tracked = [p for p in paths if gitlocal.tracked_under(project.root, p)]
     check("not_tracked", not tracked, "no installed path is tracked" if not tracked else "tracked: " + ", ".join(tracked))
     return {"pass": all(c["pass"] for c in checks), "checks": checks, "installed_paths": paths}
+
+
+def _stale_instruction_files(project: Project) -> list[str]:
+    """Instruction files that no longer match what sync would write, such as an
+    AGENTS.override.md copied from an AGENTS.md that has since changed."""
+    body = (project.bundle / "generated" / "instructions.md").read_text(encoding="utf-8")
+    stale = []
+    for name, action in project.manifest()["instruction_actions"].items():
+        path = project.root / name
+        if action != "override" or not path.is_file():
+            continue
+        source = (project.root / "AGENTS.md").read_text(encoding="utf-8")
+        expected = instructions.OVERRIDE_HEADER + instructions.upsert_block(source, instructions.managed_block(body))
+        if path.read_text(encoding="utf-8") != expected:
+            stale.append(name)
+    return stale
+
+
+def coord(project: Project, args: list[str]) -> int:
+    """Run the coordination CLI from the main checkout, so it finds the database
+    from any worktree. Arguments pass through unchanged."""
+    os.chdir(project.root)
+    binary = str(project.coordination_bin)
+    os.execv(binary, [binary, *args])
+    return 0  # unreachable
 
 
 def tracker(project: Project, args: list[str]) -> int:
