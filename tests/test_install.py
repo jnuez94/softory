@@ -120,6 +120,28 @@ class ExistingScaffoldTest(unittest.TestCase):
 
 
 @needs_sources
+class PreexistingScaffoldTest(unittest.TestCase):
+    """A project that ran the scaffold before softory keeps it after uninstall."""
+
+    def test_uninstall_leaves_the_projects_scaffold(self) -> None:
+        from tests.helpers import SCAFFOLD_SRC, run
+
+        holder, root = git_project()
+        self.addCleanup(holder.cleanup)
+        run([f"{SCAFFOLD_SRC}/scripts/install.sh", "--target", str(root), "--adapter", "sqlite"], root)
+        with (root / ".gitignore").open("a") as ignore:
+            ignore.write("/.agents/\n")  # as VaultRadar does
+        run(["git", "add", ".gitignore", "AGENTS.md"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "scaffold"], root)
+        self.assertEqual(install(root)["scaffold_found"], "1.4.0")
+        result = json.loads(softory(root, "uninstall").stdout)
+        self.assertTrue((root / ".agents/agentic-project-scaffold-lite/bin/coordination").is_file())
+        self.assertIn(".agents/agentic-project-scaffold-lite (it was here before softory)", result["kept"])
+        self.assertFalse((root / ".agents/softory").exists())
+        self.assertEqual(git_status(root), "")
+
+
+@needs_sources
 class RefusalTest(unittest.TestCase):
     def test_refuses_non_git_directory(self) -> None:
         import tempfile

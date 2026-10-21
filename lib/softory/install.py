@@ -76,6 +76,10 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         "skills": skills,
         "external_skills": external,
         "owned_files": owned,
+        # Uninstall leaves a scaffold the project had before softory. Unknown
+        # (an install from before this field) counts as pre-existing: keeping is safe.
+        "scaffold_preexisting": previous.get("scaffold_preexisting", scaffold_found is not None) if previous
+        else scaffold_found is not None,
         "instruction_actions": actions,
         "exclude_patterns": patterns,
     }

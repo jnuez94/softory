@@ -124,10 +124,11 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
         else:
             path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
         removed.append(name)
-    for directory in (SCAFFOLD_DIR, ".agents/softory"):
+    keep_scaffold = manifest.get("scaffold_preexisting", True)
+    for directory in ([] if keep_scaffold else [SCAFFOLD_DIR]) + [".agents/softory"]:
         shutil.rmtree(root / directory, ignore_errors=True)
         removed.append(directory)
-    for leftover in (root / ".agents").glob(".agentic-project-scaffold-lite*"):
+    for leftover in [] if keep_scaffold else (root / ".agents").glob(".agentic-project-scaffold-lite*"):
         if leftover.is_dir():
             shutil.rmtree(leftover, ignore_errors=True)
         else:
@@ -139,8 +140,11 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
     if purge:
         shutil.rmtree(root / ".coordination", ignore_errors=True)
         removed.append(".coordination")
-    gitlocal.write_exclude_block(root, [] if purge else ["/.coordination/"])
-    return {"removed": removed, "kept": [] if purge else [".coordination (your coordination history)"]}
+    hidden = ([] if purge else ["/.coordination/"]) + ([f"/{SCAFFOLD_DIR}/"] if keep_scaffold else [])
+    gitlocal.write_exclude_block(root, hidden)
+    kept = ([] if purge else [".coordination (your coordination history)"])
+    kept += [f"{SCAFFOLD_DIR} (it was here before softory)"] if keep_scaffold else []
+    return {"removed": removed, "kept": kept}
 
 
 def dumps(value: Any) -> str:

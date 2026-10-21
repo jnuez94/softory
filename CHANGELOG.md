@@ -12,5 +12,5 @@ First release.
 - Installer that adds scaffold 1.4.0 (SQLite) and the tracker, registers the roles, and hides everything with `.git/info/exclude`.
 - A catalog of recommended open-source skills, pulled at pinned commits.
 - Git worktrees: `softory worktree add` and `softory link` symlink softory into a worktree, hidden by the shared exclude rules; `--share` links installed dependencies too; `softory coord` runs the coordination CLI against the main database from anywhere; `softory end` ends a session; the CLI finds the main checkout from any worktree.
-- `softory triage` lists open tasks that already have an accepted review. `softory doctor` flags an `AGENTS.override.md` that is out of date. The installer reports an existing scaffold and refuses to downgrade a 2.x one.
+- `softory triage` lists open tasks that already have an accepted review. `softory doctor` flags an `AGENTS.override.md` that is out of date. The installer reports an existing scaffold and refuses to downgrade a 2.x one, and `uninstall` leaves a scaffold the project had before softory.
 - Joining a project that already has a team: `softory standin` for existing agents, a minimum `legacy` gate for tasks created before softory, `softory adopt` to move them into a story, and no repeated scaffold block when the project's `AGENTS.md` already has it.
