@@ -16,6 +16,7 @@ Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker a
 | S8 | **`main` is 2.0.0, but the tracker needs a CLI below 2.0.0.** | Installing from `main` breaks the tracker | Softory pins 1.4.0 and refuses a 2.x checkout. | Update the tracker for schema 2, or keep a `1.x` maintenance branch. |
 | S9 | **`task list --tag` takes one tag.** | Can't ask for "unit:task AND lane:frontend" in one call | Softory filters in Python after one tag-filtered call. | Make `--tag` repeatable with AND semantics, like `--status`. |
 | S10 | **Same-second review ordering.** Reviews sort by `created_at` (to the second) then by ID text, so `REV-10` sorts before `REV-9`. | "Latest review wins" can pick the wrong one in a tight loop | Softory uses the CLI's order and recommends unique, time-ordered review IDs. | Expose the audit sequence on review rows, or sort by it. |
+| S11 | **Nothing stops the database being shared across a VM or mount boundary.** The SQLite backend uses WAL mode, which needs every process on one host. VaultRadar's `.coordination/` holds `.fuse_hidden*` files left by processes that reached the database through a VM's FUSE mount. | Risk of a corrupt or inconsistent database when an agent in a VM or container works on a host folder | Softory's README says to install and run on the machine that runs the agents. | `doctor` warns when `.coordination/` is on a FUSE or network filesystem, and the docs say so. |
 
 ## Tracker (agentic-scaffold-project-task-tracker, `ee3dee6`)
 

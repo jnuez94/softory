@@ -13,6 +13,7 @@ from typing import Any
 from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, __version__, gitlocal, instructions
 from .coordination import Coordination
 from .errors import SoftoryError
+from .project import Project
 from .registration import register_roster
 from .sources import fetch_sources
 
@@ -54,9 +55,12 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         scaffold_block = _scaffold_block(scaffold_src)
 
     _install_skills(source / "skills", skills, target, previous)
-    body = scaffold_block + "\n" + (source / "factory" / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+    softory_text = (source / "factory" / "INSTRUCTIONS.md").read_text(encoding="utf-8")
+    base = softory_text if _project_has_scaffold_block(target, actions) else scaffold_block + "\n" + softory_text
+    body = instructions.compose(base, Project(target).local().get("stand_ins", {}))
     instructions.write(target, actions, body)
     (bundle / "generated").mkdir(exist_ok=True)
+    (bundle / "generated" / "base.md").write_text(base, encoding="utf-8")
     (bundle / "generated" / "instructions.md").write_text(body, encoding="utf-8")
 
     coord = Coordination(target / COORDINATION_BIN, target)
@@ -115,6 +119,15 @@ def _install_scaffold(scaffold_src: Path, target: Path) -> None:
             gitignore.write_bytes(before)
     if result.returncode != 0:
         raise SoftoryError("Scaffold installer failed: " + (result.stderr or result.stdout).strip(), "scaffold_install_failed")
+
+
+def _project_has_scaffold_block(target: Path, actions: dict[str, str]) -> bool:
+    """True when the project's own AGENTS.md already carries the scaffold block,
+    so repeating it would only cost every session extra tokens."""
+    agents = target / "AGENTS.md"
+    if actions.get("AGENTS.md") == "create" or not agents.exists():
+        return False
+    return "<!-- agentic-project-scaffold-lite:start -->" in agents.read_text(encoding="utf-8")
 
 
 def _scaffold_block(scaffold_src: Path) -> str:

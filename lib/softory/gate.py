@@ -3,6 +3,13 @@
 ``evaluate`` is pure. It takes the task as ``task show`` returns it, the
 statuses of the tasks it depends on and of its children, and gates.json, and
 returns every check with a pass/fail and a reason.
+
+Two things adapt the gate to a project that already had a team:
+
+- ``gates["stand_ins"]`` maps an agent to the roles it stands in for. A
+  stand-in may review and close wherever one of those roles may.
+- A task with no unit (usually created before softory joined) falls under
+  ``gates["legacy"]``. Its reviewer ``"*"`` means anyone but the builder.
 """
 
 from __future__ import annotations
@@ -12,18 +19,51 @@ from typing import Any
 from .units import tags_of, unit_of
 
 
+ANYONE = "*"
+
+
+def spec_for(task: dict[str, Any], gates: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    """The task's unit and its gate spec. A task with no unit uses the legacy spec."""
+    unit = unit_of(task, gates)
+    if unit:
+        return unit, gates["units"][unit]
+    if "legacy" in gates:
+        return "legacy", gates["legacy"]
+    return None, {}
+
+
+def with_stand_ins(roles: list[str], gates: dict[str, Any]) -> list[str]:
+    """``roles`` plus every agent standing in for one of them."""
+    extra = [agent for agent, covers in (gates.get("stand_ins") or {}).items()
+             if agent not in roles and set(covers) & set(roles)]
+    return [*roles, *sorted(extra)]
+
+
 def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
     """Every review requirement for the task, from its unit and its tags."""
-    unit = unit_of(task, gates)
+    unit, spec = spec_for(task, gates)
     requirements: list[dict[str, Any]] = []
-    if unit:
-        for entry in gates["units"][unit]["required_reviews"]:
-            requirements.append({**entry, "source": f"unit:{unit}"})
+    for entry in spec.get("required_reviews", []):
+        requirements.append({**entry, "source": f"unit:{unit}"})
     for tag in tags_of(task):
         if tag in gates["tag_reviews"]:
             entry = gates["tag_reviews"][tag]
             requirements.append({**entry, "source": f"tag:{tag}", "not_self": True})
+    for requirement in requirements:
+        requirement["reviewers"] = with_stand_ins(list(requirement["reviewers"]), gates)
     return requirements
+
+
+def eligible(requirement: dict[str, Any], built_by: set[str], latest: dict[str, dict[str, Any]]) -> list[str]:
+    """Who can satisfy the requirement. For ``*`` that is whoever has reviewed."""
+    pool = list(latest) if ANYONE in requirement["reviewers"] else requirement["reviewers"]
+    return [r for r in pool if not (requirement.get("not_self") and r in built_by)]
+
+
+def may_review(requirement: dict[str, Any], agent: str, built_by: set[str]) -> bool:
+    if requirement.get("not_self") and agent in built_by:
+        return False
+    return agent in requirement["reviewers"] or ANYONE in requirement["reviewers"]
 
 
 def builders(task: dict[str, Any]) -> set[str]:
@@ -51,13 +91,13 @@ def evaluate(
 ) -> dict[str, Any]:
     """Run every gate check. ``dependency_status`` maps task ID to status."""
     checks: list[dict[str, Any]] = []
-    unit = unit_of(task, gates)
-    spec = gates["units"].get(unit or "", {})
+    unit, spec = spec_for(task, gates)
     accepting = set(gates["accepting_decisions"])
     latest = latest_reviews(task)
     built_by = builders(task)
 
-    checks.append(_check("unit", unit is not None, f"unit is {unit}" if unit else "no unit:* tag or known ID prefix"))
+    unit_detail = {None: "no unit:* tag or known ID prefix", "legacy": "no unit tag, so the legacy rule applies"}
+    checks.append(_check("unit", unit is not None, unit_detail.get(unit, f"unit is {unit}")))
     checks.append(_check("status", task.get("status") == "review", f"status is {task.get('status')}; it must be review"))
     evidence = int(task.get("evidence_count") or 0)
     checks.append(_check("evidence", evidence > 0, f"{evidence} evidence row(s)"))
@@ -76,12 +116,13 @@ def evaluate(
         checks.append(_check("children_done", not undone, "not done: " + ", ".join(undone) if undone else f"{len(children)} child unit(s) done"))
 
     for requirement in required_reviews(task, gates):
-        eligible = [r for r in requirement["reviewers"] if not (requirement.get("not_self") and r in built_by)]
-        passed_by = [r for r in eligible if latest.get(r, {}).get("decision") in accepting]
+        candidates = eligible(requirement, built_by, latest)
+        passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
+        named = ANYONE not in requirement["reviewers"] and " or ".join(candidates)
         detail = (
             f"accepted by {', '.join(passed_by)}"
             if passed_by
-            else f"needs an accepted review from {' or '.join(eligible) or 'someone other than the builder'}"
+            else f"needs an accepted review from {named or 'someone other than the builder'}"
         )
         checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
 
@@ -90,7 +131,8 @@ def evaluate(
 
     if actor is not None:
         closers = spec.get("closer", [])
-        allowed = (built_by if "assignee" in closers else set()) | {c for c in closers if c != "assignee"}
+        named = with_stand_ins([c for c in closers if c != "assignee"], gates)
+        allowed = (built_by if "assignee" in closers else set()) | set(named)
         checks.append(_check("closer", actor in allowed, f"{actor} may close" if actor in allowed else f"only {', '.join(sorted(allowed)) or 'the assignee'} may close"))
 
     return {"id": task.get("id"), "unit": unit, "pass": all(c["pass"] for c in checks), "checks": checks}

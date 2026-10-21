@@ -29,5 +29,6 @@ Read your own profile once per session. Read other profiles only when you need t
 6. **Record decisions** with `decision add`. Chat is not a record.
 7. **Load skills by need:** `softory-operating-loop` always. `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-design`, `softory-product-spec`, and `softory-architecture` by role and task. `softory-token-economy` always.
 8. **Be brief.** Lead with the result. Read only the lines you need. Don't restate the task.
+9. **Older tasks.** A task without a `unit:` tag predates softory and keeps this project's own process. It still closes with `softory close`, which then needs one accepted review from anyone but the builder. `softory adopt <ID>` moves one into a story.
 
 `.agents/softory/bin/softory --help` lists the commands. The tracker console runs with `softory tracker`.

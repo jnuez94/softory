@@ -49,7 +49,7 @@ Overlap is allowed in these cases only. Each one needs a record so the exception
 | Spike, prototype, or critical-path unblock when both engineers are busy | Quinn builds | The lane owner reviews. Quinn's architecture review is replaced by the lane owner's review plus a recorded decision. |
 | Copy-only or design-token-only change | Darwin edits frontend files | Jade reviews. No logic changes. |
 | Critical or high-severity vulnerability with an exploit path | Toby builds the fix | The lane owner reviews. Toby cannot also be the security reviewer, so Quinn reviews the security aspect. |
-| A role has no available agent | The owner names a stand-in | The stand-in takes the role's boundaries, not its own, for that task, and the swap is recorded as a decision. |
+| A role has no available agent, or the project already has an agent doing that job | The owner names a stand-in | `softory standin add <agent> --for <roles>` records the decision. The stand-in takes the role's boundaries, not its own, and counts wherever that role counts as a reviewer or closer. |
 
 Outside these cases, a role that wants to help files a task or sends a message instead of doing the work.
 

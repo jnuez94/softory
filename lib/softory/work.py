@@ -21,7 +21,7 @@ from .units import (
 )
 
 
-def _actor(explicit: str | None) -> str:
+def actor_of(explicit: str | None) -> str:
     actor = explicit or os.environ.get("SOFTORY_ROLE")
     if not actor:
         raise SoftoryError("Name the acting role with --actor or start a session first", "invalid_arguments")
@@ -47,7 +47,7 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
     """Create an epic, story, task, or bug with softory's tags and parent link."""
     gates = project.gates()
     spec = gates["units"][unit]
-    actor = _actor(options.get("actor"))
+    actor = actor_of(options.get("actor"))
     parent_id = options.get("parent")
     parent_unit = None
     if parent_id:
@@ -89,8 +89,9 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
     return {"id": task_id, "unit": unit, "tags": tags, "assignee": assignee, "parent": parent_id}
 
 
-def tree(project: Project, coord: Coordination, root_id: str | None) -> str:
+def tree(project: Project, coord: Coordination, root_id: str | None, show_all: bool = False) -> str:
     """Render the epic > story > task hierarchy as indented text."""
+    gates = project.gates()
     tasks = coord.all_tasks()
     grouped = children_by_parent(tasks)
     by_id = {task["id"]: task for task in tasks}
@@ -108,11 +109,16 @@ def tree(project: Project, coord: Coordination, root_id: str | None) -> str:
             raise SoftoryError(f"No task {root_id}", "not_found")
         render(by_id[root_id], 0)
     else:
-        for task in grouped.get(None, []):
-            render(task, 0)
+        top = grouped.get(None, [])
+        hidden = [t for t in top if unit_of(t, gates) is None and not show_all]
+        for task in top:
+            if task not in hidden:
+                render(task, 0)
         orphans = [t for t in tasks if parent_of(t) and parent_of(t) not in by_id]
         for task in orphans:
             render(task, 0)
+        if hidden:
+            lines.append(f"({len(hidden)} task(s) without a unit not shown; add --all to list them)")
     return "\n".join(lines) + ("\n" if lines else "(no work yet)\n")
 
 
@@ -131,7 +137,7 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
 
 def close(project: Project, coord: Coordination, task_id: str, actor: str | None) -> dict[str, Any]:
     """Run the gate and, only if it passes, move the unit to done."""
-    actor = _actor(actor)
+    actor = actor_of(actor)
     report = gate(project, coord, task_id, actor)
     if not report["pass"]:
         return {"closed": False, "gate": report}
@@ -149,19 +155,20 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
     built_by = gate_rules.builders(task)
     rows = []
     for requirement in gate_rules.required_reviews(task, gates):
-        eligible = [r for r in requirement["reviewers"] if not (requirement.get("not_self") and r in built_by)]
+        candidates = gate_rules.eligible(requirement, built_by, latest)
+        anyone = gate_rules.ANYONE in requirement["reviewers"]
         rows.append({
             "why": requirement["why"],
             "source": requirement["source"],
-            "reviewers": eligible,
-            "latest": {r: latest[r]["decision"] for r in eligible if r in latest},
+            "reviewers": ["anyone but the builder"] if anyone else candidates,
+            "latest": {r: latest[r]["decision"] for r in candidates if r in latest},
         })
     return {"id": task_id, "builders": sorted(built_by), "requirements": rows}
 
 
 def queue(project: Project, coord: Coordination, agent: str | None) -> dict[str, Any]:
     """The acting role's claimed work, assigned work, and pending reviews."""
-    agent = _actor(agent)
+    agent = actor_of(agent)
     gates = project.gates()
     open_statuses = ["--status", "todo", "--status", "in_progress", "--status", "blocked"]
     mine = coord.all_tasks("--assignee", agent, *open_statuses)
@@ -173,11 +180,13 @@ def queue(project: Project, coord: Coordination, agent: str | None) -> dict[str,
     ]
     to_review = []
     for summary in coord.all_tasks("--status", "review"):
+        if unit_of(summary, gates) is None:
+            continue  # older tasks keep the project's own review routing
         task = coord.task(summary["id"])
         latest = gate_rules.latest_reviews(task)
         built_by = gate_rules.builders(task)
         for requirement in gate_rules.required_reviews(task, gates):
-            if agent in requirement["reviewers"] and not (requirement.get("not_self") and agent in built_by):
+            if gate_rules.may_review(requirement, agent, built_by):
                 if latest.get(agent, {}).get("decision") not in gates["accepting_decisions"]:
                     to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
                 break

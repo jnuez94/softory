@@ -84,5 +84,63 @@ class GateTest(unittest.TestCase):
         self.assertTrue(self.evaluate(item, actor="gold")["pass"])
 
 
+class StandInTest(unittest.TestCase):
+    """Avery stands in for Jade and Gold, as on a project that already had a reviewer."""
+
+    GATES = dict(GATES, stand_ins={"avery": ["jade", "gold"]})
+
+    def evaluate(self, item: dict, actor: str = "jade") -> dict:
+        return gate.evaluate(item, self.GATES, {}, [], actor)
+
+    def test_stand_in_review_counts_for_the_peer_review(self) -> None:
+        self.assertTrue(self.evaluate(task(reviews=[review("avery", "accepted")]))["pass"])
+
+    def test_stand_in_never_reviews_its_own_build(self) -> None:
+        item = task(assignees=["avery"], reviews=[review("avery", "accepted")])
+        self.assertFalse(self.evaluate(item, actor="avery")["pass"])
+
+    def test_stand_in_does_not_cover_other_roles(self) -> None:
+        item = task(tags="unit:task,parent:STORY-1,lane:frontend,data", reviews=[review("avery", "accepted")])
+        failing = {c["check"] for c in self.evaluate(item)["checks"] if not c["pass"]}
+        self.assertEqual(failing, {"review:tag:data"})
+
+    def test_stand_in_may_close_for_a_named_closer(self) -> None:
+        gates = dict(GATES, stand_ins={"pat": ["greg"]})
+        story = task(id="STORY-1", tags="unit:story,parent:EPIC-1", assignees=["greg"], reviews=[review("greg", "accepted")])
+        self.assertTrue(gate.evaluate(story, gates, {}, [], "pat")["pass"])
+
+
+class LegacyTest(unittest.TestCase):
+    """Tasks created before softory: no unit tag, project-style IDs."""
+
+    def evaluate(self, item: dict, actor: str = "quinn") -> dict:
+        return gate.evaluate(item, GATES, {}, [], actor)
+
+    def legacy(self, **fields: object) -> dict:
+        return task(id="VR-FIX-1", tags="", assignees=["quinn"], **fields)
+
+    def test_any_independent_review_passes(self) -> None:
+        report = self.evaluate(self.legacy(reviews=[review("avery", "accepted")]))
+        self.assertTrue(report["pass"], report)
+        self.assertEqual(report["unit"], "legacy")
+
+    def test_builder_review_never_counts(self) -> None:
+        self.assertFalse(self.evaluate(self.legacy(reviews=[review("quinn", "accepted")]))["pass"])
+
+    def test_rejection_still_blocks(self) -> None:
+        reviews = [review("avery", "accepted"), review("darwin", "changes_requested")]
+        self.assertFalse(self.evaluate(self.legacy(reviews=reviews))["pass"])
+
+    def test_owner_or_assignee_closes(self) -> None:
+        item = self.legacy(reviews=[review("avery", "accepted")])
+        self.assertTrue(self.evaluate(item, actor="owner")["pass"])
+        self.assertFalse(self.evaluate(item, actor="avery")["pass"])
+
+    def test_without_a_legacy_rule_no_unit_fails(self) -> None:
+        gates = {k: v for k, v in GATES.items() if k != "legacy"}
+        report = gate.evaluate(self.legacy(reviews=[review("avery", "accepted")]), gates, {}, [], "quinn")
+        self.assertFalse(report["pass"])
+
+
 if __name__ == "__main__":
     unittest.main()

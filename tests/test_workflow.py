@@ -116,6 +116,50 @@ class WorkflowTest(unittest.TestCase):
         mine = json.loads(softory(self.root, "queue", "--agent", "jade").stdout)
         self.assertEqual(mine["reviews_waiting"], [])
 
+    def test_stand_in_reviews_for_jade_and_gold(self) -> None:
+        coord(self.root, "agent", "add", "--id", "avery", "--name", "Avery", "--role", "Reviewer", "--actor", "owner")
+        added = json.loads(softory(self.root, "standin", "add", "avery", "--for", "jade,gold").stdout)
+        decision = coord(self.root, "decision", "show", added["decision"])["data"]
+        self.assertEqual(decision["status"], "accepted")
+        self.assertIn("`avery` stands in for `gold`, `jade`.", (self.root / "AGENTS.md").read_text())
+        self.build("TASK-1", "jade")
+        queue = json.loads(softory(self.root, "queue", "--agent", "avery").stdout)
+        self.assertEqual([item["id"] for item in queue["reviews_waiting"]], ["TASK-1"])
+        self.review("TASK-1", "avery", "accepted", 1)
+        self.assertTrue(gate(self.root, "TASK-1", "jade")["pass"])
+        install(self.root)  # an upgrade keeps the stand-in
+        self.assertIn("stands in for", (self.root / "AGENTS.md").read_text())
+        softory(self.root, "standin", "remove", "avery")
+        self.assertNotIn("stands in for", (self.root / "AGENTS.md").read_text())
+        self.assertFalse(gate(self.root, "TASK-1", "jade")["pass"])
+        self.assertEqual(git_status(self.root), "")
+
+    def test_older_tasks_close_under_the_legacy_rule(self) -> None:
+        coord(self.root, "task", "create", "--id", "VR-1", "--title", "Old", "--actor", "owner", "--assignee", "quinn")
+        tree = softory(self.root, "tree").stdout
+        self.assertNotIn("VR-1", tree)
+        self.assertIn("1 task(s) without a unit", tree)
+        self.build("VR-1", "quinn")
+        self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-1", "quinn")))
+        self.review("VR-1", "darwin", "accepted", 1)
+        softory(self.root, "close", "VR-1", "--actor", "quinn")
+        self.assertEqual(coord(self.root, "task", "show", "VR-1")["data"]["status"], "done")
+
+    def test_adopt_moves_an_older_task_into_a_story(self) -> None:
+        coord(self.root, "task", "create", "--id", "VR-2", "--title", "Old", "--actor", "owner",
+              "--assignee", "quinn", "--tags", "verify")
+        adopted = json.loads(softory(self.root, "adopt", "VR-2", "--unit", "task", "--parent", "STORY-1",
+                                     "--lane", "backend", "--tags", "data", "--assignee", "gold", "--actor", "quinn").stdout)
+        self.assertEqual(adopted["tags"], "unit:task,parent:STORY-1,lane:backend,data,verify")
+        self.assertEqual(adopted["assignees"], ["gold"])
+        self.assertIn("    VR-2", softory(self.root, "tree").stdout)
+        self.build("VR-2", "gold")
+        self.review("VR-2", "jade", "accepted", 1)
+        self.assertEqual(failing(gate(self.root, "VR-2", "gold")), {"review:tag:data"})
+        again = softory(self.root, "adopt", "VR-2", "--unit", "task", "--parent", "STORY-1", "--lane", "backend",
+                        "--actor", "quinn", check=False)
+        self.assertIn("already a unit", again.stderr)
+
     def test_start_records_harness(self) -> None:
         session = start(self.root, "toby")["COORDINATION_SESSION"]
         row = coord(self.root, "session", "show", session)["data"]

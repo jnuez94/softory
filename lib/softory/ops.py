@@ -21,6 +21,8 @@ def roles_table(project: Project) -> str:
         rows.append(f"{role['id']:<7} {role['name']:<7} {role['title']:<43} {role['lane']:<13} {role['recommended_harness']}")
     owner = roster["owner"]
     rows.append(f"{owner['id']:<7} {'(you)':<7} {owner['title']:<43} {'-':<13} -")
+    for agent, roles in sorted(project.local().get("stand_ins", {}).items()):
+        rows.append(f"{agent:<7} {'':<7} {'stands in for ' + ', '.join(roles):<43} {'-':<13} -")
     return "\n".join(rows) + "\n"
 
 
@@ -64,11 +66,13 @@ def tracker(project: Project, args: list[str]) -> int:
 
 
 def sync(project: Project) -> list[str]:
-    """Regenerate AGENTS.override.md after the tracked AGENTS.md changes."""
-    manifest = project.manifest()
-    body = (project.bundle / "generated" / "instructions.md").read_text(encoding="utf-8")
-    actions = {k: v for k, v in manifest["instruction_actions"].items() if v in ("override",)}
+    """Rewrite the instruction files: after AGENTS.md changes, or stand-ins change."""
+    actions = project.manifest()["instruction_actions"]
+    generated = project.bundle / "generated"
+    base_file = generated / "base.md" if (generated / "base.md").is_file() else generated / "instructions.md"
+    body = instructions.compose(base_file.read_text(encoding="utf-8"), project.local().get("stand_ins", {}))
     instructions.write(project.root, actions, body)
+    (generated / "instructions.md").write_text(body, encoding="utf-8")
     return sorted(actions)
 
 

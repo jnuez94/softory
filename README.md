@@ -69,16 +69,26 @@ Each role starts a session, which records the harness and model, and works throu
 | --- | --- |
 | `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
 | `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
-| `softory tree [ID]` | Shows the epic > story > task hierarchy |
+| `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
 | `softory queue` | Your claimed work, the reviews waiting on you, and your assigned work |
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
+| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story |
+| `softory standin add <agent> --for jade,gold` | Lets an existing agent act for softory roles, and records the decision |
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
 | `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
 The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
+
+## Projects that already have a team
+
+Softory can join a project that already runs the scaffold, with its own agents and tasks. The installer keeps the database and every agent already registered, and adds only the roles that are missing. It doesn't repeat the scaffold block if the project's `AGENTS.md` already has it.
+
+- **Tasks from before softory** keep the project's own process. `softory close` holds them to a minimum: evidence, and one accepted review from anyone but the builder. `softory adopt` moves one into a story so it gets the full gate.
+- **Existing agents can stand in for a role.** `softory standin add avery --for jade,gold` lets Avery review wherever Jade or Gold would. It's recorded as a decision and added to the instructions every agent reads.
+- **Run the installer on the machine that runs the agents.** The coordination database uses SQLite's WAL mode, which isn't safe to share between a VM or container and the host through a mounted folder.
 
 ## Uninstall
 

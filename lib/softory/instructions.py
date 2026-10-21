@@ -25,6 +25,16 @@ OVERRIDE_HEADER = (
 )
 
 
+def compose(base: str, stand_ins: dict[str, list[str]]) -> str:
+    """The instruction body: softory's block plus this project's stand-ins."""
+    if not stand_ins:
+        return base
+    lines = ["", "### Stand-ins on this project", "",
+             "These agents act for a softory role. They review and close wherever that role may, within its boundaries.", ""]
+    lines += [f"- `{agent}` stands in for {', '.join(f'`{r}`' for r in roles)}." for agent, roles in sorted(stand_ins.items())]
+    return base.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
+
+
 def managed_block(body: str) -> str:
     return f"{START}\n{body.strip()}\n{END}\n"
 

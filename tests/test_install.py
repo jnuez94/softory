@@ -94,6 +94,27 @@ class TrackedInstructionsTest(unittest.TestCase):
 
 
 @needs_sources
+class ExistingScaffoldTest(unittest.TestCase):
+    """A project that already runs the scaffold and commits its block in AGENTS.md."""
+
+    AGENTS = ("# Team\n\n<!-- agentic-project-scaffold-lite:start -->\nUse the CLI.\n"
+              "<!-- agentic-project-scaffold-lite:end -->\n\nAvery reviews.\n")
+
+    def setUp(self) -> None:
+        self.holder, self.root = git_project({"AGENTS.md": self.AGENTS, "README.md": "x\n"})
+        self.addCleanup(self.holder.cleanup)
+        install(self.root)
+
+    def test_scaffold_block_is_not_repeated(self) -> None:
+        marker = "agentic-project-scaffold-lite:start"
+        self.assertEqual((self.root / "AGENTS.override.md").read_text().count(marker), 1)
+        local = (self.root / "CLAUDE.local.md").read_text()
+        self.assertEqual(local.count(marker), 0)
+        self.assertIn("@AGENTS.md", local)  # Claude still gets it, through the import
+        self.assertEqual(git_status(self.root), "")
+
+
+@needs_sources
 class RefusalTest(unittest.TestCase):
     def test_refuses_non_git_directory(self) -> None:
         import tempfile

@@ -50,7 +50,26 @@ class Project:
         return self.load_json("roles/roster.json")
 
     def gates(self) -> dict[str, Any]:
-        return self.load_json("governance/gates.json")
+        """gates.json plus this project's stand-ins from local.json."""
+        gates = self.load_json("governance/gates.json")
+        gates["stand_ins"] = self.local().get("stand_ins", {})
+        return gates
+
+    @property
+    def local_path(self) -> Path:
+        """Settings for this project only. Upgrades never overwrite them."""
+        return self.bundle / "local.json"
+
+    def local(self) -> dict[str, Any]:
+        if not self.local_path.is_file():
+            return {}
+        try:
+            return json.loads(self.local_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise SoftoryError(f"Cannot read {self.local_path}: {error}", "configuration_error") from error
+
+    def save_local(self, settings: dict[str, Any]) -> None:
+        self.local_path.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     def manifest(self) -> dict[str, Any]:
         path = self.bundle / "manifest.json"
