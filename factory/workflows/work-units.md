@@ -67,20 +67,36 @@ A bug fix always includes a test that fails before the fix and passes after it.
 
 ## Follow-ups from a review
 
-A required change found in review becomes its own unit: `softory new bug --from TASK-7 --title "..."`. It inherits the source's story and lane, carries a `from:TASK-7` tag, and an open source task waits for it. Don't file follow-ups with plain `task create`: they would miss the story and close under the lighter rule for older tasks.
+A required change found in review becomes its own unit: `softory new bug --from TASK-7 --title "..."`. It inherits the source's story and lane, carries a `from:TASK-7` tag, and links back to the source with an `informs` dependency. The source doesn't wait for it, so a chain of fixes never holds up the work above it. Add `--blocks-source` when the source truly can't close first. List the follow-ups in the review's `--follow-up-tasks`. Don't file follow-ups with plain `task create`: they would miss the story and close under the lighter rule for older tasks.
 
 ## Review runs
 
-A reviewer who wants to claim a long review, heartbeat through it, and attach a report can keep the run as a review unit: `softory new review --title "..." --for TASK-7,BUG-2`. Its gate has no reviewers of its own and no tag reviews. It closes, by its reviewer or the owner, once it has evidence and the reviewer has recorded a verdict on every task it names. The verdicts stay on the reviewed tasks, where their gates read them. For a review run from before softory: `softory adopt VR-REVIEW-12 --unit review --for BUG-3`.
+A reviewer who wants to claim a long review, heartbeat through it, and attach a report keeps the run as a review record: `softory new review --title "..." --for TASK-7,BUG-2`. A record is the reviewer's output, so:
+
+- Nobody reviews it again, and tag reviews don't apply.
+- Its own verdicts never block it. The reviewer may record the verdict on the record or on each reviewed task.
+- A "changes requested" on it counts as handled when it names follow-up tasks that exist, or when that reviewer later accepts.
+- It holds reports, not code, and its reviewer didn't build what it reviewed.
+- Its reviewer or the owner closes it, from review, blocked, or todo.
+
+For a review run from before softory, its reviewer (or the owner) runs `softory adopt VR-REVIEW-12 --unit review`. It reads what the run reviewed from its `informs` links, leaving out other review runs and the reviewer's own work; add `--for BUG-3` when the run has no links.
+
+## Work nobody will build
+
+Plans change. A unit that won't be built closes as dropped, with a reason and a decision record: `softory drop TASK-9 --reason "..."`, or `--superseded-by TASK-12` when another unit replaces it. Quinn, Greg, or the owner drops tasks and bugs; Greg or the owner drops stories and epics. A unit with open children can't be dropped. `softory tree` shows it as `done: won't do` or `done: superseded by TASK-12`, and its parent stops waiting for it.
+
+## Stacked work
+
+When a fix has to build on another unit that isn't closed yet, the engineer branches from it and records the stack, bottom first: `softory stack BUG-5 BUG-15`. Each member keeps its own reviews. `softory close BUG-15 --stack` checks every open member's gate, counting the other members as done, and closes them all bottom first, or none if any fails.
 
 ## Tasks from before softory
 
 When softory joins a project that already has tasks, those tasks have no `unit:` tag. They keep the project's own process, and `softory tree` leaves them out unless you pass `--all`.
 
-- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review, older review runs to adopt, and sessions to end or restart. Check each task against the code, and close what's done.
+- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review, older review runs to adopt, sessions to end or restart, and roles that have gone silent. Check each task against the code, and close what's done or drop what won't be built.
 - `softory close` still works on them, under the minimum rule in `gates.json` (`legacy`): evidence, resolved blocking dependencies, no open rejection, and one accepted review from anyone but the builder. The assignee or the owner closes.
 - To give one the full gate, Quinn adopts it into a story: `softory adopt VR-12 --unit task --parent STORY-3 --lane backend [--tags data] [--assignee gold]`. It keeps its ID and history, gains the unit tags, and the story then waits for it.
-- If the project already has an agent doing a softory role's job, the owner names it a stand-in, for example `softory standin add avery --for jade,gold`.
+- If the project already has an agent doing a softory role's job, the owner names it a stand-in, for example `softory standin add avery --for jade,gold`. A stand-in can be limited to tasks (`--task VR-SEC-1,VR-SEC-2`) and given an end date (`--until 2026-10-31`). Agents ask for one with `softory propose standin`; the owner applies it with `softory approve`.
 
 ## Definition of ready
 
@@ -97,4 +113,5 @@ When softory joins a project that already has tasks, those tasks have no `unit:`
 | Epic | Every story is done. Accepted reviews from Greg, Quinn, and Toby. Evidence exists. |
 | Story | Every task is done. Accepted review from Greg, plus Darwin if `ui`. Evidence exists. |
 | Task or bug | Evidence exists (PR or commit, test output). An accepted peer review from the other engineer, plus tag reviews. No self-review. |
-| Review run | Evidence exists (the report). Its reviewer recorded a verdict on every task in its `for:` tags. |
+| Review run | Evidence exists (the report), and no code evidence. It names what it reviewed (`for:`), which its reviewer didn't build. The reviewer's verdict is on the record or on every reviewed task. Every "changes requested" on it names follow-up tasks that exist. |
+| Dropped | A recorded decision says won't do or superseded, by an allowed dropper, with no open children. |

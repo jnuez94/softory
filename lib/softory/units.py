@@ -18,7 +18,10 @@ UNITS = ("epic", "story", "task", "bug", "review")
 LANES = ("frontend", "backend", "infra")
 REVIEW_TAGS = ("arch", "ui", "security", "auth", "data", "deps")
 ALLOWED_PARENTS = {"epic": (), "story": ("epic",), "task": ("story",), "bug": ("story", "epic"), "review": ()}
-RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from")
+RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from", "stack", "resolution", "superseded-by")
+# Evidence types that mean code was delivered. A review record holds reports, not code.
+CODE_EVIDENCE = ("commit", "pr", "pull_request", "merge")
+_TASK_ID = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Za-z0-9._]+)+$")
 
 
 def tags_of(task: dict[str, Any]) -> list[str]:
@@ -44,6 +47,25 @@ def tag_values(tags: list[str], key: str) -> list[str]:
 def targets_of(task: dict[str, Any]) -> list[str]:
     """The tasks a review unit reviewed, from its ``for:`` tags."""
     return tag_values(tags_of(task), "for")
+
+
+def follow_up_ids(text: str | None) -> list[str]:
+    """Task IDs named in a review's ``follow_up_tasks``, which is free text.
+
+    Reviewers write lists ("BUG-9,BUG-10") and prose ("BUG-9 (Jade, frontend)");
+    anything shaped like an ID (``PREFIX-...``) counts.
+    """
+    tokens = (token.strip(".:") for token in re.split(r"[\s,;()\[\]]+", text or ""))
+    return list(dict.fromkeys(token for token in tokens if _TASK_ID.match(token)))
+
+
+def stack_of(task: dict[str, Any]) -> str | None:
+    return tag_value(tags_of(task), "stack")
+
+
+def resolution_of(task: dict[str, Any]) -> str | None:
+    """``wont-do`` or ``superseded`` for a dropped task, else None."""
+    return tag_value(tags_of(task), "resolution")
 
 
 def unit_of(task: dict[str, Any], gates: dict[str, Any]) -> str | None:

@@ -1,8 +1,9 @@
-"""Joining a project that already has a team: stand-ins and adopting older tasks.
+"""Joining a project that already has a team: adopting older tasks, and triage.
 
-A stand-in is an existing agent the owner names to act for a softory role, for
-example a project's own reviewer covering Jade and Gold. Adopting retags a task
-created before softory so it joins an epic or story and the full gate.
+Adopting retags a task created before softory so it joins an epic or story
+and the full gate, or marks a review run as a review record. Triage finds
+finished work left open, review runs to adopt, stale sessions, and silent
+roles. Stand-ins, the other half of joining a team, are the owner's: owner.py.
 """
 
 from __future__ import annotations
@@ -11,45 +12,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import gate as gate_rules
-from . import ops, work
+from . import watch, work
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
-from .units import build_tags, check_parent, tags_of, unit_of
-
-
-def stand_ins(project: Project) -> dict[str, list[str]]:
-    return dict(project.local().get("stand_ins", {}))
-
-
-def add_stand_in(project: Project, coord: Coordination, agent: str, roles: list[str], actor: str) -> dict[str, Any]:
-    """Let ``agent`` review and close wherever ``roles`` may, and record why."""
-    known = {role["id"] for role in project.roster()["roles"]}
-    unknown = sorted(set(roles) - known)
-    if not roles or unknown:
-        raise SoftoryError(f"Unknown role(s): {', '.join(unknown) or '(none given)'}. Roles: {', '.join(sorted(known))}",
-                           "invalid_arguments")
-    if agent in roles:
-        raise SoftoryError(f"{agent} cannot stand in for itself", "invalid_arguments")
-    if not coord.agent_exists(agent):
-        raise SoftoryError(f"Agent {agent!r} is not registered in the coordination database", "not_found")
-    settings = project.local()
-    covers = sorted(set(settings.get("stand_ins", {}).get(agent, [])) | set(roles))
-    decision = _record(coord, actor, f"{agent} stands in for {', '.join(covers)}",
-                       f"{agent} may review and close wherever {', '.join(covers)} may, within that role's boundaries.")
-    settings.setdefault("stand_ins", {})[agent] = covers
-    project.save_local(settings)
-    return {"agent": agent, "stands_in_for": covers, "decision": decision, "regenerated": ops.sync(project)}
-
-
-def remove_stand_in(project: Project, coord: Coordination, agent: str, actor: str) -> dict[str, Any]:
-    settings = project.local()
-    if agent not in settings.get("stand_ins", {}):
-        raise SoftoryError(f"{agent} is not a stand-in", "not_found")
-    decision = _record(coord, actor, f"{agent} no longer stands in", f"{agent} stops acting for any softory role.")
-    del settings["stand_ins"][agent]
-    project.save_local(settings)
-    return {"removed": agent, "decision": decision, "regenerated": ops.sync(project)}
+from .units import CODE_EVIDENCE, build_tags, check_parent, tags_of, unit_of
 
 
 def adopt(project: Project, coord: Coordination, task_id: str, unit: str, options: dict[str, Any]) -> dict[str, Any]:
@@ -62,15 +29,17 @@ def adopt(project: Project, coord: Coordination, task_id: str, unit: str, option
     parent_id = options.get("parent")
     parent_unit = unit_of(coord.task(parent_id), gates) if parent_id else None
     check_parent(unit, parent_unit, parent_id)
+    skipped: list[str] = []
     targets = [t.strip() for t in (options.get("for") or "").split(",") if t.strip()]
-    if task_id in targets:
-        raise SoftoryError("A review cannot be for itself", "invalid_arguments")
-    for target in targets:
-        coord.task(target)  # a typo fails here, before anything changes
+    if unit == "review":
+        targets, skipped = _review_targets(project, coord, task, actor, targets)
+    elif targets:
+        raise SoftoryError("Only a review takes --for", "invalid_arguments")
     extra = [t.strip() for t in (options.get("tags") or "").split(",") if t.strip()]
     tags = build_tags(unit, parent_id, options.get("lane"), extra, targets).split(",")
     tags += [t for t in tags_of(task) if t not in tags]
-    coord.run("task", "update", task_id, "--tags", ",".join(tags), "--actor", actor, "--if-revision", str(task["revision"]))
+    coord.run("task", "update", task_id, "--tags", ",".join(tags), "--actor", actor, "--if-revision", str(task["revision"]),
+              session=task.get("claimed_by") == actor)
     if parent_id:
         coord.run("dependency", "add", "--task", parent_id, "--depends-on", task_id, "--actor", actor,
                   "--type", "blocks", "--rationale", f"{task_id} was adopted into {parent_id}")
@@ -83,11 +52,54 @@ def adopt(project: Project, coord: Coordination, task_id: str, unit: str, option
             coord.run("task", "assign", task_id, "--actor", actor, flag, agent, "--if-revision", revision)
     result = {"id": task_id, "unit": unit, "tags": ",".join(tags), "parent": parent_id,
               "assignees": coord.task(task_id).get("assignees")}
+    if skipped:
+        result["not_targets"] = skipped
     accepted = _accepted_by(task, gates)
-    if accepted:
+    if accepted and unit != "review":
         result["warning"] = (f"{', '.join(accepted)} already accepted this task. Check the code before building it; "
                              "it may be done and only need closing.")
+    if unit == "review":
+        result["next"] = f"softory gate {task_id}, then softory close {task_id}"
     return result
+
+
+def _review_targets(project: Project, coord: Coordination, task: dict[str, Any], actor: str,
+                    named: list[str]) -> tuple[list[str], list[str]]:
+    """Check a task may become a review record, and settle what it reviewed.
+
+    Only its reviewer (an assignee) or the owner may mark it, it must hold no
+    code, and its reviewer must not have built what it reviewed. Without
+    ``--for``, the tasks it links to with ``informs`` are the targets, less
+    other review runs and the reviewer's own work.
+    """
+    owner = project.roster()["owner"]["id"]
+    reviewers = gate_rules.builders(task)
+    if actor not in reviewers and actor != owner:
+        raise SoftoryError(f"Only {', '.join(sorted(reviewers)) or 'its reviewer'} or the owner may mark "
+                           f"{task['id']} as a review run", "not_allowed")
+    code = sorted({str(e.get("evidence_type")) for e in task.get("evidence") or []
+                   if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
+    if code:
+        raise SoftoryError(f"{task['id']} has {', '.join(code)} evidence, so it delivered code; adopt it as a task or bug",
+                           "not_a_review")
+    if task["id"] in named:
+        raise SoftoryError("A review cannot be for itself", "invalid_arguments")
+    if named:
+        work.check_review_targets(coord, named, reviewers)
+        return named, []
+    targets, skipped = [], []
+    for dep in task.get("dependencies") or []:
+        if dep.get("dependency_type") != "informs" or dep.get("status") != "active":
+            continue
+        linked = coord.task(dep["depends_on_task_id"])
+        if gate_rules.builders(linked) & reviewers or _looks_like_review_run(linked) or "unit:review" in tags_of(linked):
+            skipped.append(linked["id"])
+        else:
+            targets.append(linked["id"])
+    if not targets:
+        raise SoftoryError(f"Say what {task['id']} reviewed with --for <IDs>; it links to no task built by someone else",
+                           "invalid_arguments")
+    return targets, skipped
 
 
 def triage(project: Project, coord: Coordination) -> dict[str, Any]:
@@ -111,7 +123,8 @@ def triage(project: Project, coord: Coordination) -> dict[str, Any]:
                "assignees": task.get("assignees") or [], "accepted_by": accepted, "changes_requested_by": rejecting}
         (ready if task["status"] == "review" and not rejecting else accepted_but_open).append(row)
     review_runs = [
-        {"id": t["id"], "status": t["status"], "title": t["title"], "assignees": t.get("assignees") or []}
+        {"id": t["id"], "status": t["status"], "title": t["title"], "assignees": t.get("assignees") or [],
+         "adopt": f"softory adopt {t['id']} --unit review"}
         for t in open_tasks if unit_of(t, gates) is None and _looks_like_review_run(t)
     ]
     return {
@@ -119,16 +132,23 @@ def triage(project: Project, coord: Coordination) -> dict[str, Any]:
         "accepted_but_open": accepted_but_open,
         "review_runs": review_runs,
         "sessions": _session_report(project, coord),
-        "next": ("Run softory gate on each ready task. For the others, check the code: close finished work, or say "
-                 "what is left. For each review run, its reviewer runs softory adopt <ID> --unit review --for "
-                 "<reviewed IDs>, then softory close <ID>. End silent sessions; restart sessions older than the install."),
+        "silent_roles": watch.silent(project, coord)["silent"],
+        "next": ("Run softory gate on each ready task. For the others, check the code: close finished work, drop "
+                 "work nobody will build (softory drop), or say what is left. Each review run's reviewer runs its "
+                 "adopt command (it finds what the run reviewed from its informs links, or add --for), then "
+                 "softory close <ID>. End silent sessions; restart sessions older than the install; tell the owner "
+                 "about silent roles."),
     }
+
+
+REVIEW_RUN_TAGS = ("review", "code-review", "independent-review", "security-review")
 
 
 def _looks_like_review_run(task: dict[str, Any]) -> bool:
     """A guess for triage only: tagged or named as a review, and not a fix."""
     words = task["id"].upper().split("-")
-    return ("review" in tags_of(task) or "REVIEW" in words) and "FIX" not in words
+    tagged = any(tag in REVIEW_RUN_TAGS for tag in tags_of(task))
+    return (tagged or "REVIEW" in words) and "FIX" not in words
 
 
 def _session_report(project: Project, coord: Coordination) -> dict[str, list[dict[str, str]]]:
@@ -150,12 +170,3 @@ def _session_report(project: Project, coord: Coordination) -> dict[str, list[dic
 def _accepted_by(task: dict[str, Any], gates: dict[str, Any]) -> list[str]:
     latest = gate_rules.latest_reviews(task)
     return sorted(r for r, review in latest.items() if review.get("decision") in gates["accepting_decisions"])
-
-
-def _record(coord: Coordination, owner: str, title: str, decision: str) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    decision_id = f"SOFTORY-DEC-STANDIN-{stamp}"
-    coord.run("decision", "add", "--id", decision_id, "--title", title, "--owner", owner, "--status", "accepted",
-              "--context", "The owner named a stand-in under softory's flex rule (boundaries.md).",
-              "--decision", decision)
-    return decision_id

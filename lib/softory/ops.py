@@ -21,8 +21,9 @@ def roles_table(project: Project) -> str:
         rows.append(f"{role['id']:<7} {role['name']:<7} {role['title']:<43} {role['lane']:<13} {role['recommended_harness']}")
     owner = roster["owner"]
     rows.append(f"{owner['id']:<7} {'(you)':<7} {owner['title']:<43} {'-':<13} -")
-    for agent, roles in sorted(project.local().get("stand_ins", {}).items()):
-        rows.append(f"{agent:<7} {'-':<7} {'stand-in for ' + ', '.join(roles):<43} {'-':<13} -")
+    for grant in project.stand_ins():
+        scope = f" on {len(grant['tasks'])} task(s)" if grant["tasks"] else ""
+        rows.append(f"{grant['agent']:<7} {'-':<7} {'stand-in for ' + ', '.join(grant['roles']) + scope:<43} {'-':<13} -")
     return "\n".join(rows) + "\n"
 
 
@@ -55,6 +56,11 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
     check("hidden_from_git", not visible, "nothing softory installed shows in git status" if not visible else "visible: " + ", ".join(visible))
     tracked = [p for p in paths if gitlocal.tracked_under(project.root, p)]
     check("not_tracked", not tracked, "no installed path is tracked" if not tracked else "tracked: " + ", ".join(tracked))
+    changed = project.integrity_changes()
+    check("config_intact", not changed,
+          "softory's rules, code, and local.json are as installed" if changed == []
+          else "installed before integrity checks; re-run the installer" if changed is None
+          else "changed since install: " + ", ".join(changed) + ". The gate fails until it's restored or reinstalled.")
     return {"pass": all(c["pass"] for c in checks), "checks": checks, "installed_paths": paths}
 
 
@@ -97,7 +103,7 @@ def sync(project: Project) -> list[str]:
     actions = project.manifest()["instruction_actions"]
     generated = project.bundle / "generated"
     base_file = generated / "base.md" if (generated / "base.md").is_file() else generated / "instructions.md"
-    body = instructions.compose(base_file.read_text(encoding="utf-8"), project.local().get("stand_ins", {}))
+    body = instructions.compose(base_file.read_text(encoding="utf-8"), project.stand_ins())
     instructions.write(project.root, actions, body)
     (generated / "instructions.md").write_text(body, encoding="utf-8")
     return sorted(actions)

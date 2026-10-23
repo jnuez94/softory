@@ -26,7 +26,7 @@ Greg's work is structured writing against a template: briefs, stories, acceptanc
 
 | | |
 | --- | --- |
-| **Decides** | Scope, priority, sequencing, story and epic acceptance, bug priority |
+| **Decides** | Scope, priority, sequencing, story and epic acceptance, bug priority, and dropping stories, epics, or tasks that are out of scope (`softory drop`) |
 | **Reviews and can block** | Acceptance of stories and epics |
 | **Creates and edits** | Epic briefs, stories, acceptance criteria, release notes |
 | **Never** | Picks architecture or libraries, designs UI, writes or approves code, assigns engineers |

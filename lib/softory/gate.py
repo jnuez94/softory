@@ -4,29 +4,35 @@
 statuses of the tasks it depends on and of its children, and gates.json, and
 returns every check with a pass/fail and a reason.
 
-Two things adapt the gate to a project that already had a team:
+How it adapts to a project that already had a team:
 
-- ``gates["stand_ins"]`` maps an agent to the roles it stands in for. A
-  stand-in may review and close wherever one of those roles may.
+- ``gates["stand_ins"]`` lists grants (see grants.py). A stand-in may review
+  and close wherever its roles may. A grant that names tasks counts on those
+  tasks only, and a grant with an end date lapses after it.
 - A task with no unit (usually created before softory joined) falls under
   ``gates["legacy"]``. Its reviewer ``"*"`` means anyone but the builder.
+- ``gates["waivers"]`` lets one review check pass on one task, by the owner.
 
 Two rules keep the gate from asking the impossible:
 
-- When everyone a tag review names built the task, the tag's ``if_builder``
-  reviewers take over (Quinn reviews Toby's own security work).
-- A review unit records a review run. It has no tag reviews; instead each
-  task in its ``for:`` tags must carry a review from the unit's builder.
+- When the specialist a tag review names is the only builder (Toby wrote the
+  threat model), the tag's ``if_builder`` roles review instead. A role-wide
+  stand-in for the specialist doesn't count there; one scoped to the task does.
+  If the specialist only helped build it, the backup doesn't apply.
+- A review unit is a record of a review run. Its verdicts are its output,
+  not a block on it: it closes once the reviewer's verdict is recorded and
+  every change it asks for has a follow-up task.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from .units import tags_of, targets_of, unit_of
-
+from . import grants
+from .units import CODE_EVIDENCE, follow_up_ids, tags_of, targets_of, unit_of
 
 ANYONE = "*"
+RECORD_STATUSES = ("review", "blocked", "todo")
 
 
 def spec_for(task: dict[str, Any], gates: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
@@ -39,11 +45,12 @@ def spec_for(task: dict[str, Any], gates: dict[str, Any]) -> tuple[str | None, d
     return None, {}
 
 
-def with_stand_ins(roles: list[str], gates: dict[str, Any]) -> list[str]:
-    """``roles`` plus every agent standing in for one of them."""
-    extra = [agent for agent, covers in (gates.get("stand_ins") or {}).items()
-             if agent not in roles and set(covers) & set(roles)]
-    return [*roles, *sorted(extra)]
+def with_stand_ins(roles: list[str], gates: dict[str, Any], task_id: str | None = None,
+                   scoped_only: bool = False) -> list[str]:
+    """``roles`` plus every agent standing in for one of them on ``task_id``."""
+    grant_list = grants.normalize_stand_ins(gates.get("stand_ins"))
+    extra = grants.stand_ins_for(roles, grant_list, task_id, gates.get("today"), scoped_only)
+    return [*roles, *(agent for agent in extra if agent not in roles)]
 
 
 def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
@@ -52,19 +59,29 @@ def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[s
     requirements: list[dict[str, Any]] = []
     for entry in spec.get("required_reviews", []):
         requirements.append({**entry, "source": f"unit:{unit}"})
-    if spec.get("tag_reviews", True):
+    if spec.get("tag_reviews", True) and not spec.get("record"):
         for tag in tags_of(task):
             if tag in gates["tag_reviews"]:
                 entry = gates["tag_reviews"][tag]
                 requirements.append({**entry, "source": f"tag:{tag}", "not_self": True})
     built_by = builders(task)
+    task_id = task.get("id")
     for requirement in requirements:
-        named = with_stand_ins(list(requirement["reviewers"]), gates)
+        named = list(requirement["reviewers"])
         backup = requirement.get("if_builder")
-        if backup and requirement.get("not_self") and named and set(named) <= built_by:
-            requirement["why"] += f" ({', '.join(requirement['reviewers'])} built it, so {' or '.join(backup)} reviews)"
-            named = with_stand_ins(list(backup), gates)
-        requirement["reviewers"] = named
+        specialist_built = bool(backup) and requirement.get("not_self") and ANYONE not in named
+        if specialist_built and built_by and built_by <= set(named):
+            requirement["why"] += f" ({', '.join(named)} built it, so {' or '.join(backup)} reviews)"
+            reviewers = with_stand_ins(list(backup), gates, task_id)
+            reviewers += [a for a in with_stand_ins(named, gates, task_id, scoped_only=True)
+                          if a not in named and a not in reviewers]
+        else:
+            reviewers = with_stand_ins(named, gates, task_id)
+            co_built = sorted(built_by & set(named)) if specialist_built else []
+            if co_built:
+                requirement["note"] = (f"{', '.join(co_built)} helped build it, so the backup reviewer doesn't apply; "
+                                       f"take {', '.join(co_built)} off the task, or ask the owner for a stand-in on it")
+        requirement["reviewers"] = reviewers
     return requirements
 
 
@@ -88,6 +105,14 @@ def builders(task: dict[str, Any]) -> set[str]:
     return people
 
 
+def closers(task: dict[str, Any], gates: dict[str, Any]) -> set[str]:
+    """Who may close the task: its spec's closers, their stand-ins, and the builders if ``assignee`` is listed."""
+    _, spec = spec_for(task, gates)
+    listed = spec.get("closer", [])
+    named = with_stand_ins([c for c in listed if c != "assignee"], gates, task.get("id"))
+    return (builders(task) if "assignee" in listed else set()) | set(named)
+
+
 def latest_reviews(task: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Each reviewer's most recent review, in the CLI's (created_at, id) order."""
     latest: dict[str, dict[str, Any]] = {}
@@ -96,28 +121,46 @@ def latest_reviews(task: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return latest
 
 
+def related_ids(task: dict[str, Any], gates: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """What a record's checks need looked up: its reviewed tasks and its follow-ups."""
+    _, spec = spec_for(task, gates)
+    if not spec.get("record"):
+        return [], []
+    follow_ups = [i for review in task.get("reviews") or [] for i in follow_up_ids(review.get("follow_up_tasks"))]
+    return targets_of(task), list(dict.fromkeys(follow_ups))
+
+
 def evaluate(
     task: dict[str, Any],
     gates: dict[str, Any],
     dependency_status: dict[str, str],
     children: list[dict[str, Any]],
     actor: str | None = None,
-    target_reviews: dict[str, list[dict[str, Any]]] | None = None,
+    related: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run every gate check. ``dependency_status`` maps task ID to status.
 
-    ``target_reviews`` maps each ``for:`` target of a review unit to the
-    reviews recorded on it; other units don't need it.
+    ``related`` is only needed for a review record: ``tasks`` maps each ID from
+    ``related_ids`` to its summary (None if it doesn't exist), and ``reviews``
+    maps each reviewed task to its reviews, oldest first.
     """
     checks: list[dict[str, Any]] = []
     unit, spec = spec_for(task, gates)
+    record = bool(spec.get("record"))
     accepting = set(gates["accepting_decisions"])
     latest = latest_reviews(task)
     built_by = builders(task)
 
+    integrity = gates.get("integrity")
+    if integrity is not None:
+        changed = integrity.get("changed") or []
+        checks.append(_check("config_intact", not changed,
+                             "changed since the owner installed softory: " + ", ".join(changed)
+                             + ". Rules change only through a softory release or softory approve." if changed
+                             else "softory's rules are as installed"))
     unit_detail = {None: "no unit:* tag or known ID prefix", "legacy": "no unit tag, so the legacy rule applies"}
     checks.append(_check("unit", unit is not None, unit_detail.get(unit, f"unit is {unit}")))
-    checks.append(_check("status", task.get("status") == "review", f"status is {task.get('status')}; it must be review"))
+    checks.append(_status_check(task, record, actor))
     evidence = int(task.get("evidence_count") or 0)
     checks.append(_check("evidence", evidence > 0, f"{evidence} evidence row(s)"))
 
@@ -134,47 +177,103 @@ def evaluate(
         undone = [child["id"] for child in children if child.get("status") != "done"]
         checks.append(_check("children_done", not undone, "not done: " + ", ".join(undone) if undone else f"{len(children)} child unit(s) done"))
 
-    if spec.get("verdicts_on_targets"):
-        checks.append(_verdicts_check(task, built_by, target_reviews or {}))
-
-    for requirement in required_reviews(task, gates):
-        candidates = eligible(requirement, built_by, latest)
-        passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
-        named = ANYONE not in requirement["reviewers"] and " or ".join(candidates)
-        detail = (
-            f"accepted by {', '.join(passed_by)}"
-            if passed_by
-            else f"needs an accepted review from {named or 'someone other than the builder'}"
-        )
-        checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
-
-    blocking = sorted(r for r, review in latest.items() if review.get("decision") not in accepting)
-    checks.append(_check("no_open_rejections", not blocking, "latest review requests changes from: " + ", ".join(blocking) if blocking else "no reviewer is requesting changes"))
+    if record:
+        checks += _record_checks(task, built_by, latest, accepting, related or {})
+    else:
+        for requirement in required_reviews(task, gates):
+            candidates = eligible(requirement, built_by, latest)
+            passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
+            named = ANYONE not in requirement["reviewers"] and " or ".join(candidates)
+            detail = (
+                f"accepted by {', '.join(passed_by)}"
+                if passed_by
+                else f"needs an accepted review from {named or 'someone other than the builder'}"
+            )
+            if not passed_by and requirement.get("note"):
+                detail += f" ({requirement['note']})"
+            checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
+        blocking = sorted(r for r, review in latest.items() if review.get("decision") not in accepting)
+        checks.append(_check("no_open_rejections", not blocking, "latest review requests changes from: " + ", ".join(blocking) if blocking else "no reviewer is requesting changes"))
 
     if actor is not None:
-        closers = spec.get("closer", [])
-        named = with_stand_ins([c for c in closers if c != "assignee"], gates)
-        allowed = (built_by if "assignee" in closers else set()) | set(named)
+        allowed = closers(task, gates)
         checks.append(_check("closer", actor in allowed, f"{actor} may close" if actor in allowed else f"only {', '.join(sorted(allowed)) or 'the assignee'} may close"))
 
+    checks = [_waive(task.get("id", ""), check, gates) for check in checks]
     return {"id": task.get("id"), "unit": unit, "pass": all(c["pass"] for c in checks), "checks": checks}
 
 
-def _verdicts_check(task: dict[str, Any], built_by: set[str], target_reviews: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-    """A review unit passes when its builder recorded a verdict on every task it names."""
+def _status_check(task: dict[str, Any], record: bool, actor: str | None) -> dict[str, Any]:
+    status = task.get("status")
+    if not record:
+        return _check("status", status == "review", f"status is {status}; it must be review")
+    # A record can close from blocked or todo too: nothing is waiting on code.
+    held_by_actor = status == "in_progress" and (actor is None or task.get("claimed_by") == actor)
+    if status in RECORD_STATUSES or held_by_actor:
+        detail = "status is review" if status == "review" else f"status is {status}; softory close moves the record on to done"
+        return _check("status", True, detail)
+    return _check("status", False, f"status is {status}; a record closes from review, blocked, todo, or your own claim")
+
+
+def _record_checks(task: dict[str, Any], built_by: set[str], latest: dict[str, dict[str, Any]],
+                   accepting: set[str], related: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """A review record: holds reports, reviews others' work, has a verdict, and tracks every finding."""
+    tasks = related.get("tasks") or {}
+    target_reviews = related.get("reviews") or {}
     targets = targets_of(task)
+    checks = []
+
+    code = sorted({str(e.get("evidence_type")) for e in task.get("evidence") or []
+                   if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
+    checks.append(_check("record_only", not code,
+                         f"has {', '.join(code)} evidence; a review record holds reports, so build code in a task or bug"
+                         if code else "holds reports, not code"))
+
+    overlap = [t for t in targets if tasks.get(t) and builders(tasks[t]) & built_by]
     if not targets:
-        return _check("verdicts_recorded", False, "names no reviewed task; add for:<ID> tags with softory adopt --for")
-    missing, found = [], []
-    for target in targets:
-        mine = [r for r in target_reviews.get(target, []) if (r.get("reviewer_id") or r.get("reviewer")) in built_by]
-        if mine:
-            found.append(f"{target} {mine[-1]['decision']}")
-        else:
-            missing.append(target)
-    if missing:
-        return _check("verdicts_recorded", False, f"no review from {', '.join(sorted(built_by)) or 'the builder'} on: {', '.join(missing)}")
-    return _check("verdicts_recorded", True, "verdicts recorded: " + "; ".join(found))
+        checks.append(_check("independent", False, "names no reviewed task; it needs for:<ID> tags"))
+    else:
+        checks.append(_check("independent", not overlap,
+                             f"{', '.join(sorted(built_by))} also built {', '.join(overlap)}, so this isn't an independent review"
+                             if overlap else f"reviews {', '.join(targets)}, built by others"))
+
+    who = lambda review: review.get("reviewer_id") or review.get("reviewer")  # noqa: E731
+    own = [r for r in task.get("reviews") or [] if who(r) in built_by]
+    missing = [t for t in targets if not any(who(r) in built_by for r in target_reviews.get(t, []))]
+    if own:
+        checks.append(_check("verdicts_recorded", True, f"verdict on this record: {own[-1]['decision']}"))
+    elif targets and not missing:
+        checks.append(_check("verdicts_recorded", True, "verdict recorded on " + ", ".join(targets)))
+    else:
+        checks.append(_check("verdicts_recorded", False,
+                             f"no verdict from {', '.join(sorted(built_by)) or 'the reviewer'}: record one on this record, "
+                             f"or on each reviewed task ({', '.join(missing) or 'none named'})"))
+
+    untracked = []
+    for reviewer, review in sorted(latest.items()):
+        if review.get("decision") in accepting:
+            continue
+        ids = follow_up_ids(review.get("follow_up_tasks"))
+        absent = [i for i in ids if tasks.get(i) is None]
+        if not ids:
+            untracked.append(f"{reviewer} requests changes with no follow-up task")
+        elif absent:
+            untracked.append(f"{reviewer}'s follow-ups don't exist: {', '.join(absent)}")
+    checks.append(_check("findings_tracked", not untracked,
+                         "; ".join(untracked) + ". File each change with softory new bug --from, and list it in --follow-up-tasks"
+                         if untracked else "every requested change has a follow-up task"))
+    return checks
+
+
+def _waive(task_id: str, check: dict[str, Any], gates: dict[str, Any]) -> dict[str, Any]:
+    if check["pass"]:
+        return check
+    waiver = grants.waiver_for(task_id, check["check"], gates.get("waivers") or [])
+    if waiver is None:
+        return check
+    return _check(check["check"], True,
+                  f"waived by the owner ({waiver.get('decision') or 'no decision id'}): {waiver['reason']}. "
+                  f"Without the waiver: {check['detail']}")
 
 
 def _check(name: str, passed: bool, detail: str) -> dict[str, Any]:

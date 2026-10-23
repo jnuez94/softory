@@ -72,18 +72,25 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
 | `softory end [--session ID]` | Ends the session, so its claims don't go stale |
 | `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
-| `softory new bug --from <ID> --title ...` | Files a follow-up from a review: same story and lane, and an open source task waits for it |
-| `softory new review --for <IDs> --title ...` | Keeps a review run as its own task. It closes once the reviewer's verdicts are on the reviewed tasks |
+| `softory new bug --from <ID> --title ... [--blocks-source]` | Files a follow-up from a review: same story and lane, linked back to the source. The source waits for it only with `--blocks-source` |
+| `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
+| `softory drop <ID> --reason ... [--superseded-by ID]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision |
+| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack together, or none of it |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
 | `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, and your assigned work |
 | `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. For schedulers |
+| `softory silent [--hours 12] [--notify]` | Exits 0 if any role has work waiting and no session for that long, and with `--notify` messages the owner once a day per role |
+| `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
+| `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
-| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review --for <IDs>` marks an older review run |
-| `softory standin add <agent> --for jade,gold` | Lets an existing agent act for softory roles, and records the decision |
+| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` marks an older review run, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
+| `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
+| `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID>` | Agents ask; the owner approves at a terminal. A waiver lets one review check pass on one task |
+| `softory ruling --title ... --decision ... --where ...` | Records a decision the owner made, under the owner's name, marked with who recorded it and where the owner said it |
 | `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
-| `softory triage` | Lists finished work nobody closed, older review runs to adopt, and sessions to end or restart |
+| `softory triage` | Lists finished work nobody closed, older review runs to adopt, sessions to end or restart, and silent roles |
 | `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
 | `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
@@ -100,7 +107,16 @@ A role on a timer usually wakes to nothing. In the Vault Radar pilot, 165 of Gre
 cd ~/workspace/my-project && .agents/softory/bin/softory pending greg >/dev/null && codex exec "You are Greg. ..."
 ```
 
-It exits 0 when the role has unread messages, something to close, or reviews or assigned work that changed since its last finished session started. It exits 3 when there's nothing, or when the role already has a session that was active in the last 30 minutes.
+It exits 0 when the role has unread messages, something to close, or reviews or assigned work that changed since its last finished session started. So that a crashed or cut-short run can't strand work, any waiting work also counts once four hours pass without a run (`--retry-hours`). It exits 3 when there's nothing, or when the role already has a session that was active in the last 30 minutes.
+
+To hear when a role stops running while work waits, schedule `softory silent` hourly. On macOS, with launchd or cron:
+
+```sh
+cd ~/workspace/my-project && .agents/softory/bin/softory silent --hours 12 --notify >/tmp/softory-silent.json \
+  && osascript -e 'display notification "A role has gone quiet with work waiting. Run softory silent." with title "Softory"'
+```
+
+`--notify` also leaves a message in the owner's inbox, once a day per silent role.
 
 ### Upgrading
 
@@ -113,12 +129,19 @@ git -C softory pull
 
 Sessions started before an upgrade keep the old rules until they restart; `softory triage` lists them.
 
+### Who changes the rules
+
+The rules are softory's, not the project's. The installer makes `gates.json`, the role files, softory's code, and `local.json` read-only and records their hashes. If any of them changes, the gate fails every unit (`config_intact`) and `softory doctor` names the file, until the file is restored or you reinstall. A change to the rules for every project is a softory release.
+
+Per-project exceptions are yours: a stand-in (`softory standin add`) or a waiver of one review check on one task. Both run only at a terminal, after you type yes, so an agent can't make them from its shell. Agents ask with `softory propose ... --why "..."`, which records a proposed decision and changes nothing; you run `softory approve PROP-n` (or `--reject`). This is a speed bump rather than a lock: an agent that fakes a terminal or edits the files is going around you on purpose, and the gate shows it.
+
 ## Projects that already have a team
 
 Softory can join a project that already runs the scaffold, with its own agents and tasks. The installer keeps the database and every agent already registered, and adds only the roles that are missing. It doesn't repeat the scaffold block if the project's `AGENTS.md` already has it.
 
 - **Tasks from before softory** keep the project's own process. `softory close` holds them to a minimum: evidence, and one accepted review from anyone but the builder. `softory adopt` moves one into a story so it gets the full gate.
-- **Existing agents can stand in for a role.** `softory standin add avery --for jade,gold` lets Avery review wherever Jade or Gold would. It's recorded as a decision and added to the instructions every agent reads.
+- **Existing agents can stand in for a role.** `softory standin add avery --for jade,gold` lets Avery review wherever Jade or Gold would. Add `--task` to limit it to named tasks and `--until` to end it on a date. It's recorded as a decision and added to the instructions every agent reads. A role-wide stand-in never reviews the specialist's own work: when Toby wrote the threat model, Quinn reviews it, not Toby's stand-in, unless you scope a stand-in to that task.
+- **Review runs kept as tasks become records.** `softory adopt <ID> --unit review` turns one into a review record. It closes on the reviewer's own verdict, with every requested change filed as a follow-up task, and nobody reviews it again.
 - **Old "todo" tasks are often finished.** In the Vault Radar pilot, four of four sampled todo tasks were already fixed, merged, and accepted, but never closed. Run `softory triage` before planning new work.
 - **Run the installer on the machine that runs the agents.** The coordination database uses SQLite's WAL mode, which isn't safe to share between a VM or container and the host through a mounted folder.
 

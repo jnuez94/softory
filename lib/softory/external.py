@@ -59,7 +59,7 @@ def _save(project: Project, manifest: dict[str, Any]) -> None:
     skills = manifest.get("skills", []) + manifest.get("external_skills", [])
     manifest["exclude_patterns"] = exclude_patterns(skills, manifest.get("owned_files", []))
     gitlocal.write_exclude_block(project.root, manifest["exclude_patterns"])
-    (project.bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    project.save_manifest(manifest)
 
 
 def listing(project: Project) -> str:

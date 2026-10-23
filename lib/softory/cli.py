@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, external, feedback, ops, team, work, worktree
+from . import __version__, external, feedback, lifecycle, messages, ops, owner, team, watch, work, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -36,7 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True)
     p.add_argument("--parent", help="EPIC-n for a story, STORY-n for a task, either for a bug")
     p.add_argument("--from", dest="from", metavar="ID",
-                   help="File a follow-up from this task: inherits its story and lane; an open source waits for it")
+                   help="File a follow-up from this task: inherits its story and lane, and links back to it")
+    p.add_argument("--blocks-source", action="store_true",
+                   help="With --from: the source can't close until this follow-up does (default: it can)")
     p.add_argument("--for", dest="for", metavar="IDS", help="A review's reviewed tasks, comma-separated")
     p.add_argument("--lane", choices=LANES, help="Required for a task or bug")
     p.add_argument("--tags", help="Extra review tags: arch, ui, security, auth, data, deps")
@@ -54,7 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("adopt", help="Bring a task created before softory into an epic or story, or mark it a review")
     p.add_argument("id")
     p.add_argument("--unit", choices=["story", "task", "bug", "review"], required=True)
-    p.add_argument("--for", dest="for", metavar="IDS", help="For a review: the tasks it reviewed, comma-separated")
+    p.add_argument("--for", dest="for", metavar="IDS",
+                   help="For a review: the tasks it reviewed, comma-separated (default: the tasks it informs on)")
     p.add_argument("--parent", help="EPIC-n for a story, STORY-n for a task, either for a bug")
     p.add_argument("--lane", choices=LANES, help="Required for a task or bug")
     p.add_argument("--tags", help="Extra review tags: arch, ui, security, auth, data, deps")
@@ -86,16 +89,56 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("start", nargs="?", help="Commit or branch to start from (default: HEAD)")
     p.add_argument("--share", action="append", help="Also link this untracked path, e.g. .web/node_modules (repeatable)")
 
-    p = sub.add_parser("standin", help="Let an existing agent act for a softory role")
+    p = sub.add_parser("standin", help="Let an existing agent act for a softory role (owner only, at a terminal)")
     standin = p.add_subparsers(dest="standin_command", required=True)
     standin.add_parser("list")
     p = standin.add_parser("add")
     p.add_argument("agent")
     p.add_argument("--for", dest="roles", required=True, help="Comma-separated role IDs, e.g. jade,gold")
-    p.add_argument("--actor", default="owner", help="Who decides (default: owner)")
+    p.add_argument("--task", dest="tasks", help="Only on these tasks, comma-separated (default: everywhere)")
+    p.add_argument("--until", help="Last day it applies, YYYY-MM-DD (default: no end)")
     p = standin.add_parser("remove")
     p.add_argument("agent")
-    p.add_argument("--actor", default="owner", help="Who decides (default: owner)")
+    p.add_argument("--for", dest="roles", help="Only these roles, comma-separated (default: all of them)")
+
+    p = sub.add_parser("propose", help="Ask the owner for a stand-in or a waiver; nothing changes until they approve")
+    propose = p.add_subparsers(dest="propose_command", required=True)
+    p = propose.add_parser("standin")
+    p.add_argument("agent")
+    p.add_argument("--for", dest="roles", required=True, help="Comma-separated role IDs")
+    p.add_argument("--task", dest="tasks", help="Only on these tasks, comma-separated")
+    p.add_argument("--until", help="Last day it applies, YYYY-MM-DD")
+    p.add_argument("--why", required=True, help="What the owner should know before approving")
+    p.add_argument("--actor", help="Who proposes (default: $SOFTORY_ROLE)")
+    p = propose.add_parser("waiver")
+    p.add_argument("id", help="The task")
+    p.add_argument("--check", required=True, help="The gate check to waive, e.g. review:tag:security")
+    p.add_argument("--why", required=True, help="Why it should close without that check")
+    p.add_argument("--actor", help="Who proposes (default: $SOFTORY_ROLE)")
+
+    p = sub.add_parser("proposals", help="List proposals waiting for the owner")
+    p.add_argument("--all", action="store_true", help="Include approved and rejected ones")
+
+    p = sub.add_parser("approve", help="Apply a proposal (owner only, at a terminal)")
+    p.add_argument("proposal")
+    p.add_argument("--reject", action="store_true", help="Reject it instead")
+
+    p = sub.add_parser("ruling", help="Record a decision the owner made, under the owner's name, marked recorded by you")
+    p.add_argument("--title", required=True)
+    p.add_argument("--decision", required=True, help="What the owner decided")
+    p.add_argument("--where", required=True, help="Where the owner said it: a thread, message, or date")
+    p.add_argument("--context", help="Background")
+    p.add_argument("--actor", help="Who records it (default: $SOFTORY_ROLE)")
+
+    p = sub.add_parser("drop", help="Close a unit nobody will build, as won't do or superseded")
+    p.add_argument("id")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--superseded-by", metavar="ID", help="The unit that replaces it")
+    p.add_argument("--actor", help="Who drops it (default: $SOFTORY_ROLE)")
+
+    p = sub.add_parser("stack", help="Group work built on top of other work, bottom first, to close together")
+    p.add_argument("ids", nargs="+", metavar="ID")
+    p.add_argument("--actor", help="Default: $SOFTORY_ROLE")
 
     p = sub.add_parser("gate", help="Check whether a unit may move to done")
     p.add_argument("id")
@@ -103,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("close", help="Run the gate and move the unit to done only if it passes")
     p.add_argument("id")
+    p.add_argument("--stack", action="store_true", help="Close the unit's whole stack together, or none of it")
     p.add_argument("--actor", help="Who is closing it (default: $SOFTORY_ROLE)")
 
     p = sub.add_parser("reviewers", help="Who must review a unit, and where each review stands")
@@ -114,6 +158,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("pending", help="Exit 0 if a role has work waiting, 3 if not; for schedulers, starts nothing")
     p.add_argument("agent", nargs="?", help="Default: $SOFTORY_ROLE")
     p.add_argument("--since", help="Count work changed after this time (default: the role's last finished session)")
+    p.add_argument("--retry-hours", type=float, default=4.0,
+                   help="Count any waiting work once this long passes without a run (default 4; 0 turns it off)")
+
+    p = sub.add_parser("silent", help="Exit 0 if a role has work waiting and no session for --hours; 3 if none")
+    p.add_argument("--hours", type=float, default=12.0)
+    p.add_argument("--notify", action="store_true", help="Message the owner, once a day per silent role")
+    p.add_argument("--sender", default="owner", help="Who the message is from (default: owner)")
+
+    p = sub.add_parser("inbox", help="Your unread messages, and the number to mark them read with")
+    p.add_argument("--agent", help="Default: $SOFTORY_ROLE")
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--mark-read", type=int, metavar="N", help="Mark read through N, the read_through of a listing")
+
+    p = sub.add_parser("message", help="Show one message by its ID")
+    p.add_argument("id")
+    sub.add_parser("all", help="Run a coordination list command and follow every page, e.g. softory all task list")
 
     sub.add_parser("roles", help="List the roles and their recommended harnesses")
     sub.add_parser("doctor", help="Check the installation, registration, and that nothing leaks into git")
@@ -134,9 +194,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] in (["tracker"], ["coord"]) and not {"-h", "--help"} & set(argv[1:2]):
+    if argv[:1] in (["tracker"], ["coord"], ["all"]) and not {"-h", "--help"} & set(argv[1:2]):
         # Everything after the command belongs to the program it runs, flags included.
         try:
+            if argv[0] == "all":
+                project = Project.find()
+                rows = messages.all_rows(Coordination(project.coordination_bin, project.root), argv[1:])
+                print(ops.dumps(rows), end="")
+                return 0
             runner = ops.tracker if argv[0] == "tracker" else ops.coord
             return runner(Project.find(), argv[1:])
         except SoftoryError as error:
@@ -148,6 +213,10 @@ def main(argv: list[str] | None = None) -> int:
     except SoftoryError as error:
         print(json.dumps({"ok": False, "error": {"code": error.code, "message": error.message, "details": error.details}}, indent=2), file=sys.stderr)
         return 1
+
+
+def _split(value: str | None) -> list[str]:
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -191,18 +260,38 @@ def _dispatch(args: argparse.Namespace) -> int:
         return 0 if not result["git_status_changes"] else 2
     elif args.command == "standin":
         if args.standin_command == "list":
-            print(ops.dumps(team.stand_ins(project)), end="")
+            print(ops.dumps(owner.stand_in_rows(project)), end="")
         elif args.standin_command == "add":
-            roles = [r.strip() for r in args.roles.split(",") if r.strip()]
-            print(ops.dumps(team.add_stand_in(project, coord, args.agent, roles, args.actor)), end="")
+            result = owner.add_stand_in(project, coord, args.agent, _split(args.roles), _split(args.tasks), args.until)
+            print(ops.dumps(result), end="")
         else:
-            print(ops.dumps(team.remove_stand_in(project, coord, args.agent, args.actor)), end="")
+            print(ops.dumps(owner.remove_stand_in(project, coord, args.agent, _split(args.roles) or None)), end="")
+    elif args.command == "propose":
+        actor = work.actor_of(args.actor)
+        if args.propose_command == "standin":
+            change = {"agent": args.agent, "roles": _split(args.roles), "tasks": _split(args.tasks), "until": args.until}
+        else:
+            change = {"task": args.id, "check": args.check}
+        print(ops.dumps(owner.propose(project, coord, args.propose_command, change, args.why, actor)), end="")
+    elif args.command == "proposals":
+        print(ops.dumps(owner.proposals(project, args.all)), end="")
+    elif args.command == "approve":
+        print(ops.dumps(owner.approve(project, coord, args.proposal, args.reject)), end="")
+    elif args.command == "ruling":
+        actor = work.actor_of(args.actor)
+        result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor)
+        print(ops.dumps(result), end="")
+    elif args.command == "drop":
+        result = lifecycle.drop(project, coord, args.id, args.reason, args.superseded_by, work.actor_of(args.actor))
+        print(ops.dumps(result), end="")
+    elif args.command == "stack":
+        print(ops.dumps(lifecycle.stack(project, coord, args.ids, work.actor_of(args.actor))), end="")
     elif args.command == "gate":
         result = work.gate(project, coord, args.id, args.actor)
         print(ops.dumps(result), end="")
         return 0 if result["pass"] else 3
     elif args.command == "close":
-        result = work.close(project, coord, args.id, args.actor)
+        result = work.close(project, coord, args.id, args.actor, args.stack)
         print(ops.dumps(result), end="")
         return 0 if result["closed"] else 3
     elif args.command == "reviewers":
@@ -210,9 +299,17 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "queue":
         print(ops.dumps(work.queue(project, coord, args.agent)), end="")
     elif args.command == "pending":
-        result = work.pending(project, coord, args.agent, args.since)
+        result = watch.pending(project, coord, args.agent, args.since, args.retry_hours)
         print(ops.dumps(result), end="")
         return 0 if result["pending"] else 3
+    elif args.command == "silent":
+        result = watch.silent(project, coord, args.hours, args.notify, args.sender)
+        print(ops.dumps(result), end="")
+        return 0 if result["silent"] else 3
+    elif args.command == "inbox":
+        print(ops.dumps(messages.inbox(coord, args.agent, args.limit, args.mark_read)), end="")
+    elif args.command == "message":
+        print(ops.dumps(messages.message(coord, args.id)), end="")
     elif args.command == "roles":
         print(ops.roles_table(project), end="")
     elif args.command == "doctor":

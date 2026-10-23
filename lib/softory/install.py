@@ -13,7 +13,7 @@ from typing import Any
 from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, __version__, gitlocal, instructions
 from .coordination import Coordination
 from .errors import SoftoryError
-from .project import Project
+from .project import PROTECTED_DIRS, Project, integrity_hashes, make_read_only, write_protected
 from .registration import register_roster
 from .sources import fetch_sources
 
@@ -58,7 +58,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
     _install_skills(source / "skills", skills, target, previous)
     softory_text = (source / "factory" / "INSTRUCTIONS.md").read_text(encoding="utf-8")
     base = softory_text if _project_has_scaffold_block(target, actions) else scaffold_block + "\n" + softory_text
-    body = instructions.compose(base, Project(target).local().get("stand_ins", {}))
+    body = instructions.compose(base, Project(target).stand_ins())
     instructions.write(target, actions, body)
     (bundle / "generated").mkdir(exist_ok=True)
     (bundle / "generated" / "base.md").write_text(base, encoding="utf-8")
@@ -82,12 +82,25 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         else scaffold_found is not None,
         "instruction_actions": actions,
         "exclude_patterns": patterns,
+        # The owner runs the installer, so what it finds is what the gate trusts.
+        "integrity": _protect(bundle),
     }
-    (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    write_protected(bundle / "manifest.json", json.dumps(manifest, indent=2) + "\n")
 
     leaked = sorted(gitlocal.status_entries(target) - status_before)
     return {"target": str(target), "scaffold_found": scaffold_found, "scaffold_installed": deps["scaffold"]["version"],
             "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
+
+
+def _protect(bundle: Path) -> dict[str, str]:
+    """Make softory's rules, code, and local.json read-only, and return their hashes."""
+    for folder in PROTECTED_DIRS:
+        for path in (bundle / folder).rglob("*"):
+            if path.is_file():
+                make_read_only(path)
+    if (bundle / "local.json").is_file():
+        make_read_only(bundle / "local.json")
+    return integrity_hashes(bundle)
 
 
 def exclude_patterns(skills: list[str], owned_files: list[str]) -> list[str]:

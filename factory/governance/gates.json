@@ -5,6 +5,7 @@
     "epic": {
       "id_prefix": "EPIC",
       "closer": ["greg"],
+      "dropper": ["greg", "owner"],
       "default_assignee": "greg",
       "required_reviews": [
         {"reviewers": ["greg"], "why": "product acceptance"},
@@ -16,6 +17,7 @@
     "story": {
       "id_prefix": "STORY",
       "closer": ["greg"],
+      "dropper": ["greg", "owner"],
       "default_assignee": "greg",
       "required_reviews": [
         {"reviewers": ["greg"], "why": "acceptance against the story's criteria"}
@@ -25,6 +27,7 @@
     "task": {
       "id_prefix": "TASK",
       "closer": ["assignee"],
+      "dropper": ["quinn", "greg", "owner"],
       "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold"},
       "required_reviews": [
         {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
@@ -34,6 +37,7 @@
     "bug": {
       "id_prefix": "BUG",
       "closer": ["assignee"],
+      "dropper": ["quinn", "greg", "owner"],
       "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold"},
       "required_reviews": [
         {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
@@ -42,17 +46,19 @@
     },
     "review": {
       "id_prefix": "REVIEW",
-      "description": "A review run kept as its own task, so the reviewer can claim it and attach the report. Its for:<ID> tags name the tasks it reviewed. The verdicts live as review records on those tasks, so the review itself is not reviewed again.",
+      "description": "A record of one review run, kept as its own task so the reviewer can claim it and attach the report. Its for:<ID> tags name what it reviewed. Its verdicts are its output: they never block it, and it is not reviewed again.",
       "closer": ["assignee", "owner"],
+      "dropper": ["assignee", "owner"],
       "required_reviews": [],
       "tag_reviews": false,
-      "verdicts_on_targets": true,
-      "children_must_be_done": false
+      "children_must_be_done": false,
+      "record": true
     }
   },
   "legacy": {
     "description": "Tasks with no unit: tag, usually created before softory joined the project. They keep the project's own process; softory close holds them to this minimum. softory adopt turns one into a unit.",
     "closer": ["assignee", "owner"],
+    "dropper": ["quinn", "greg", "owner"],
     "required_reviews": [
       {"reviewers": ["*"], "why": "an independent review", "not_self": true}
     ],
@@ -71,8 +77,12 @@
     "no_self_review": "For a review entry marked not_self, and for every tag review, a reviewer who is assigned to or holds the claim on the task never counts. Greg's acceptance of a story or epic he owns is an acceptance, not a self code review, so it counts.",
     "evidence_required": "At least one evidence row (the CLI enforces this too).",
     "blocks_resolved": "Every active blocks dependency must point at a done task or be resolved.",
-    "if_builder": "When everyone a tag review names built the task (Toby wrote the threat model, Quinn built the architecture change), the tag's if_builder reviewers review it instead: Quinn for Toby's own security work, Jade or Gold for Quinn's architecture work, the owner for Darwin's own design work. The owner chose this on 2026-10-23.",
-    "review_units": "A review unit closes when it has evidence and, for each for:<ID> tag, its builder has recorded a review on that task. Tag reviews do not apply to it, and nobody reviews the review.",
-    "stand_ins": "An agent the owner names with softory standin add counts wherever the roles it stands in for count, as a reviewer or a closer. Stand-ins live in .agents/softory/local.json and each change is recorded as a decision."
+    "if_builder": "When the specialist a tag review names is the only builder (Toby wrote the threat model, Quinn built the architecture change), the tag's if_builder roles review it instead: Quinn for Toby's own security work, Jade or Gold for Quinn's architecture work, the owner for Darwin's own design work. A role-wide stand-in for the specialist does not count on the specialist's own work; a stand-in the owner scoped to that task does. If the specialist only co-built the task, the backup does not apply and the specialist must come off the task or the owner must grant a scoped stand-in. The owner chose named backups on 2026-10-23.",
+    "review_records": "A review unit (unit:review) is a record of a review run. It closes when it holds reports and no code evidence, names the tasks it reviewed (for:<ID>) and none of them were built by its reviewer, carries the reviewer's verdict (on the record or on every reviewed task), and every reviewer whose latest verdict on it requests changes names follow-up tasks that exist. Tag reviews do not apply, and nobody reviews the review. It may close from review, blocked, or todo.",
+    "stand_ins": "An agent the owner names with softory standin add (or approves with softory approve) counts wherever the roles it stands in for count, as a reviewer or a closer. A grant may name tasks and an end date; outside them it does not count. Grants live in .agents/softory/local.json, each recorded as a decision.",
+    "waivers": "The owner may waive one review check (review:*, no_open_rejections, findings_tracked, verdicts_recorded, independent) on one task with softory approve. The gate shows the waiver and its reason. Status, evidence, blockers, children, closer, and config checks cannot be waived.",
+    "drop": "softory drop closes a unit nobody will build, as won't do or superseded, with a recorded decision. Only the unit's dropper may, and not while it has open children.",
+    "stacks": "softory stack groups work built on top of other work. softory close --stack closes every member together, bottom first, only if each passes the gate when the other members count as done.",
+    "config": "These rules change only through a softory release. The installer records the hash of this file, softory's code, and local.json, and makes them read-only; the gate fails closed (config_intact) if any of them changes."
   }
 }

@@ -10,7 +10,7 @@ from tests.helpers import REPO
 
 sys.path.insert(0, str(REPO / "lib"))
 
-from softory import gate, units  # noqa: E402
+from softory import gate, grants, units  # noqa: E402
 from softory.errors import SoftoryError  # noqa: E402
 
 GATES = json.loads((REPO / "factory/governance/gates.json").read_text())
@@ -179,37 +179,150 @@ class BackupReviewerTest(unittest.TestCase):
         failing = {c["check"] for c in self.evaluate(item, actor="jade")["checks"] if not c["pass"]}
         self.assertEqual(failing, {"review:tag:security"})  # Toby is free to review, so Quinn's doesn't count
 
+    def test_co_assigning_the_specialist_does_not_move_the_review(self) -> None:
+        # Jade builds a security change and adds Toby: Toby can't review it, and Quinn doesn't stand in.
+        item = task(tags="unit:task,parent:STORY-1,lane:frontend,security", assignees=["jade", "toby"],
+                    reviews=[review("gold", "accepted"), review("quinn", "accepted")])
+        report = self.evaluate(item, actor="jade")
+        security = next(c for c in report["checks"] if c["check"] == "review:tag:security")
+        self.assertFalse(security["pass"])
+        self.assertIn("toby helped build it", security["detail"])
+
     def test_jade_or_gold_review_quinns_architecture(self) -> None:
         item = task(tags="unit:task,parent:STORY-1,lane:frontend,arch", assignees=["quinn"],
                     reviews=[review("jade", "accepted")])
         self.assertTrue(self.evaluate(item, actor="quinn")["pass"])
 
 
-class ReviewUnitTest(unittest.TestCase):
-    """A review run kept as a task: it closes on the verdicts it recorded, not on a review of itself."""
+class ReviewRecordTest(unittest.TestCase):
+    """A review run kept as a task is a record: its verdicts are output, and it is never reviewed again."""
 
-    def run_gate(self, tags: str, target_reviews: dict, actor: str = "avery") -> dict:
-        item = task(id="REVIEW-1", tags=tags, assignees=["avery"])
-        return gate.evaluate(item, GATES, {}, [], actor, target_reviews)
+    TARGETS = {"BUG-3": {"id": "BUG-3", "assignees": ["jade"]}, "TASK-2": {"id": "TASK-2", "assignees": ["gold"]}}
+
+    def run_gate(self, tags: str = "unit:review,for:BUG-3,for:TASK-2", reviews: list | None = None,
+                 target_reviews: dict | None = None, tasks: dict | None = None, actor: str = "avery", **fields) -> dict:
+        item = task(id="REVIEW-1", tags=tags, assignees=["avery"], reviews=reviews or [], **fields)
+        related = {"tasks": {**self.TARGETS, **(tasks or {})}, "reviews": target_reviews or {}}
+        return gate.evaluate(item, GATES, {}, [], actor, related)
+
+    def failing(self, report: dict) -> set:
+        return {c["check"] for c in report["checks"] if not c["pass"]}
 
     def test_closes_once_every_target_has_the_builders_verdict(self) -> None:
-        report = self.run_gate("unit:review,for:BUG-3,for:TASK-2,security,ui",
-                               {"BUG-3": [review("avery", "changes_requested")], "TASK-2": [review("avery", "accepted")]})
+        report = self.run_gate("unit:review,for:BUG-3,for:TASK-2,security,ui", target_reviews={
+            "BUG-3": [review("avery", "changes_requested")], "TASK-2": [review("avery", "accepted")]})
         self.assertTrue(report["pass"], report)
         self.assertNotIn("review:tag:security", {c["check"] for c in report["checks"]})
 
+    def test_own_changes_requested_with_filed_follow_ups_closes(self) -> None:
+        # How Avery records reviews in VaultRadar: the verdict on the run, the fixes as follow-ups.
+        verdict = dict(review("avery", "changes_requested"), follow_up_tasks="BUG-9 (Jade, frontend), BUG-10")
+        report = self.run_gate(reviews=[verdict], tasks={"BUG-9": {"id": "BUG-9"}, "BUG-10": {"id": "BUG-10"}})
+        self.assertTrue(report["pass"], report)
+
+    def test_follow_ups_must_exist(self) -> None:
+        verdict = dict(review("avery", "changes_requested"), follow_up_tasks="BUG-9,BUG-10")
+        report = self.run_gate(reviews=[verdict], tasks={"BUG-9": {"id": "BUG-9"}, "BUG-10": None})
+        self.assertEqual(self.failing(report), {"findings_tracked"})
+        self.assertIn("BUG-10", next(c for c in report["checks"] if c["check"] == "findings_tracked")["detail"])
+
+    def test_changes_without_follow_ups_hold_until_the_reviewer_accepts(self) -> None:
+        held = self.run_gate(reviews=[review("avery", "changes_requested")])
+        self.assertEqual(self.failing(held), {"findings_tracked"})
+        later = self.run_gate(reviews=[review("avery", "changes_requested"), review("avery", "accepted")])
+        self.assertTrue(later["pass"], later)
+
+    def test_someone_elses_untracked_objection_holds(self) -> None:
+        report = self.run_gate(reviews=[review("avery", "accepted"), review("greg", "changes_requested")])
+        self.assertEqual(self.failing(report), {"findings_tracked"})
+
     def test_missing_verdict_fails(self) -> None:
-        report = self.run_gate("unit:review,for:BUG-3,for:TASK-2", {"BUG-3": [review("gold", "accepted")]})
+        report = self.run_gate(target_reviews={"BUG-3": [review("gold", "accepted")]})
         verdicts = next(c for c in report["checks"] if c["check"] == "verdicts_recorded")
         self.assertFalse(verdicts["pass"])
         self.assertIn("BUG-3, TASK-2", verdicts["detail"])
 
+    def test_holds_reports_not_code(self) -> None:
+        report = self.run_gate(reviews=[review("avery", "accepted")], evidence=[{"evidence_type": "commit"}])
+        self.assertEqual(self.failing(report), {"record_only"})
+
+    def test_reviewer_cannot_review_their_own_work(self) -> None:
+        report = self.run_gate(reviews=[review("avery", "accepted")], tasks={"BUG-3": {"id": "BUG-3", "assignees": ["avery"]}})
+        self.assertEqual(self.failing(report), {"independent"})
+
     def test_needs_named_targets(self) -> None:
-        self.assertFalse(self.run_gate("unit:review", {})["pass"])
+        self.assertIn("independent", self.failing(self.run_gate("unit:review", reviews=[review("avery", "accepted")])))
+
+    def test_closes_from_blocked_but_not_from_someone_elses_claim(self) -> None:
+        self.assertTrue(self.run_gate(reviews=[review("avery", "accepted")], status="blocked")["pass"])
+        held = self.run_gate(reviews=[review("avery", "accepted")], status="in_progress", claimed_by="toby")
+        self.assertIn("status", self.failing(held))
 
     def test_a_plain_review_tag_is_not_a_review_unit(self) -> None:
         report = gate.evaluate(task(id="VR-FIX-9", tags="review,security", assignees=["quinn"]), GATES, {}, [], "quinn")
         self.assertEqual(report["unit"], "legacy")
+
+    def test_follow_up_ids_from_free_text(self) -> None:
+        self.assertEqual(units.follow_up_ids("BUG-9 (Jade default frontend), BUG-10 (Gold); P2 VR-FIX-B005-006E."),
+                         ["BUG-9", "BUG-10", "VR-FIX-B005-006E"])
+        self.assertEqual(units.follow_up_ids(""), [])
+
+
+class ScopedStandInTest(unittest.TestCase):
+    """Stand-ins limited to tasks and dates, and never a side door around a named backup."""
+
+    def gates(self, *grant_list: dict) -> dict:
+        return dict(GATES, stand_ins=list(grant_list), today="2026-10-23")
+
+    def threat_model(self, *reviews: dict, task_id: str = "VR-SEC-MODEL") -> dict:
+        return task(id=task_id, tags="unit:task,parent:STORY-1,lane:backend,security", assignees=["toby"],
+                    reviews=list(reviews))
+
+    def security(self, report: dict) -> dict:
+        return next(c for c in report["checks"] if c["check"] == "review:tag:security")
+
+    def test_role_wide_stand_in_does_not_review_the_specialists_own_work(self) -> None:
+        gates = self.gates({"agent": "avery", "roles": ["toby"]})
+        report = gate.evaluate(self.threat_model(review("gold", "accepted"), review("avery", "accepted")), gates, {}, [], "toby")
+        self.assertFalse(self.security(report)["pass"])
+        self.assertIn("quinn", self.security(report)["detail"])
+
+    def test_stand_in_scoped_to_the_task_does(self) -> None:
+        gates = self.gates({"agent": "avery", "roles": ["toby"], "tasks": ["VR-SEC-MODEL"]})
+        item = self.threat_model(review("gold", "accepted"), review("avery", "accepted"))
+        self.assertTrue(gate.evaluate(item, gates, {}, [], "toby")["pass"])
+        other = self.threat_model(review("gold", "accepted"), review("avery", "accepted"), task_id="VR-SEC-OTHER")
+        self.assertFalse(gate.evaluate(other, gates, {}, [], "toby")["pass"])
+
+    def test_expired_grant_lapses(self) -> None:
+        item = task(reviews=[review("avery", "accepted")])
+        live = self.gates({"agent": "avery", "roles": ["gold"], "until": "2026-10-23"})
+        lapsed = self.gates({"agent": "avery", "roles": ["gold"], "until": "2026-10-22"})
+        self.assertTrue(gate.evaluate(item, live, {}, [], "jade")["pass"])
+        self.assertFalse(gate.evaluate(item, lapsed, {}, [], "jade")["pass"])
+
+    def test_old_dict_format_still_reads(self) -> None:
+        self.assertEqual(grants.normalize_stand_ins({"avery": ["jade", "gold"]})[0]["roles"], ["gold", "jade"])
+
+
+class WaiverAndIntegrityTest(unittest.TestCase):
+    def test_owner_waiver_passes_one_check_on_one_task(self) -> None:
+        item = task(tags="unit:task,parent:STORY-1,lane:frontend,security", reviews=[review("gold", "accepted")])
+        waiver = {"task": "TASK-1", "check": "review:tag:security", "reason": "no security surface", "decision": "D-1"}
+        report = gate.evaluate(item, dict(GATES, waivers=[waiver]), {}, [], "jade")
+        self.assertTrue(report["pass"], report)
+        self.assertIn("waived by the owner (D-1)", next(c for c in report["checks"] if c["check"] == "review:tag:security")["detail"])
+        other = task(id="TASK-2", tags=item["tags"], reviews=item["reviews"])
+        self.assertFalse(gate.evaluate(other, dict(GATES, waivers=[waiver]), {}, [], "jade")["pass"])
+
+    def test_core_checks_cannot_be_waived(self) -> None:
+        waiver = {"task": "TASK-1", "check": "evidence", "reason": "x"}
+        report = gate.evaluate(task(evidence_count=0, reviews=[review("gold", "accepted")]), dict(GATES, waivers=[waiver]), {}, [], "jade")
+        self.assertFalse(report["pass"])
+
+    def test_changed_rules_fail_closed(self) -> None:
+        report = gate.evaluate(task(reviews=[review("gold", "accepted")]), dict(GATES, integrity={"changed": ["lib/softory/gate.py"]}), {}, [], "jade")
+        self.assertEqual({c["check"] for c in report["checks"] if not c["pass"]}, {"config_intact"})
 
 
 if __name__ == "__main__":

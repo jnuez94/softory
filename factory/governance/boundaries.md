@@ -35,7 +35,7 @@ Quinn records the paths each lane owns for the project in the epic's design doc.
 1. **One claim per task.** Work starts only with `task claim`. A claimed task belongs to the claiming session until it is released or the lease expires.
 2. **One builder per path.** Before editing a path outside your lane, post intent with `message send` to the lane owner and wait for an answer or a reassignment from Quinn.
 3. **One A per decision.** If two roles both think they own a call, neither makes it. Raise an escalation naming both, and the owner of the matching RACI row decides.
-4. **No self-review.** The builder of a change never counts as its reviewer, even when they hold a reviewing role. When the specialist a tag names built the work, a named backup reviews it instead: Quinn for Toby's own `security`, `auth`, `data`, or `deps` work (threat models included), Jade or Gold for Quinn's own `arch` work, and the owner for Darwin's own `ui` work. `gates.json` holds these as `if_builder`.
+4. **No self-review.** The builder of a change never counts as its reviewer, even when they hold a reviewing role. When the specialist a tag names built the work, a named backup reviews it instead: Quinn for Toby's own `security`, `auth`, `data`, or `deps` work (threat models included), Jade or Gold for Quinn's own `arch` work, and the owner for Darwin's own `ui` work. `gates.json` holds these as `if_builder`. The backup applies only when the specialist alone built the work. If Toby is one of several builders, Toby still can't review it, so take Toby off the task or have the owner grant a stand-in for that task; adding Toby as a co-assignee never moves the review to Quinn.
 5. **Decisions are records.** A call that changes scope, architecture, design, or security posture is a `decision add`, not a chat message.
 
 ## Flex rules
@@ -49,7 +49,8 @@ Overlap is allowed in these cases only. Each one needs a record so the exception
 | Spike, prototype, or critical-path unblock when both engineers are busy | Quinn builds | The lane owner reviews. Quinn's architecture review is replaced by the lane owner's review plus a recorded decision. |
 | Copy-only or design-token-only change | Darwin edits frontend files | Jade reviews. No logic changes. |
 | Critical or high-severity vulnerability with an exploit path | Toby builds the fix | The lane owner reviews. Toby cannot also be the security reviewer, so Quinn reviews the security aspect. |
-| A role has no available agent, or the project already has an agent doing that job | The owner names a stand-in | `softory standin add <agent> --for <roles>` records the decision. The stand-in takes the role's boundaries, not its own, and counts wherever that role counts as a reviewer or closer. |
+| A role has no available agent, or the project already has an agent doing that job | The owner names a stand-in | `softory standin add <agent> --for <roles> [--task <IDs>] [--until <date>]`, run by the owner at a terminal, records the decision. Agents ask with `softory propose standin`. The stand-in takes the role's boundaries, not its own, and counts wherever that role counts as a reviewer or closer, on the tasks and dates given. A role-wide stand-in never reviews the specialist's own work; one scoped to that task does. |
+| A gate check can't be met for a reason the rules didn't foresee | The owner waives that one check on that one task | An agent proposes it (`softory propose waiver <ID> --check <check> --why "..."`); the owner runs `softory approve` at a terminal. The gate shows the waiver and its reason. |
 
 Outside these cases, a role that wants to help files a task or sends a message instead of doing the work.
 

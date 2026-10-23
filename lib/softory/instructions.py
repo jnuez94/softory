@@ -12,7 +12,9 @@ without changing any file the project tracks in git.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+from . import grants
 from .errors import SoftoryError
 from .gitlocal import is_tracked
 
@@ -25,13 +27,16 @@ OVERRIDE_HEADER = (
 )
 
 
-def compose(base: str, stand_ins: dict[str, list[str]]) -> str:
-    """The instruction body: softory's block plus this project's stand-ins."""
-    if not stand_ins:
+def compose(base: str, stand_ins: list[dict[str, Any]]) -> str:
+    """The instruction body: softory's block plus this project's active stand-ins."""
+    active = [grant for grant in stand_ins if grants.is_active(grant)]
+    if not active:
         return base
     lines = ["", "### Stand-ins on this project", "",
-             "These agents act for a softory role. They review and close wherever that role may, within its boundaries.", ""]
-    lines += [f"- `{agent}` stands in for {', '.join(f'`{r}`' for r in roles)}." for agent, roles in sorted(stand_ins.items())]
+             "These agents act for a softory role. They review and close wherever that role may, within its "
+             "boundaries, and only on the tasks and dates shown. A role-wide stand-in never reviews the "
+             "specialist's own work; the backup reviewer in gates.json does.", ""]
+    lines += [f"- {grants.describe(grant)}" for grant in active]
     return base.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
 
 

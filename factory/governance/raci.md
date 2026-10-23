@@ -22,6 +22,7 @@ Who does what, so two roles never own the same call.
 | Bug severity (how bad) | C | C | **A/R** | C | C | C! | – |
 | Story acceptance (story → done) | **A/R** | C! | I | I | I | I | – |
 | Epic acceptance (epic → done) | **A/R** | C | C! | I | I | C! | I |
+| Dropping a story or epic (won't do, superseded) | **A/R** | I | C | I | I | I | I |
 
 ## Design
 
@@ -42,6 +43,7 @@ Who does what, so two roles never own the same call.
 | Epic technical design doc | I | C | **A/R** | C | C | C | – |
 | Story breakdown into tasks | C | C | **A/R** | C | C | I | – |
 | Task lane and assignment | I | – | **A/R** | I | I | – | – |
+| Dropping a task or bug (won't do, superseded) | C | – | **A/R** | I | I | – | – |
 | Coding standards, skills, test strategy | – | – | **A/R** | C | C | C | I |
 | Adding a third-party dependency | – | – | **A** | R | R | C! | – |
 | Technical disputes between engineers | – | – | **A/R** | C | C | C | – |
