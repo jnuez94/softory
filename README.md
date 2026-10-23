@@ -133,7 +133,7 @@ Sessions started before an upgrade keep the old rules until they restart; `softo
 
 The rules are softory's, not the project's. The installer makes `gates.json`, the role files, softory's code, and `local.json` read-only and records their hashes. If any of them changes, the gate fails every unit (`config_intact`) and `softory doctor` names the file, until the file is restored or you reinstall. A change to the rules for every project is a softory release.
 
-Per-project exceptions are yours: a stand-in (`softory standin add`) or a waiver of one review check on one task. Both run only at a terminal, after you type yes, so an agent can't make them from its shell. Agents ask with `softory propose ... --why "..."`, which records a proposed decision and changes nothing; you run `softory approve PROP-n`, or `softory approve --all` for everything waiting (add `--reject` to refuse). This is a speed bump rather than a lock: an agent that fakes a terminal or edits the files is going around you on purpose, and the gate shows it.
+Per-project exceptions are yours: a stand-in (`softory standin add`) or a waiver of one review check on one task. Both run only at a terminal, after you type yes, so an agent can't make them from its shell. Agents ask with `softory propose ... --why "..."`, which records a proposed decision and changes nothing; you run `softory approve PROP-n`, or `softory approve --all` for every waiting review adoption (add `--reject` to refuse). `--all` lists anything that doesn't look like a review run first, and never includes stand-ins or waivers. This is a speed bump rather than a lock: an agent that fakes a terminal or edits the files is going around you on purpose, and the gate shows it.
 
 ## Projects that already have a team
 

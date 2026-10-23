@@ -166,7 +166,7 @@ def propose(project: Project, coord: Coordination, kind: str, change: dict[str, 
 
 
 def request_adoption(project: Project, coord: Coordination, task_id: str, targets: list[str], skipped: list[str],
-                     actor: str) -> dict[str, Any]:
+                     actor: str, looks_like_review: bool = True) -> dict[str, Any]:
     """Ask the owner to let an older task close as a review record. Changes nothing until approved.
 
     A record closes on its author's own verdict, so turning existing work into
@@ -178,7 +178,8 @@ def request_adoption(project: Project, coord: Coordination, task_id: str, target
                  and p["change"]["task"] == task_id), None)
     if same is None:
         title = str(coord.task(task_id).get("title") or "")[:80]
-        same = {"id": _next_id(existing), "kind": "adopt", "change": {"task": task_id, "targets": targets, "title": title},
+        change = {"task": task_id, "targets": targets, "title": title, "looks_like_review": looks_like_review}
+        same = {"id": _next_id(existing), "kind": "adopt", "change": change,
                 "why": f"{task_id} is a review run of {', '.join(targets)}", "proposed_by": actor,
                 "session": os.environ.get("COORDINATION_SESSION") or "no session", "created_at": _now(),
                 "decision": None, "status": "open"}
@@ -196,6 +197,19 @@ def _next_id(existing: list[dict[str, Any]]) -> str:
     return f"PROP-{number}"
 
 
+def _summary(chosen: list[dict[str, Any]], reject: bool) -> str:
+    """What the owner reads before typing yes: anything that doesn't look like a review run comes first."""
+    odd = [p for p in chosen if p["kind"] == "adopt" and not p["change"].get("looks_like_review", True)]
+    usual = [p for p in chosen if p not in odd]
+    flag = bool(odd) and not reject
+    lines = [f"{'Reject' if reject else 'Approve'} {len(chosen)} proposal(s):"]
+    if flag:
+        lines += ["CHECK THESE FIRST. Not tagged or named as a review run, so it may be work posing as one "
+                  "(to leave one out, run softory approve <ID> --reject first):", *(_describe(p) for p in odd), ""]
+    lines += [_describe(p) for p in (usual if flag else chosen)]
+    return "\n".join(lines)
+
+
 def _describe(proposal: dict[str, Any]) -> str:
     change = proposal["change"]
     if proposal["kind"] == "standin":
@@ -211,20 +225,28 @@ def _describe(proposal: dict[str, Any]) -> str:
 
 def approve(project: Project, coord: Coordination, proposal_ids: list[str], reject: bool = False,
             every: bool = False, confirm: Confirm = confirm_at_terminal) -> dict[str, Any]:
-    """Apply (or reject) proposals, after one typed yes. Only the owner, at a terminal."""
+    """Apply (or reject) proposals, after one typed yes. Only the owner, at a terminal.
+
+    ``every`` takes every waiting review adoption. Stand-ins and waivers change
+    who the gate trusts, so they're approved one by one, by ID.
+    """
     rows = _load_proposals(project)
     open_rows = [p for p in rows if p["status"] == "open"]
     if every:
-        chosen = open_rows
+        chosen = [p for p in open_rows if p["kind"] == "adopt"]
+        others = [p["id"] for p in open_rows if p["kind"] != "adopt"]
+        if not chosen:
+            note = "No review adoptions are waiting."
+            if others:
+                note += f" Approve stand-ins and waivers by ID: {', '.join(others)}."
+            return {"results": [], "note": note}
     else:
         missing = [i for i in proposal_ids if i not in {p["id"] for p in open_rows}]
         if missing or not proposal_ids:
             raise SoftoryError(f"No open proposal {', '.join(missing) or '(none named)'}; softory proposals lists them",
                                "not_found")
         chosen = [p for p in open_rows if p["id"] in proposal_ids]
-    if not chosen:
-        return {"approved": [], "note": "No proposals are waiting."}
-    confirm(f"{'Reject' if reject else 'Approve'} {len(chosen)} proposal(s):\n" + "\n".join(_describe(p) for p in chosen))
+    confirm(_summary(chosen, reject))
     owner = project.roster()["owner"]["id"]
     results = []
     adopted = [p for p in chosen if p["kind"] == "adopt"]

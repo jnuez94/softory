@@ -349,6 +349,10 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-FIX-2", "quinn")))  # still needs someone else
         refused = softory(self.root, "approve", "--all", check=False)
         self.assertIn("owner_terminal_required", refused.stderr)
+        shown = subprocess.run(["script", "-qec", shlex.join([str(self.root / ".agents/softory/bin/softory"), "approve", "--all"]),
+                                "/dev/null"], input="no\n", cwd=self.root, capture_output=True, text=True, check=False)
+        self.assertIn('CHECK THESE FIRST', shown.stdout)  # a fix posing as a review is flagged
+        self.assertIn('VR-FIX-2 ("Fix")', shown.stdout)
         rejected = at_terminal(self.root, "approve", asked["proposal"], "--reject")
         self.assertEqual(rejected["status"], "rejected")
         self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-FIX-2", "quinn")))
@@ -417,6 +421,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("review:tag:security", failing(gate(self.root, "TASK-2", "toby")))  # nothing granted yet
         refused = softory(self.root, "approve", "PROP-1", check=False)
         self.assertIn("owner_terminal_required", refused.stderr)
+        self.assertIn("PROP-1", at_terminal(self.root, "approve", "--all")["note"])  # stand-ins go by ID, not --all
         declined = subprocess.run(["script", "-qec", shlex.join([str(self.root / ".agents/softory/bin/softory"), "approve", "PROP-1"]),
                                    "/dev/null"], input="no\n", cwd=self.root, capture_output=True, text=True, check=False)
         self.assertIn("not_approved", declined.stdout)

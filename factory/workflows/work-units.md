@@ -79,7 +79,7 @@ A reviewer who wants to claim a long review, heartbeat through it, and attach a 
 - It holds reports, not code, and its reviewer didn't build what it reviewed.
 - Its reviewer or the owner closes it, from review, blocked, or todo.
 
-For a review run from before softory, its reviewer (or the owner) runs `softory adopt VR-REVIEW-12 --unit review`. It reads what the run reviewed from its `informs` links, leaving out other review runs and the reviewer's own work; add `--for BUG-3` when the run has no links. That only asks: a record closes on its author's own verdict, so turning existing work into one would let a builder close their own work unreviewed. The owner checks the list and approves it in one go with `softory approve --all` at a terminal.
+For a review run from before softory, its reviewer (or the owner) runs `softory adopt VR-REVIEW-12 --unit review`. It reads what the run reviewed from its `informs` links, leaving out other review runs and the reviewer's own work; add `--for BUG-3` when the run has no links. That only asks: a record closes on its author's own verdict, so turning existing work into one would let a builder close their own work unreviewed. The owner checks the list, where anything not tagged or named as a review run comes first, and approves it in one go with `softory approve --all` at a terminal.
 
 ## Work nobody will build
 

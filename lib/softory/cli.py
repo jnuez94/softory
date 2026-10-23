@@ -122,7 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("approve", help="Apply proposals (owner only, at a terminal)")
     p.add_argument("proposal", nargs="?", help="PROP-n, or several comma-separated")
-    p.add_argument("--all", dest="every", action="store_true", help="Every open proposal, after one yes")
+    p.add_argument("--all", dest="every", action="store_true",
+                   help="Every waiting review adoption, after one yes (stand-ins and waivers go by ID)")
     p.add_argument("--reject", action="store_true", help="Reject them instead")
 
     p = sub.add_parser("ruling", help="Record a decision the owner made, under the owner's name, marked recorded by you")
