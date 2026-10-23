@@ -279,7 +279,7 @@ class WorkflowTest(unittest.TestCase):
         # on the run, and the fixes are follow-up tasks.
         self.build("TASK-1", "jade")
         coord(self.root, "task", "create", "--id", "VR-REVIEW-9", "--title", "Independent review of TASK-1",
-              "--actor", "owner", "--assignee", "gold", "--tags", "code-review,security")
+              "--actor", "owner", "--assignee", "gold", "--tags", "code-review,privacy")
         coord(self.root, "dependency", "add", "--task", "VR-REVIEW-9", "--depends-on", "TASK-1", "--type", "informs",
               "--actor", "gold", "--rationale", "reviewed")
         runs = json.loads(softory(self.root, "triage").stdout)["review_runs"]
@@ -297,8 +297,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(failing(gate(self.root, "VR-REVIEW-9", "gold")), {"findings_tracked"})
         softory(self.root, "new", "bug", "--from", "TASK-1", "--title", "Fix it", "--actor", "gold")
         report = gate(self.root, "VR-REVIEW-9", "gold")
-        self.assertTrue(report["pass"], report)
-        self.assertNotIn("review:tag:security", {check["check"] for check in report["checks"]})
+        self.assertTrue(report["pass"], report)  # no second review of the review
         queue = json.loads(softory(self.root, "queue", "--agent", "gold").stdout)
         self.assertIn("VR-REVIEW-9", [item["id"] for item in queue["ready_to_close"]])
         closed = softory(self.root, "close", "VR-REVIEW-9", "--actor", "gold", env={"COORDINATION_SESSION": session})
@@ -311,6 +310,23 @@ class WorkflowTest(unittest.TestCase):
         coord(self.root, "evidence", "add", "--task", "VR-SEC-FIX-1", "--uri", "commit:abc", "--type", "commit", "--actor", "gold")
         refused = softory(self.root, "adopt", "VR-SEC-FIX-1", "--unit", "review", "--for", "TASK-1", "--actor", "gold", check=False)
         self.assertIn("not_a_review", refused.stderr)
+
+    def test_a_relabelled_security_fix_still_needs_toby(self) -> None:
+        # The bypass from the 0.3.0 re-review: Quinn's own security fix, relabelled as a review and self-accepted.
+        coord(self.root, "task", "create", "--id", "VR-SEC-FIX-1", "--title", "Fix", "--actor", "owner",
+              "--assignee", "quinn", "--tags", "security")
+        coord(self.root, "evidence", "add", "--task", "VR-SEC-FIX-1", "--uri", "artifact:notes", "--type", "artifact",
+              "--actor", "quinn")
+        self.build("TASK-1", "jade")
+        adopted = json.loads(softory(self.root, "adopt", "VR-SEC-FIX-1", "--unit", "review", "--for", "TASK-1",
+                                     "--actor", "quinn").stdout)
+        self.assertIn("toby", adopted["needs"][0])
+        self.review("VR-SEC-FIX-1", "quinn", "accepted", 1)
+        self.assertEqual(failing(gate(self.root, "VR-SEC-FIX-1", "quinn")), {"review:tag:security"})
+        waiting = json.loads(softory(self.root, "queue", "--agent", "toby").stdout)["reviews_waiting"]
+        self.assertEqual([item["id"] for item in waiting], ["VR-SEC-FIX-1"])
+        self.review("VR-SEC-FIX-1", "toby", "accepted", 1)
+        self.assertTrue(gate(self.root, "VR-SEC-FIX-1", "quinn")["pass"])
 
     def test_follow_up_joins_the_story_without_holding_its_source(self) -> None:
         self.build("TASK-1", "jade")

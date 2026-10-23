@@ -276,7 +276,8 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
         rows.append(row)
     result: dict[str, Any] = {"id": task_id, "builders": sorted(built_by), "requirements": rows}
     if gate_rules.spec_for(task, gates)[1].get("record"):
-        result["note"] = "A review record is not reviewed again. softory gate shows what it needs to close."
+        result["note"] = ("A review record is not reviewed again, unless a tag on it needs a reviewer its own reviewer "
+                          "isn't. softory gate shows what it needs to close.")
     return result
 
 
@@ -325,10 +326,15 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
     ]
     to_review = []
     for summary in board.tasks:
-        if summary["status"] != "review" or unit_of(summary, gates) is None:
+        unit, spec = gate_rules.spec_for(summary, gates)
+        if unit in (None, "legacy"):
             continue  # older tasks keep the project's own review routing
-        if gate_rules.spec_for(summary, gates)[1].get("record"):
-            continue  # nobody reviews a review record
+        if spec.get("record"):  # a record needs a sign-off only for a tag its reviewer can't give
+            if summary["status"] not in gate_rules.RECORD_STATUSES or not any(
+                    tag in gates["tag_reviews"] for tag in tags_of(summary)):
+                continue
+        elif summary["status"] != "review":
+            continue
         task = board.show(summary["id"])
         latest = gate_rules.latest_reviews(task)
         built_by = gate_rules.builders(task)

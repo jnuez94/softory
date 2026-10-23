@@ -75,7 +75,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory new bug --from <ID> --title ... [--blocks-source]` | Files a follow-up from a review: same story and lane, linked back to the source. The source waits for it only with `--blocks-source` |
 | `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
 | `softory drop <ID> --reason ... [--superseded-by ID]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision |
-| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack together, or none of it |
+| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
 | `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, and your assigned work |
 | `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. For schedulers |

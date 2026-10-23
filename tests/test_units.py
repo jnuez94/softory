@@ -209,10 +209,29 @@ class ReviewRecordTest(unittest.TestCase):
         return {c["check"] for c in report["checks"] if not c["pass"]}
 
     def test_closes_once_every_target_has_the_builders_verdict(self) -> None:
-        report = self.run_gate("unit:review,for:BUG-3,for:TASK-2,security,ui", target_reviews={
+        report = self.run_gate("unit:review,for:BUG-3,for:TASK-2,code-review,privacy", target_reviews={
             "BUG-3": [review("avery", "changes_requested")], "TASK-2": [review("avery", "accepted")]})
         self.assertTrue(report["pass"], report)
-        self.assertNotIn("review:tag:security", {c["check"] for c in report["checks"]})
+
+    def test_a_tag_needs_a_reviewer_qualified_for_it(self) -> None:
+        tags = "unit:review,for:BUG-3,for:TASK-2,security"
+        unqualified = self.run_gate(tags, reviews=[review("avery", "accepted")])
+        self.assertEqual(self.failing(unqualified), {"review:tag:security"})
+        self.assertIn("toby", next(c for c in unqualified["checks"] if c["check"] == "review:tag:security")["detail"])
+        self.assertEqual([r["source"] for r in gate.required_reviews(task(id="REVIEW-1", tags=tags, assignees=["avery"]), GATES)],
+                         ["tag:security"])
+        signed = self.run_gate(tags, reviews=[review("avery", "accepted"), review("toby", "accepted")])
+        self.assertTrue(signed["pass"], signed)
+        item = task(id="REVIEW-1", tags=tags, assignees=["avery"], reviews=[review("avery", "accepted")])
+        standing_in = dict(GATES, stand_ins=[{"agent": "avery", "roles": ["toby"]}])
+        self.assertTrue(gate.evaluate(item, standing_in, {}, [], "avery", {"tasks": self.TARGETS})["pass"])
+
+    def test_a_builder_cannot_relabel_their_own_security_fix(self) -> None:
+        # Quinn's own security fix, relabelled as a review of someone else's task and self-accepted.
+        fix = task(id="VR-SEC-FIX-001", tags="unit:review,for:TASK-2,security", assignees=["quinn"], status="todo",
+                   evidence=[{"evidence_type": "artifact"}], reviews=[review("quinn", "accepted")])
+        report = gate.evaluate(fix, GATES, {}, [], "quinn", {"tasks": self.TARGETS})
+        self.assertEqual(self.failing(report), {"review:tag:security"})
 
     def test_own_changes_requested_with_filed_follow_ups_closes(self) -> None:
         # How Avery records reviews in VaultRadar: the verdict on the run, the fixes as follow-ups.

@@ -21,7 +21,10 @@ Two rules keep the gate from asking the impossible:
   If the specialist only helped build it, the backup doesn't apply.
 - A review unit is a record of a review run. Its verdicts are its output,
   not a block on it: it closes once the reviewer's verdict is recorded and
-  every change it asks for has a follow-up task.
+  every change it asks for has a follow-up task. Its tags still need someone
+  qualified: a ``security`` record stands on its own when Toby (or a stand-in)
+  wrote it, and otherwise needs Toby to accept it. Without that, a builder could
+  relabel their own security fix as a review and close it unreviewed.
 """
 
 from __future__ import annotations
@@ -56,6 +59,8 @@ def with_stand_ins(roles: list[str], gates: dict[str, Any], task_id: str | None 
 def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
     """Every review requirement for the task, from its unit and its tags."""
     unit, spec = spec_for(task, gates)
+    if spec.get("record"):
+        return record_requirements(task, gates)
     requirements: list[dict[str, Any]] = []
     for entry in spec.get("required_reviews", []):
         requirements.append({**entry, "source": f"unit:{unit}"})
@@ -82,6 +87,25 @@ def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[s
                 requirement["note"] = (f"{', '.join(co_built)} helped build it, so the backup reviewer doesn't apply; "
                                        f"take {', '.join(co_built)} off the task, or ask the owner for a stand-in on it")
         requirement["reviewers"] = reviewers
+    return requirements
+
+
+def record_requirements(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
+    """The sign-offs a review record needs: one per tag its own reviewer isn't qualified to give."""
+    built_by = builders(task)
+    requirements = []
+    for tag in tags_of(task):
+        if tag not in gates["tag_reviews"]:
+            continue
+        entry = gates["tag_reviews"][tag]
+        reviewers = with_stand_ins(list(entry["reviewers"]), gates, task.get("id"))
+        if built_by & set(reviewers):
+            continue  # the record's own reviewer gives this review
+        who = ", ".join(sorted(built_by)) or "its reviewer"
+        requirements.append({
+            "reviewers": reviewers, "source": f"tag:{tag}", "not_self": True,
+            "why": f"{entry['why']} ({who} can't give it, so a {tag} reviewer signs off this record)",
+        })
     return requirements
 
 
@@ -179,19 +203,19 @@ def evaluate(
 
     if record:
         checks += _record_checks(task, built_by, latest, accepting, related or {})
-    else:
-        for requirement in required_reviews(task, gates):
-            candidates = eligible(requirement, built_by, latest)
-            passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
-            named = ANYONE not in requirement["reviewers"] and " or ".join(candidates)
-            detail = (
-                f"accepted by {', '.join(passed_by)}"
-                if passed_by
-                else f"needs an accepted review from {named or 'someone other than the builder'}"
-            )
-            if not passed_by and requirement.get("note"):
-                detail += f" ({requirement['note']})"
-            checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
+    for requirement in required_reviews(task, gates):
+        candidates = eligible(requirement, built_by, latest)
+        passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
+        named = ANYONE not in requirement["reviewers"] and " or ".join(candidates)
+        detail = (
+            f"accepted by {', '.join(passed_by)}"
+            if passed_by
+            else f"needs an accepted review from {named or 'someone other than the builder'}"
+        )
+        if not passed_by and requirement.get("note"):
+            detail += f" ({requirement['note']})"
+        checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
+    if not record:
         blocking = sorted(r for r, review in latest.items() if review.get("decision") not in accepting)
         checks.append(_check("no_open_rejections", not blocking, "latest review requests changes from: " + ", ".join(blocking) if blocking else "no reviewer is requesting changes"))
 

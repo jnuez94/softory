@@ -73,7 +73,7 @@ A required change found in review becomes its own unit: `softory new bug --from 
 
 A reviewer who wants to claim a long review, heartbeat through it, and attach a report keeps the run as a review record: `softory new review --title "..." --for TASK-7,BUG-2`. A record is the reviewer's output, so:
 
-- Nobody reviews it again, and tag reviews don't apply.
+- Nobody reviews it again, unless a tag on it needs a reviewer its author isn't. A `security` record by Toby (or Toby's stand-in) stands on its own; one by anyone else needs Toby to accept it. So relabelling your own security fix as a review never skips Toby.
 - Its own verdicts never block it. The reviewer may record the verdict on the record or on each reviewed task.
 - A "changes requested" on it counts as handled when it names follow-up tasks that exist, or when that reviewer later accepts.
 - It holds reports, not code, and its reviewer didn't build what it reviewed.
@@ -87,7 +87,7 @@ Plans change. A unit that won't be built closes as dropped, with a reason and a 
 
 ## Stacked work
 
-When a fix has to build on another unit that isn't closed yet, the engineer branches from it and records the stack, bottom first: `softory stack BUG-5 BUG-15`. Each member keeps its own reviews. `softory close BUG-15 --stack` checks every open member's gate, counting the other members as done, and closes them all bottom first, or none if any fails.
+When a fix has to build on another unit that isn't closed yet, the engineer branches from it and records the stack, bottom first: `softory stack BUG-5 BUG-15`. Each member keeps its own reviews. `softory close BUG-15 --stack` checks every open member's gate, counting the other members as done, and closes them all bottom first, or none if any fails its gate. If a close call itself fails partway, softory stops and reports what it closed.
 
 ## Tasks from before softory
 
@@ -113,5 +113,5 @@ When softory joins a project that already has tasks, those tasks have no `unit:`
 | Epic | Every story is done. Accepted reviews from Greg, Quinn, and Toby. Evidence exists. |
 | Story | Every task is done. Accepted review from Greg, plus Darwin if `ui`. Evidence exists. |
 | Task or bug | Evidence exists (PR or commit, test output). An accepted peer review from the other engineer, plus tag reviews. No self-review. |
-| Review run | Evidence exists (the report), and no code evidence. It names what it reviewed (`for:`), which its reviewer didn't build. The reviewer's verdict is on the record or on every reviewed task. Every "changes requested" on it names follow-up tasks that exist. |
+| Review run | Evidence exists (the report), and no code evidence. Each review tag on it (`security`, `ui`, ...) is covered by its author or signed off by that tag's reviewer. It names what it reviewed (`for:`), which its reviewer didn't build. The reviewer's verdict is on the record or on every reviewed task. Every "changes requested" on it names follow-up tasks that exist. |
 | Dropped | A recorded decision says won't do or superseded, by an allowed dropper, with no open children. |

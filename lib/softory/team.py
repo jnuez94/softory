@@ -60,6 +60,9 @@ def adopt(project: Project, coord: Coordination, task_id: str, unit: str, option
                              "it may be done and only need closing.")
     if unit == "review":
         result["next"] = f"softory gate {task_id}, then softory close {task_id}"
+        sign_offs = gate_rules.record_requirements(coord.task(task_id), gates)
+        if sign_offs:
+            result["needs"] = [f"{r['why']}: {' or '.join(r['reviewers'])}" for r in sign_offs]
     return result
 
 
