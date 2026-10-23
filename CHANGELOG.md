@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0] - 2026-10-23
+
+From two days of agents using softory in Vault Radar.
+
+- `softory queue` lists `ready_to_close`: your tasks in review that pass the gate and that you may close. Sixteen such tasks sat unclosed in Vault Radar, EPIC-1 among them.
+- Named backup reviewers: when the specialist a tag names built the work, the tag's `if_builder` reviewers review it. Quinn backs up Toby on `security`, `auth`, `data`, and `deps`; Jade or Gold back up Quinn on `arch`; the owner backs up Darwin on `ui`. The owner chose this on 2026-10-23.
+- Review units: `softory new review --for <IDs>` keeps a review run as its own task. It closes once its reviewer has recorded a verdict on each reviewed task, with no tag reviews and no review of the review. `softory adopt <ID> --unit review --for <IDs>` converts an older review run.
+- Follow-ups: `softory new bug --from <ID>` inherits the source's story and lane, tags `from:<ID>`, and makes an open source task wait for the fix.
+- `softory pending [role]` exits 0 when a role has work and 3 when it doesn't, without starting a session, so a scheduler can skip idle runs.
+- `softory triage` also lists older review runs to adopt, sessions silent for a day, and sessions started before the last install or upgrade.
+- `softory tree` groups stories and bugs that aren't under an epic, and `softory new story` warns when there's no `--parent`.
+- The instructions tell agents to file every new task through `softory new`, follow-ups with `--from`.
+
 ## [0.1.0] - 2026-10-21
 
 First release.

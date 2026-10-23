@@ -39,6 +39,15 @@
         {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
       ],
       "children_must_be_done": false
+    },
+    "review": {
+      "id_prefix": "REVIEW",
+      "description": "A review run kept as its own task, so the reviewer can claim it and attach the report. Its for:<ID> tags name the tasks it reviewed. The verdicts live as review records on those tasks, so the review itself is not reviewed again.",
+      "closer": ["assignee", "owner"],
+      "required_reviews": [],
+      "tag_reviews": false,
+      "verdicts_on_targets": true,
+      "children_must_be_done": false
     }
   },
   "legacy": {
@@ -50,18 +59,20 @@
     "children_must_be_done": false
   },
   "tag_reviews": {
-    "arch": {"reviewers": ["quinn"], "why": "architecture-significant change"},
-    "ui": {"reviewers": ["darwin"], "why": "design and accessibility review"},
-    "security": {"reviewers": ["toby"], "why": "security review"},
-    "auth": {"reviewers": ["toby"], "why": "authentication or authorization change"},
-    "data": {"reviewers": ["toby"], "why": "sensitive or user data handling"},
-    "deps": {"reviewers": ["toby"], "why": "new or upgraded third-party dependency"}
+    "arch": {"reviewers": ["quinn"], "if_builder": ["jade", "gold"], "why": "architecture-significant change"},
+    "ui": {"reviewers": ["darwin"], "if_builder": ["owner"], "why": "design and accessibility review"},
+    "security": {"reviewers": ["toby"], "if_builder": ["quinn"], "why": "security review"},
+    "auth": {"reviewers": ["toby"], "if_builder": ["quinn"], "why": "authentication or authorization change"},
+    "data": {"reviewers": ["toby"], "if_builder": ["quinn"], "why": "sensitive or user data handling"},
+    "deps": {"reviewers": ["toby"], "if_builder": ["quinn"], "why": "new or upgraded third-party dependency"}
   },
   "accepting_decisions": ["accepted", "conditionally_accepted"],
   "rules": {
     "no_self_review": "For a review entry marked not_self, and for every tag review, a reviewer who is assigned to or holds the claim on the task never counts. Greg's acceptance of a story or epic he owns is an acceptance, not a self code review, so it counts.",
     "evidence_required": "At least one evidence row (the CLI enforces this too).",
     "blocks_resolved": "Every active blocks dependency must point at a done task or be resolved.",
+    "if_builder": "When everyone a tag review names built the task (Toby wrote the threat model, Quinn built the architecture change), the tag's if_builder reviewers review it instead: Quinn for Toby's own security work, Jade or Gold for Quinn's architecture work, the owner for Darwin's own design work. The owner chose this on 2026-10-23.",
+    "review_units": "A review unit closes when it has evidence and, for each for:<ID> tag, its builder has recorded a review on that task. Tag reviews do not apply to it, and nobody reviews the review.",
     "stand_ins": "An agent the owner names with softory standin add counts wherever the roles it stands in for count, as a reviewer or a closer. Stand-ins live in .agents/softory/local.json and each change is recorded as a decision."
   }
 }

@@ -19,7 +19,7 @@ The exact paths are listed in each epic's design doc by Quinn.
 | | |
 | --- | --- |
 | **Decides** | Implementation details inside a claimed frontend task that don't cross a module boundary |
-| **Reviews and can block** | Peer review of Gold's backend and infra tasks |
+| **Reviews and can block** | Peer review of Gold's backend and infra tasks. With Gold, backs up Quinn: reviews the architecture of `arch` work Quinn built |
 | **Creates and edits** | Frontend lane code and its tests |
 | **Never** | Changes architecture without Quinn, changes criteria or design, takes backend tasks without being assigned, reviews their own work |
 

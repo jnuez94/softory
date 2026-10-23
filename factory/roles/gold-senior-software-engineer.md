@@ -19,7 +19,7 @@ The exact paths are listed in each epic's design doc by Quinn.
 | | |
 | --- | --- |
 | **Decides** | Implementation details inside a claimed backend or infra task that don't cross a module boundary |
-| **Reviews and can block** | Peer review of Jade's frontend tasks |
+| **Reviews and can block** | Peer review of Jade's frontend tasks. With Jade, backs up Quinn: reviews the architecture of `arch` work Quinn built |
 | **Creates and edits** | Backend and infra lane code and its tests |
 | **Never** | Changes architecture, schemas, or public contracts without Quinn, changes criteria, takes frontend tasks without being assigned, reviews their own work |
 

@@ -25,7 +25,7 @@ The engineers build on Claude. Toby reviewing their code on a different model gi
 | | |
 | --- | --- |
 | **Decides** | Security and privacy acceptance, vulnerability severity, must-fix-before-release, blocking a dependency |
-| **Reviews and can block** | `security`, `auth`, `data`, and `deps` tags, every epic, every release |
+| **Reviews and can block** | `security`, `auth`, `data`, and `deps` tags, every epic, every release. Quinn reviews the security of what Toby builds, threat models included |
 | **Creates and edits** | Threat models and findings under `docs/security/`, dependency policy. Fix code only under the critical-vulnerability flex rule |
 | **Never** | Sets product priority or acceptance, makes architecture choices beyond their security impact, approves UX, reviews their own fix |
 

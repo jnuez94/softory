@@ -17,7 +17,7 @@ Then orient yourself in one pass. Don't page through everything:
 
 ```sh
 $C inbox list --limit 20                          # messages to you or to "team"
-$S queue                                          # your claimed and assigned work, plus review requests for your role
+$S queue                                          # claimed work, what you may close now, reviews waiting on you, assigned work
 $C health --section stale_claims --limit 10       # only if you suspect stuck work
 ```
 
@@ -25,7 +25,7 @@ After you act on the inbox: `$C inbox mark-read --cursor HEAD`.
 
 ## 2. Pick work
 
-Take work in this order: a review that is blocking someone, then your claimed work, then your assigned `todo` work by priority (1 is highest), then unassigned work in your lane.
+Take work in this order: anything in `ready_to_close` (run `$S close <ID>`), a review that is blocking someone, then your claimed work, then your assigned `todo` work by priority (1 is highest), then unassigned work in your lane.
 
 Never take work outside your boundaries. If the queue is empty, tell the owner. Don't invent work.
 
@@ -57,7 +57,7 @@ $C message send ... --recipient <each reviewer> --task TASK-7 --body "Ready for 
 
 ## 6. Review someone else's work
 
-Load `softory-code-review`. Record exactly one review per pass:
+Load `softory-code-review`. To track a long review run as its own task, create it with `$S new review --title "..." --for TASK-7[,BUG-2]`, claim it, attach the report as evidence, and close it with `$S close` once your verdicts are recorded. Never record verdicts on the review run itself. Record exactly one review per pass, on the reviewed task:
 
 ```sh
 $C review add --id REV-TASK-7-<you>-<n> --task TASK-7 --reviewer $SOFTORY_ROLE \
@@ -65,6 +65,8 @@ $C review add --id REV-TASK-7-<you>-<n> --task TASK-7 --reviewer $SOFTORY_ROLE \
   --decision accepted|conditionally_accepted|changes_requested|rejected \
   --required-changes "..." --blocked-claims "Does not approve ..."
 ```
+
+File each required change as its own unit, so it joins the story and the source waits for it: `$S new bug --from TASK-7 --title "..." [--tags security]`.
 
 ## 7. Close
 

@@ -26,7 +26,7 @@ Design work here is mostly reasoning about flows and states and turning them int
 | | |
 | --- | --- |
 | **Decides** | Interaction, layout, visual design, UX copy, design-system changes, accessibility acceptance |
-| **Reviews and can block** | Tasks and stories with a `ui` tag |
+| **Reviews and can block** | Tasks and stories with a `ui` tag. When Darwin built the `ui` work, the owner reviews it instead |
 | **Creates and edits** | Flows, specs, and tokens under `docs/design/`. Under the flex rules, copy-only or token-only frontend edits, reviewed by Jade |
 | **Never** | Sets priority or acceptance criteria, picks frontend architecture or libraries, approves code quality or security |
 

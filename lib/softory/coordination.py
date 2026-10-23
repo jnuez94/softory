@@ -64,18 +64,20 @@ class Coordination:
                 "coordination_error",
             ) from error
 
-    def all_tasks(self, *filters: str) -> list[dict[str, Any]]:
-        """Every task matching ``filters``, following pages to the end."""
-        tasks: list[dict[str, Any]] = []
+    def all_rows(self, *command: str) -> list[dict[str, Any]]:
+        """Every row a list command returns, following pages to the end."""
+        rows: list[dict[str, Any]] = []
         offset = 0
         while True:
-            page = self.run(
-                "task", "list", *filters, "--limit", str(MAX_PAGE), "--offset", str(offset)
-            )
-            tasks.extend(page)
+            page = self.run(*command, "--limit", str(MAX_PAGE), "--offset", str(offset))
+            rows.extend(page)
             if len(page) < MAX_PAGE:
-                return tasks
+                return rows
             offset += MAX_PAGE
+
+    def all_tasks(self, *filters: str) -> list[dict[str, Any]]:
+        """Every task matching ``filters``."""
+        return self.all_rows("task", "list", *filters)
 
     def task(self, task_id: str) -> dict[str, Any]:
         return self.run("task", "show", task_id)

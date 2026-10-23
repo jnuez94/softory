@@ -7,11 +7,11 @@ created before softory so it joins an epic or story and the full gate.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import gate as gate_rules
-from . import ops
+from . import ops, work
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -62,8 +62,13 @@ def adopt(project: Project, coord: Coordination, task_id: str, unit: str, option
     parent_id = options.get("parent")
     parent_unit = unit_of(coord.task(parent_id), gates) if parent_id else None
     check_parent(unit, parent_unit, parent_id)
+    targets = [t.strip() for t in (options.get("for") or "").split(",") if t.strip()]
+    if task_id in targets:
+        raise SoftoryError("A review cannot be for itself", "invalid_arguments")
+    for target in targets:
+        coord.task(target)  # a typo fails here, before anything changes
     extra = [t.strip() for t in (options.get("tags") or "").split(",") if t.strip()]
-    tags = build_tags(unit, parent_id, options.get("lane"), extra).split(",")
+    tags = build_tags(unit, parent_id, options.get("lane"), extra, targets).split(",")
     tags += [t for t in tags_of(task) if t not in tags]
     coord.run("task", "update", task_id, "--tags", ",".join(tags), "--actor", actor, "--if-revision", str(task["revision"]))
     if parent_id:
@@ -94,21 +99,52 @@ def triage(project: Project, coord: Coordination) -> dict[str, Any]:
     gates = project.gates()
     ready, accepted_but_open = [], []
     statuses = ("todo", "in_progress", "blocked", "review")
-    for summary in coord.all_tasks(*[arg for status in statuses for arg in ("--status", status)]):
-        task = coord.task(summary["id"])
-        accepted = _accepted_by(task, gates)
+    open_tasks = coord.all_tasks(*[arg for status in statuses for arg in ("--status", status)])
+    reviews = work.all_reviews(coord)  # one listing instead of a task show per open task
+    for task in open_tasks:
+        latest = gate_rules.latest_reviews({"reviews": reviews.get(task["id"], [])})
+        accepted = sorted(r for r, review in latest.items() if review.get("decision") in gates["accepting_decisions"])
         if not accepted:
             continue
-        latest = gate_rules.latest_reviews(task)
         rejecting = sorted(r for r, review in latest.items() if review.get("decision") not in gates["accepting_decisions"])
         row = {"id": task["id"], "status": task["status"], "title": task["title"],
                "assignees": task.get("assignees") or [], "accepted_by": accepted, "changes_requested_by": rejecting}
         (ready if task["status"] == "review" and not rejecting else accepted_but_open).append(row)
+    review_runs = [
+        {"id": t["id"], "status": t["status"], "title": t["title"], "assignees": t.get("assignees") or []}
+        for t in open_tasks if unit_of(t, gates) is None and _looks_like_review_run(t)
+    ]
     return {
         "ready_to_close": ready,
         "accepted_but_open": accepted_but_open,
-        "next": "Run softory gate on each ready task. For the others, check the code: close finished work, or say what is left.",
+        "review_runs": review_runs,
+        "sessions": _session_report(project, coord),
+        "next": ("Run softory gate on each ready task. For the others, check the code: close finished work, or say "
+                 "what is left. For each review run, its reviewer runs softory adopt <ID> --unit review --for "
+                 "<reviewed IDs>, then softory close <ID>. End silent sessions; restart sessions older than the install."),
     }
+
+
+def _looks_like_review_run(task: dict[str, Any]) -> bool:
+    """A guess for triage only: tagged or named as a review, and not a fix."""
+    words = task["id"].upper().split("-")
+    return ("review" in tags_of(task) or "REVIEW" in words) and "FIX" not in words
+
+
+def _session_report(project: Project, coord: Coordination) -> dict[str, list[dict[str, str]]]:
+    """Active sessions nobody has seen for a day, and ones running rules older than this install."""
+    now = datetime.now(timezone.utc)
+    installed = str(project.manifest().get("installed_at") or "")
+    silent, before_install = [], []
+    for session in coord.all_rows("session", "list", "--status", "active"):
+        row = {"id": session["id"], "agent": session["agent_id"], "started_at": session["started_at"],
+               "last_seen_at": session["last_seen_at"]}
+        seen = datetime.fromisoformat(session["last_seen_at"].replace("Z", "+00:00"))
+        if now - (seen if seen.tzinfo else seen.replace(tzinfo=timezone.utc)) > timedelta(hours=24):
+            silent.append(row)
+        elif installed and session["started_at"] < installed:
+            before_install.append(row)
+    return {"silent": silent, "started_before_install": before_install}
 
 
 def _accepted_by(task: dict[str, Any], gates: dict[str, Any]) -> list[str]:

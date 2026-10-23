@@ -224,6 +224,86 @@ class WorkflowTest(unittest.TestCase):
         softory(self.root, "end", "--session", session)
         self.assertNotEqual(coord(self.root, "session", "show", session)["data"]["status"], "active")
 
+    def test_queue_lists_what_you_may_close(self) -> None:
+        self.build("TASK-1", "jade")
+        self.review("TASK-1", "gold", "accepted", 1)
+        jade = json.loads(softory(self.root, "queue", "--agent", "jade").stdout)
+        self.assertEqual([item["id"] for item in jade["ready_to_close"]], ["TASK-1"])
+        gold = json.loads(softory(self.root, "queue", "--agent", "gold").stdout)
+        self.assertEqual(gold["ready_to_close"], [])
+
+    def test_quinn_reviews_security_work_toby_built(self) -> None:
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", "Secret store",
+                "--tags", "security", "--assignee", "toby", "--actor", "quinn")
+        self.build("TASK-2", "toby")
+        self.review("TASK-2", "gold", "accepted", 1)
+        queue = json.loads(softory(self.root, "queue", "--agent", "quinn").stdout)
+        self.assertEqual([(i["id"], i["why"]) for i in queue["reviews_waiting"]],
+                         [("TASK-2", "security review (toby built it, so quinn reviews)")])
+        self.review("TASK-2", "toby", "accepted", 1)
+        self.assertIn("review:tag:security", failing(gate(self.root, "TASK-2", "toby")))
+        self.review("TASK-2", "quinn", "accepted", 1)
+        self.assertTrue(gate(self.root, "TASK-2", "toby")["pass"])
+
+    def test_review_runs_close_on_their_verdicts(self) -> None:
+        self.build("TASK-1", "jade")
+        made = json.loads(softory(self.root, "new", "review", "--title", "Review TASK-1", "--for", "TASK-1",
+                                  "--actor", "gold").stdout)
+        self.assertEqual((made["id"], made["assignee"], made["tags"]), ("REVIEW-1", "gold", "unit:review,for:TASK-1"))
+        self.build("REVIEW-1", "gold")
+        self.assertEqual(failing(gate(self.root, "REVIEW-1", "gold")), {"verdicts_recorded"})
+        self.review("TASK-1", "gold", "changes_requested", 1)
+        self.assertTrue(gate(self.root, "REVIEW-1", "gold")["pass"])  # the fix is TASK-1's business, not the run's
+        self.assertIn("1 review run(s) not shown", softory(self.root, "tree").stdout)
+        # A review run from before softory, tagged for a specialist
+        coord(self.root, "task", "create", "--id", "VR-REVIEW-9", "--title", "Independent review of TASK-1",
+              "--actor", "owner", "--assignee", "gold", "--tags", "review,security")
+        runs = json.loads(softory(self.root, "triage").stdout)["review_runs"]
+        self.assertEqual([run_["id"] for run_ in runs], ["VR-REVIEW-9"])
+        softory(self.root, "adopt", "VR-REVIEW-9", "--unit", "review", "--for", "TASK-1", "--actor", "gold")
+        self.build("VR-REVIEW-9", "gold")
+        report = gate(self.root, "VR-REVIEW-9", "gold")
+        self.assertTrue(report["pass"], report)
+        self.assertNotIn("review:tag:security", {check["check"] for check in report["checks"]})
+
+    def test_follow_up_joins_the_story_and_holds_its_source(self) -> None:
+        self.build("TASK-1", "jade")
+        made = json.loads(softory(self.root, "new", "bug", "--from", "TASK-1", "--title", "Focus ring missing",
+                                  "--actor", "gold").stdout)
+        self.assertEqual((made["id"], made["parent"], made["assignee"], made["blocks"]), ("BUG-1", "STORY-1", "jade", "TASK-1"))
+        self.assertEqual(made["tags"], "unit:bug,parent:STORY-1,lane:frontend,from:TASK-1")
+        self.review("TASK-1", "gold", "accepted", 1)
+        self.assertEqual(failing(gate(self.root, "TASK-1", "jade")), {"blocks_resolved"})
+        self.assertIn("    BUG-1", softory(self.root, "tree").stdout)
+
+    def test_story_without_an_epic_is_flagged(self) -> None:
+        made = json.loads(softory(self.root, "new", "story", "--title", "Loose", "--actor", "greg").stdout)
+        self.assertIn("not under an epic", made["warning"])
+        tree = softory(self.root, "tree").stdout.splitlines()
+        self.assertEqual(tree[-2:], ["Not under an epic:", "  STORY-2 [todo] Loose (greg)"])
+
+    def test_pending_tells_a_scheduler_whether_to_run(self) -> None:
+        fresh = softory(self.root, "pending", "jade", check=False)
+        self.assertEqual(fresh.returncode, 0)  # never ran, and TASK-1 is assigned
+        self.assertEqual(json.loads(fresh.stdout)["reasons"], [{"why": "assigned work changed", "ids": ["TASK-1"]}])
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        busy = softory(self.root, "pending", "jade", check=False)
+        self.assertEqual((busy.returncode, json.loads(busy.stdout)["running"]), (3, [session]))
+        softory(self.root, "end", "--session", session)
+        idle = softory(self.root, "pending", "jade", check=False)
+        self.assertEqual((idle.returncode, json.loads(idle.stdout)["reasons"]), (3, []))
+        coord(self.root, "message", "send", "--id", "MSG-1", "--sender", "quinn", "--recipient", "jade",
+              "--body", "TASK-1 needs a loading state")
+        mail = softory(self.root, "pending", "jade", check=False)
+        self.assertEqual((mail.returncode, json.loads(mail.stdout)["reasons"]), (0, [{"why": "unread messages", "count": 1}]))
+
+    def test_triage_flags_stale_sessions(self) -> None:
+        session = start(self.root, "darwin")["COORDINATION_SESSION"]
+        install(self.root)  # an upgrade: darwin's session now runs older rules
+        sessions = json.loads(softory(self.root, "triage").stdout)["sessions"]
+        self.assertEqual([row["id"] for row in sessions["started_before_install"]], [session])
+        self.assertEqual(sessions["silent"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

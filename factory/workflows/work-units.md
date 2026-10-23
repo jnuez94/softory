@@ -63,11 +63,21 @@ Epics and stories don't sit in `in_progress` while children are built. A claim i
 
 A bug fix always includes a test that fails before the fix and passes after it.
 
+`softory queue` lists your tasks in review that pass the gate under `ready_to_close`. Close those first.
+
+## Follow-ups from a review
+
+A required change found in review becomes its own unit: `softory new bug --from TASK-7 --title "..."`. It inherits the source's story and lane, carries a `from:TASK-7` tag, and an open source task waits for it. Don't file follow-ups with plain `task create`: they would miss the story and close under the lighter rule for older tasks.
+
+## Review runs
+
+A reviewer who wants to claim a long review, heartbeat through it, and attach a report can keep the run as a review unit: `softory new review --title "..." --for TASK-7,BUG-2`. Its gate has no reviewers of its own and no tag reviews. It closes, by its reviewer or the owner, once it has evidence and the reviewer has recorded a verdict on every task it names. The verdicts stay on the reviewed tasks, where their gates read them. For a review run from before softory: `softory adopt VR-REVIEW-12 --unit review --for BUG-3`.
+
 ## Tasks from before softory
 
 When softory joins a project that already has tasks, those tasks have no `unit:` tag. They keep the project's own process, and `softory tree` leaves them out unless you pass `--all`.
 
-- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review. Check each against the code, and close what's done.
+- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review, older review runs to adopt, and sessions to end or restart. Check each task against the code, and close what's done.
 - `softory close` still works on them, under the minimum rule in `gates.json` (`legacy`): evidence, resolved blocking dependencies, no open rejection, and one accepted review from anyone but the builder. The assignee or the owner closes.
 - To give one the full gate, Quinn adopts it into a story: `softory adopt VR-12 --unit task --parent STORY-3 --lane backend [--tags data] [--assignee gold]`. It keeps its ID and history, gains the unit tags, and the story then waits for it.
 - If the project already has an agent doing a softory role's job, the owner names it a stand-in, for example `softory standin add avery --for jade,gold`.
@@ -87,3 +97,4 @@ When softory joins a project that already has tasks, those tasks have no `unit:`
 | Epic | Every story is done. Accepted reviews from Greg, Quinn, and Toby. Evidence exists. |
 | Story | Every task is done. Accepted review from Greg, plus Darwin if `ui`. Evidence exists. |
 | Task or bug | Evidence exists (PR or commit, test output). An accepted peer review from the other engineer, plus tag reviews. No self-review. |
+| Review run | Evidence exists (the report). Its reviewer recorded a verdict on every task in its `for:` tags. |

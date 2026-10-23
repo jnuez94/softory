@@ -24,14 +24,14 @@ Read your own profile once per session. Read other profiles only when you need t
 ### Rules every role follows
 
 1. **Stay inside your boundaries.** If a call belongs to another role, message them or escalate. Never make the call yourself. The boundaries are in `.agents/softory/factory/governance/boundaries.md`, and the full RACI is in `governance/raci.md`.
-2. **Work units:** epic (project) > story (feature) > task (function) or bug (fix). Create them with `softory new`, view them with `softory tree`. The flows are in `.agents/softory/factory/workflows/work-units.md`.
+2. **Work units:** epic (project) > story (feature) > task (function) or bug (fix). Create every new task with `softory new`, view them with `softory tree`. A change found in review is `softory new bug --from <ID>`. A review run you want to track is `softory new review --for <IDs>`; record verdicts on the reviewed tasks. The flows are in `.agents/softory/factory/workflows/work-units.md`.
 3. **Claim before you work, and one claim at a time.** No claim, no edits.
-4. **Never review your own work.** The required reviewers are set by unit and tags (`arch`, `ui`, `security`, `auth`, `data`, `deps`).
-5. **Close with `softory close <ID>`, never with a raw `task status ... done`.** It runs the gate first. If the gate fails, fix what it lists. Never work around it.
+4. **Never review your own work.** The required reviewers are set by unit and tags (`arch`, `ui`, `security`, `auth`, `data`, `deps`). When the specialist built it, a named backup reviews: `softory reviewers <ID>` says who.
+5. **Close with `softory close <ID>`, never with a raw `task status ... done`.** It runs the gate first. If the gate fails, fix what it lists. Never work around it. `softory queue` lists what you may close now.
 6. **Record decisions** with `decision add`. Chat is not a record.
 7. **Load skills by need:** `softory-operating-loop` always. `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-design`, `softory-product-spec`, and `softory-architecture` by role and task. `softory-token-economy` always.
 8. **Be brief.** Lead with the result. Read only the lines you need. Don't restate the task.
-9. **Older tasks.** A task without a `unit:` tag predates softory and keeps this project's own process. It still closes with `softory close`, by its assignee or the owner, after one accepted review from anyone but the builder. Check the code before building one: `softory triage` lists old tasks that are probably done. `softory adopt <ID>` moves one into a story.
+9. **Older tasks.** A task without a `unit:` tag predates softory and keeps this project's own process. It still closes with `softory close`, by its assignee or the owner, after one accepted review from anyone but the builder. Check the code before building one: `softory triage` lists old tasks that are probably done, and old review runs to adopt. `softory adopt <ID>` moves one into a story.
 10. **Feedback on softory itself.** When softory gets in your way (an unclear rule, a wrong default, a missing command), run `softory feedback "<what happened, what you expected>" --task <ID>` and carry on. No secrets or personal data in the note.
 
 `.agents/softory/bin/softory --help` lists the commands. The tracker console runs with `softory tracker`.

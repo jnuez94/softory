@@ -35,7 +35,7 @@ Quinn records the paths each lane owns for the project in the epic's design doc.
 1. **One claim per task.** Work starts only with `task claim`. A claimed task belongs to the claiming session until it is released or the lease expires.
 2. **One builder per path.** Before editing a path outside your lane, post intent with `message send` to the lane owner and wait for an answer or a reassignment from Quinn.
 3. **One A per decision.** If two roles both think they own a call, neither makes it. Raise an escalation naming both, and the owner of the matching RACI row decides.
-4. **No self-review.** The builder of a change never counts as its reviewer, even when they hold a reviewing role.
+4. **No self-review.** The builder of a change never counts as its reviewer, even when they hold a reviewing role. When the specialist a tag names built the work, a named backup reviews it instead: Quinn for Toby's own `security`, `auth`, `data`, or `deps` work (threat models included), Jade or Gold for Quinn's own `arch` work, and the owner for Darwin's own `ui` work. `gates.json` holds these as `if_builder`.
 5. **Decisions are records.** A call that changes scope, architecture, design, or security posture is a `decision add`, not a chat message.
 
 ## Flex rules

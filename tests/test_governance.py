@@ -67,7 +67,14 @@ class GatesTest(unittest.TestCase):
         self.assertTrue(set(reviewers) <= ROLE_IDS, set(reviewers) - ROLE_IDS)
 
     def test_units_cover_the_three_sizes(self) -> None:
-        self.assertEqual(set(GATES["units"]), {"epic", "story", "task", "bug"})
+        self.assertEqual(set(GATES["units"]), {"epic", "story", "task", "bug", "review"})
+
+    def test_every_specialist_tag_has_a_backup(self) -> None:
+        for tag, entry in GATES["tag_reviews"].items():
+            backup = entry.get("if_builder")
+            self.assertTrue(backup, f"{tag} has no if_builder")
+            self.assertTrue(set(backup) <= ROLE_IDS | {"owner"}, backup)
+            self.assertFalse(set(backup) & set(entry["reviewers"]), f"{tag} backs up with its own reviewer")
 
     def test_default_assignees_are_lane_owners(self) -> None:
         lanes = {role["lane"]: role["id"] for role in ROSTER["roles"]}

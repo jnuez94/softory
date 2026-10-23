@@ -72,15 +72,18 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
 | `softory end [--session ID]` | Ends the session, so its claims don't go stale |
 | `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
+| `softory new bug --from <ID> --title ...` | Files a follow-up from a review: same story and lane, and an open source task waits for it |
+| `softory new review --for <IDs> --title ...` | Keeps a review run as its own task. It closes once the reviewer's verdicts are on the reviewed tasks |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
-| `softory queue` | Your claimed work, the reviews waiting on you, and your assigned work |
+| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, and your assigned work |
+| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. For schedulers |
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
-| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story |
+| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review --for <IDs>` marks an older review run |
 | `softory standin add <agent> --for jade,gold` | Lets an existing agent act for softory roles, and records the decision |
 | `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
-| `softory triage` | Lists open tasks that already have an accepted review, which are usually finished work nobody closed |
+| `softory triage` | Lists finished work nobody closed, older review runs to adopt, and sessions to end or restart |
 | `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
 | `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
@@ -88,6 +91,27 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
 The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
+
+### Running roles on a schedule
+
+A role on a timer usually wakes to nothing. In the Vault Radar pilot, 165 of Greg's 188 five-minute runs read the inbox and stopped. Put `softory pending` in front of the run so an idle role costs no model call:
+
+```sh
+cd ~/workspace/my-project && .agents/softory/bin/softory pending greg >/dev/null && codex exec "You are Greg. ..."
+```
+
+It exits 0 when the role has unread messages, something to close, or reviews or assigned work that changed since its last finished session started. It exits 3 when there's nothing, or when the role already has a session that was active in the last 30 minutes.
+
+### Upgrading
+
+Pull softory and run the installer again over the project. It keeps the database, your stand-ins, and every agent, and rewrites only softory's own files:
+
+```sh
+git -C softory pull
+./softory/install.sh --target /path/to/your/project --owner-name "Your Name"
+```
+
+Sessions started before an upgrade keep the old rules until they restart; `softory triage` lists them.
 
 ## Projects that already have a team
 

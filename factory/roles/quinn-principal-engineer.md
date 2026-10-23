@@ -28,7 +28,7 @@ Quinn's work is long-context reasoning across the codebase: architecture, task b
 | | |
 | --- | --- |
 | **Decides** | Architecture, stack, module boundaries, data model, dependencies, task breakdown and assignment, standards, bug severity |
-| **Reviews and can block** | `arch`-tagged tasks, every epic, and an epic's go/no-go on feasibility |
+| **Reviews and can block** | `arch`-tagged tasks, every epic, and an epic's go/no-go on feasibility. Backs up Toby: reviews the security of work Toby built, threat models included |
 | **Creates and edits** | ADRs, epic design docs, task records, standards and skills. Code only for spikes or under the flex rules |
 | **Never** | Sets priority, accepts stories, approves UX, waives a security block, reviews their own code |
 

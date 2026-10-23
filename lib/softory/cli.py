@@ -31,10 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--harness", help="claude, codex, ... (default: the role's recommendation)")
     p.add_argument("--model", default="", help="Model name to record on the session")
 
-    p = sub.add_parser("new", help="Create an epic, story, task, or bug")
-    p.add_argument("unit", choices=["epic", "story", "task", "bug"])
+    p = sub.add_parser("new", help="Create an epic, story, task, bug, or review")
+    p.add_argument("unit", choices=["epic", "story", "task", "bug", "review"])
     p.add_argument("--title", required=True)
     p.add_argument("--parent", help="EPIC-n for a story, STORY-n for a task, either for a bug")
+    p.add_argument("--from", dest="from", metavar="ID",
+                   help="File a follow-up from this task: inherits its story and lane; an open source waits for it")
+    p.add_argument("--for", dest="for", metavar="IDS", help="A review's reviewed tasks, comma-separated")
     p.add_argument("--lane", choices=LANES, help="Required for a task or bug")
     p.add_argument("--tags", help="Extra review tags: arch, ui, security, auth, data, deps")
     p.add_argument("--assignee", help="Default: from gates.json by unit and lane")
@@ -48,16 +51,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", nargs="?")
     p.add_argument("--all", action="store_true", help="Also list tasks without a unit")
 
-    p = sub.add_parser("adopt", help="Bring a task created before softory into an epic or story")
+    p = sub.add_parser("adopt", help="Bring a task created before softory into an epic or story, or mark it a review")
     p.add_argument("id")
-    p.add_argument("--unit", choices=["story", "task", "bug"], required=True)
+    p.add_argument("--unit", choices=["story", "task", "bug", "review"], required=True)
+    p.add_argument("--for", dest="for", metavar="IDS", help="For a review: the tasks it reviewed, comma-separated")
     p.add_argument("--parent", help="EPIC-n for a story, STORY-n for a task, either for a bug")
     p.add_argument("--lane", choices=LANES, help="Required for a task or bug")
     p.add_argument("--tags", help="Extra review tags: arch, ui, security, auth, data, deps")
     p.add_argument("--assignee", help="Reassign it to this agent (default: keep the current assignees)")
     p.add_argument("--actor", help="Acting role (default: $SOFTORY_ROLE)")
 
-    sub.add_parser("triage", help="Open tasks that already have an accepted review (likely done, not closed)")
+    sub.add_parser("triage", help="Finished work left open, review runs to adopt, and stale sessions")
 
     p = sub.add_parser("feedback", help="Tell softory's maintainers what got in your way; --list shows the notes")
     p.add_argument("note", nargs="?", help="What happened, and what you expected")
@@ -104,8 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("reviewers", help="Who must review a unit, and where each review stands")
     p.add_argument("id")
 
-    p = sub.add_parser("queue", help="Your claimed work, waiting reviews, and assigned work")
+    p = sub.add_parser("queue", help="Your claimed work, what you may close now, waiting reviews, and assigned work")
     p.add_argument("--agent", help="Default: $SOFTORY_ROLE")
+
+    p = sub.add_parser("pending", help="Exit 0 if a role has work waiting, 3 if not; for schedulers, starts nothing")
+    p.add_argument("agent", nargs="?", help="Default: $SOFTORY_ROLE")
+    p.add_argument("--since", help="Count work changed after this time (default: the role's last finished session)")
 
     sub.add_parser("roles", help="List the roles and their recommended harnesses")
     sub.add_parser("doctor", help="Check the installation, registration, and that nothing leaks into git")
@@ -201,6 +209,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(work.reviewers(project, coord, args.id)), end="")
     elif args.command == "queue":
         print(ops.dumps(work.queue(project, coord, args.agent)), end="")
+    elif args.command == "pending":
+        result = work.pending(project, coord, args.agent, args.since)
+        print(ops.dumps(result), end="")
+        return 0 if result["pending"] else 3
     elif args.command == "roles":
         print(ops.roles_table(project), end="")
     elif args.command == "doctor":
