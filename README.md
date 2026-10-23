@@ -85,9 +85,9 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
-| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` marks an older review run, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
+| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` asks the owner to mark an older review run as a record, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
 | `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
-| `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID>` | Agents ask; the owner approves at a terminal. A waiver lets one review check pass on one task |
+| `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID> \| --all` | Agents ask (review adoptions ask too); the owner approves at a terminal. A waiver lets one review check pass on one task |
 | `softory ruling --title ... --decision ... --where ...` | Records a decision the owner made, under the owner's name, marked with who recorded it and where the owner said it |
 | `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
 | `softory triage` | Lists finished work nobody closed, older review runs to adopt, sessions to end or restart, and silent roles |
@@ -133,7 +133,7 @@ Sessions started before an upgrade keep the old rules until they restart; `softo
 
 The rules are softory's, not the project's. The installer makes `gates.json`, the role files, softory's code, and `local.json` read-only and records their hashes. If any of them changes, the gate fails every unit (`config_intact`) and `softory doctor` names the file, until the file is restored or you reinstall. A change to the rules for every project is a softory release.
 
-Per-project exceptions are yours: a stand-in (`softory standin add`) or a waiver of one review check on one task. Both run only at a terminal, after you type yes, so an agent can't make them from its shell. Agents ask with `softory propose ... --why "..."`, which records a proposed decision and changes nothing; you run `softory approve PROP-n` (or `--reject`). This is a speed bump rather than a lock: an agent that fakes a terminal or edits the files is going around you on purpose, and the gate shows it.
+Per-project exceptions are yours: a stand-in (`softory standin add`) or a waiver of one review check on one task. Both run only at a terminal, after you type yes, so an agent can't make them from its shell. Agents ask with `softory propose ... --why "..."`, which records a proposed decision and changes nothing; you run `softory approve PROP-n`, or `softory approve --all` for everything waiting (add `--reject` to refuse). This is a speed bump rather than a lock: an agent that fakes a terminal or edits the files is going around you on purpose, and the gate shows it.
 
 ## Projects that already have a team
 
@@ -141,7 +141,7 @@ Softory can join a project that already runs the scaffold, with its own agents a
 
 - **Tasks from before softory** keep the project's own process. `softory close` holds them to a minimum: evidence, and one accepted review from anyone but the builder. `softory adopt` moves one into a story so it gets the full gate.
 - **Existing agents can stand in for a role.** `softory standin add avery --for jade,gold` lets Avery review wherever Jade or Gold would. Add `--task` to limit it to named tasks and `--until` to end it on a date. It's recorded as a decision and added to the instructions every agent reads. A role-wide stand-in never reviews the specialist's own work: when Toby wrote the threat model, Quinn reviews it, not Toby's stand-in, unless you scope a stand-in to that task.
-- **Review runs kept as tasks become records.** `softory adopt <ID> --unit review` turns one into a review record. It closes on the reviewer's own verdict, with every requested change filed as a follow-up task, and nobody reviews it again.
+- **Review runs kept as tasks become records.** `softory adopt <ID> --unit review` asks the owner to turn one into a review record, and the owner approves every waiting one with `softory approve --all`. A record closes on the reviewer's own verdict, with every requested change filed as a follow-up task, and nobody reviews it again.
 - **Old "todo" tasks are often finished.** In the Vault Radar pilot, four of four sampled todo tasks were already fixed, merged, and accepted, but never closed. Run `softory triage` before planning new work.
 - **Run the installer on the machine that runs the agents.** The coordination database uses SQLite's WAL mode, which isn't safe to share between a VM or container and the host through a mounted folder.
 

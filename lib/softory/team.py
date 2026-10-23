@@ -33,6 +33,9 @@ def adopt(project: Project, coord: Coordination, task_id: str, unit: str, option
     targets = [t.strip() for t in (options.get("for") or "").split(",") if t.strip()]
     if unit == "review":
         targets, skipped = _review_targets(project, coord, task, actor, targets)
+        if not options.get("approved"):
+            from . import owner  # owner imports ops, which imports this module
+            return owner.request_adoption(project, coord, task_id, targets, skipped, actor)
     elif targets:
         raise SoftoryError("Only a review takes --for", "invalid_arguments")
     extra = [t.strip() for t in (options.get("tags") or "").split(",") if t.strip()]

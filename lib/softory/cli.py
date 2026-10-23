@@ -53,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", nargs="?")
     p.add_argument("--all", action="store_true", help="Also list tasks without a unit")
 
-    p = sub.add_parser("adopt", help="Bring a task created before softory into an epic or story, or mark it a review")
+    p = sub.add_parser("adopt", help="Bring a task created before softory into an epic or story, or ask the owner "
+                                     "to mark it a review record")
     p.add_argument("id")
     p.add_argument("--unit", choices=["story", "task", "bug", "review"], required=True)
     p.add_argument("--for", dest="for", metavar="IDS",
@@ -119,9 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("proposals", help="List proposals waiting for the owner")
     p.add_argument("--all", action="store_true", help="Include approved and rejected ones")
 
-    p = sub.add_parser("approve", help="Apply a proposal (owner only, at a terminal)")
-    p.add_argument("proposal")
-    p.add_argument("--reject", action="store_true", help="Reject it instead")
+    p = sub.add_parser("approve", help="Apply proposals (owner only, at a terminal)")
+    p.add_argument("proposal", nargs="?", help="PROP-n, or several comma-separated")
+    p.add_argument("--all", dest="every", action="store_true", help="Every open proposal, after one yes")
+    p.add_argument("--reject", action="store_true", help="Reject them instead")
 
     p = sub.add_parser("ruling", help="Record a decision the owner made, under the owner's name, marked recorded by you")
     p.add_argument("--title", required=True)
@@ -276,7 +278,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "proposals":
         print(ops.dumps(owner.proposals(project, args.all)), end="")
     elif args.command == "approve":
-        print(ops.dumps(owner.approve(project, coord, args.proposal, args.reject)), end="")
+        print(ops.dumps(owner.approve(project, coord, _split(args.proposal), args.reject, args.every)), end="")
     elif args.command == "ruling":
         actor = work.actor_of(args.actor)
         result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor)
