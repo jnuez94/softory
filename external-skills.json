@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "description": "Open-source skills softory recommends pulling instead of rebuilding. `softory skills add <name>...` (or `--recommended`) clones the pinned commit and copies the skill into .claude/skills and .agents/skills, hidden from git like the rest of softory. Nothing here is vendored into softory, so each skill keeps its own license.",
+  "sources": {
+    "anthropics/skills": {
+      "repository": "https://github.com/anthropics/skills",
+      "commit": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "license": "Apache-2.0 (per skill LICENSE.txt; the document skills are source-available, not open source)"
+    },
+    "obra/superpowers": {
+      "repository": "https://github.com/obra/superpowers",
+      "commit": "b739a8af570e10a95898f2bdf6cec97467fa6c12",
+      "license": "MIT"
+    },
+    "trailofbits/skills": {
+      "repository": "https://github.com/trailofbits/skills",
+      "commit": "a3131740a39291e42fd15b9eac07e0b393ad71b1",
+      "license": "CC-BY-SA-4.0"
+    },
+    "DietrichGebert/ponytail": {
+      "repository": "https://github.com/DietrichGebert/ponytail",
+      "commit": "09c434ab73ca43761c5d8b0c5d341926c2fba710",
+      "license": "MIT"
+    },
+    "vercel-labs/agent-skills": {
+      "repository": "https://github.com/vercel-labs/agent-skills",
+      "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "license": "MIT"
+    }
+  },
+  "skills": [
+    {"name": "frontend-design", "source": "anthropics/skills", "path": "skills/frontend-design", "roles": ["darwin", "jade"], "recommended": true,
+     "why": "Aesthetic direction for new UI so it doesn't look like a template. Complements softory-design, which covers flows, states, and accessibility."},
+    {"name": "web-design-guidelines", "source": "vercel-labs/agent-skills", "path": "skills/web-design-guidelines", "roles": ["darwin", "jade"], "recommended": true,
+     "why": "Automated review of built UI against Vercel's Web Interface Guidelines. Fetches the rules at run time, so it needs network access."},
+    {"name": "webapp-testing", "source": "anthropics/skills", "path": "skills/webapp-testing", "roles": ["jade", "darwin"], "recommended": true,
+     "why": "Playwright-driven checks and screenshots of the running app, which become evidence for UI tasks and design reviews."},
+    {"name": "test-driven-development", "source": "obra/superpowers", "path": "skills/test-driven-development", "roles": ["jade", "gold", "quinn"], "recommended": true,
+     "why": "A strict red-green-refactor discipline. softory-testing says what to test, and this enforces the loop."},
+    {"name": "systematic-debugging", "source": "obra/superpowers", "path": "skills/systematic-debugging", "roles": ["jade", "gold"], "recommended": true,
+     "why": "Root-cause-first debugging for BUG units. It prevents guess-and-patch fixes, which waste tokens and reviews."},
+    {"name": "verification-before-completion", "source": "obra/superpowers", "path": "skills/verification-before-completion", "roles": ["jade", "gold", "quinn", "darwin", "toby", "greg"], "recommended": true,
+     "why": "Makes agents run the checks before claiming done, which matches softory gate's evidence rule. Small, about 3.6 KB."},
+    {"name": "ponytail", "source": "DietrichGebert/ponytail", "path": "skills/ponytail", "roles": ["jade", "gold", "quinn"], "recommended": true,
+     "why": "The smallest complete change: reuse what exists, no speculative code, while never cutting validation, error handling, security, or a test for risky logic. Its own benchmark reports 45% fewer tokens and 53% less code. Pull the skill only, not the plugin's hooks."},
+    {"name": "ponytail-review", "source": "DietrichGebert/ponytail", "path": "skills/ponytail-review", "roles": ["jade", "gold", "quinn"], "recommended": false,
+     "why": "A lean-code lens for peer review (delete, reuse, stdlib, yagni), each finding backed by a concrete case. softory-code-review stays the procedure."},
+    {"name": "receiving-code-review", "source": "obra/superpowers", "path": "skills/receiving-code-review", "roles": ["jade", "gold"], "recommended": false,
+     "why": "How to evaluate review feedback before applying it. Optional: softory-code-review covers the author side briefly."},
+    {"name": "differential-review", "source": "trailofbits/skills", "path": "plugins/differential-review/skills/differential-review", "roles": ["toby"], "recommended": true,
+     "why": "Security review of a diff with blast-radius and test-coverage analysis. This is Toby's main review tool."},
+    {"name": "fp-check", "source": "trailofbits/skills", "path": "plugins/fp-check/skills/fp-check", "roles": ["toby"], "recommended": true,
+     "why": "Verifies suspected findings before they're reported, so Toby blocks only on real issues."},
+    {"name": "supply-chain-risk-auditor", "source": "trailofbits/skills", "path": "plugins/supply-chain-risk-auditor/skills/supply-chain-risk-auditor", "roles": ["toby"], "recommended": true,
+     "why": "Audits dependencies for advisories, abandonment, and install scripts. Backs the deps tag review (OWASP A03:2025)."},
+    {"name": "semgrep", "source": "trailofbits/skills", "path": "plugins/static-analysis/skills/semgrep", "roles": ["toby"], "recommended": false,
+     "why": "Runs Semgrep static analysis. Recommended once the project has Semgrep installed."},
+    {"name": "sharp-edges", "source": "trailofbits/skills", "path": "plugins/sharp-edges/skills/sharp-edges", "roles": ["toby", "quinn"], "recommended": false,
+     "why": "Finds footgun APIs and insecure defaults in designs. Useful when Quinn and Toby review a new interface."},
+    {"name": "property-based-testing", "source": "trailofbits/skills", "path": "plugins/property-based-testing/skills/property-based-testing", "roles": ["gold"], "recommended": false,
+     "why": "Property tests for parsers, serializers, and money or date logic. Use it when a whole input domain matters."},
+    {"name": "react-best-practices", "source": "vercel-labs/agent-skills", "path": "skills/react-best-practices", "roles": ["jade"], "recommended": false,
+     "why": "React and Next.js performance rules. Only for React projects."}
+  ]
+}
