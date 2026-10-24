@@ -14,4 +14,6 @@ This file is for agents changing the softory repository. It is not installed int
     python3 -m unittest discover -s tests -t .
   ```
 
+  Add `SOFTORY_SCAFFOLD_PREVIOUS_SRC` (a checkout of scaffold `v1.4.0`) to run the upgrade test too.
+
 - Keep modules under about 250 lines, one concern each, like the scaffold.

@@ -463,6 +463,8 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual((decision["owner_id"], decision["status"]), ("owner", "accepted"))
         self.assertTrue(decision["title"].startswith("Owner ruling (recorded by quinn)"))
         self.assertIn(f"Recorded by quinn ({session})", decision["context"])
+        written = coord(self.root, "decision", "history", made["decision"])["data"][0]
+        self.assertEqual((written["actor"], written["detail"]), ("quinn", "accepted; owner=owner"))  # the audit names the recorder
 
     def test_inbox_marks_read_through_what_you_saw(self) -> None:
         for number in (1, 2):

@@ -43,11 +43,21 @@ def verify(name: str, checkout: Path, pin: dict[str, Any], allow_unpinned: bool)
         )
     if name == "scaffold":
         version = (checkout / "VERSION").read_text(encoding="utf-8").strip()
-        if not version.startswith("1."):
+        minimum = pin.get("minimum", pin["version"])
+        if not version_tuple(minimum) <= version_tuple(version) < (2, 0, 0):
             raise SoftoryError(
-                f"Scaffold {version} is not 1.x; the tracker requires a CLI below 2.0.0.",
+                f"Scaffold {version} isn't supported: softory needs {minimum} or a later 1.x "
+                "(it uses options 1.4.1 added, and the tracker requires a CLI below 2.0.0).",
                 "unsupported_version",
             )
+
+
+def version_tuple(text: str) -> tuple[int, ...]:
+    """``"1.4.1"`` as ``(1, 4, 1)``; anything unreadable sorts lowest."""
+    try:
+        return tuple(int(part) for part in text.strip().lstrip("v").split(".")[:3])
+    except ValueError:
+        return (0,)
 
 
 def fetch_sources(deps: dict[str, Any], scratch: Path, options: dict[str, Any]) -> tuple[Path, Path]:

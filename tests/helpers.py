@@ -17,6 +17,9 @@ REPO = Path(__file__).resolve().parents[1]
 SOFTORY = REPO / "bin" / "softory"
 SCAFFOLD_SRC = os.environ.get("SOFTORY_SCAFFOLD_SRC")
 TRACKER_SRC = os.environ.get("SOFTORY_TRACKER_SRC")
+#: Optional: a checkout of the scaffold release before the pin, for the upgrade test.
+PREVIOUS_SRC = os.environ.get("SOFTORY_SCAFFOLD_PREVIOUS_SRC")
+PINNED = json.loads((REPO / "dependencies.json").read_text(encoding="utf-8"))["scaffold"]["version"]
 COORDINATION = ".agents/agentic-project-scaffold-lite/bin/coordination"
 
 

@@ -52,6 +52,7 @@ class Coordination:
         command += list(args)
         env = dict(os.environ)
         env.pop("COORDINATION_SESSION", None)  # only pass the session we were told to
+        env.pop("COORDINATION_DB", None)  # the project at self.root decides the database, not the caller's shell
         completed = subprocess.run(  # noqa: S603 - fixed binary, argument list, no shell
             command, cwd=self.root, env=env, capture_output=True, text=True, check=False
         )
@@ -80,7 +81,17 @@ class Coordination:
         return self.all_rows("task", "list", *filters)
 
     def task(self, task_id: str) -> dict[str, Any]:
-        return self.run("task", "show", task_id)
+        """``task show``, with its reviews in the order they were recorded.
+
+        ``task show`` sorts reviews by ``created_at`` (whole seconds) and then by ID,
+        so two reviews in one second can come back as REV-10 before REV-9. ``review
+        list`` sorts by ``sequence`` (1.4.1); fetch that only when a tie makes it matter.
+        """
+        task = self.run("task", "show", task_id)
+        stamps = [review.get("created_at") for review in task.get("reviews") or []]
+        if len(stamps) != len(set(stamps)):
+            task["reviews"] = self.all_rows("review", "list", "--task", task_id, "--order-by", "sequence:asc")
+        return task
 
     def agent_exists(self, agent_id: str) -> bool:
         envelope = self.call("agent", "show", agent_id)

@@ -43,6 +43,13 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
     check("coordination_cli", str(cli).startswith("1."), f"CLI {cli} (tracker needs >=1.4.0,<2.0.0)")
     health = coord.call("doctor")
     check("coordination_doctor", bool(health.get("ok")), "database healthy" if health.get("ok") else str(health.get("error")))
+    # Scaffold 1.4.1 reports the database's filesystem. A warning never fails doctor:
+    # it can't tell a VM that's still attached from one that left files behind.
+    report = health.get("data") or {}
+    warnings = [report["filesystem_warning"]] if report.get("filesystem_warning") else []
+    if report.get("filesystem_fuse_leftovers"):
+        warnings.append("Leftover files beside the database: " + ", ".join(report["filesystem_fuse_leftovers"])
+                        + ". Delete them only when nothing in a VM or container has the folder open.")
     check("tracker", (project.bundle / "tracker" / "coordination_ui" / "__main__.py").is_file(), "tracker console present")
     missing = [r for r in project.role_ids() if not coord.agent_exists(r)]
     check("roles_registered", not missing, "missing: " + ", ".join(missing) if missing else "all roles registered")
@@ -61,7 +68,7 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
           "softory's rules, code, and local.json are as installed" if changed == []
           else "installed before integrity checks; re-run the installer" if changed is None
           else "changed since install: " + ", ".join(changed) + ". The gate fails until it's restored or reinstalled.")
-    return {"pass": all(c["pass"] for c in checks), "checks": checks, "installed_paths": paths}
+    return {"pass": all(c["pass"] for c in checks), "checks": checks, "warnings": warnings, "installed_paths": paths}
 
 
 def _stale_instruction_files(project: Project) -> list[str]:

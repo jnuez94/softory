@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install softory, agentic-project-scaffold-lite 1.4.0, and the task tracker
+# Install softory, agentic-project-scaffold-lite 1.4.1, and the task tracker
 # into a git project, hidden from git through .git/info/exclude.
 #
 #   ./install.sh --target /path/to/project [--owner-name "Your Name"]

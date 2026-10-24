@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 
-from tests.helpers import coord, git_project, git_status, install, needs_sources, softory
+from tests.helpers import PINNED, PREVIOUS_SRC, coord, git_project, git_status, install, needs_sources, softory
 
 
 @needs_sources
@@ -48,7 +49,8 @@ class FreshProjectTest(unittest.TestCase):
     def test_reinstall_is_idempotent(self) -> None:
         self.assertIsNone(self.result["scaffold_found"])
         again = install(self.root)
-        self.assertEqual(again["scaffold_found"], "1.4.0")
+        self.assertEqual(again["scaffold_found"], PINNED)
+        self.assertIsNone(again["scaffold_backup"])  # same version: nothing to back up
         self.assertEqual(again["registered"], [])
         self.assertEqual(git_status(self.root), "")
         self.assertEqual((self.root / "AGENTS.md").read_text().count("softory:start"), 1)
@@ -133,11 +135,37 @@ class PreexistingScaffoldTest(unittest.TestCase):
             ignore.write("/.agents/\n")  # as VaultRadar does
         run(["git", "add", ".gitignore", "AGENTS.md"], root)
         run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "scaffold"], root)
-        self.assertEqual(install(root)["scaffold_found"], "1.4.0")
+        self.assertEqual(install(root)["scaffold_found"], PINNED)
         result = json.loads(softory(root, "uninstall").stdout)
         self.assertTrue((root / ".agents/agentic-project-scaffold-lite/bin/coordination").is_file())
         self.assertIn(".agents/agentic-project-scaffold-lite (it was here before softory)", result["kept"])
         self.assertFalse((root / ".agents/softory").exists())
+        self.assertEqual(git_status(root), "")
+
+
+@needs_sources
+@unittest.skipUnless(PREVIOUS_SRC, "set SOFTORY_SCAFFOLD_PREVIOUS_SRC to a scaffold 1.4.0 checkout")
+class ScaffoldUpgradeTest(unittest.TestCase):
+    """A project on an older 1.x scaffold, like Vault Radar on 1.4.0, moves to the pin with a backup first."""
+
+    def test_upgrade_backs_up_then_keeps_every_record(self) -> None:
+        from tests.helpers import run
+
+        holder, root = git_project()
+        self.addCleanup(holder.cleanup)
+        run([f"{PREVIOUS_SRC}/scripts/install.sh", "--target", str(root), "--adapter", "sqlite"], root)
+        run(["git", "add", ".gitignore", "AGENTS.md"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "scaffold"], root)
+        old = coord(root, "version")["data"]["cli_version"]
+        coord(root, "agent", "add", "--id", "dev", "--name", "Dev", "--role", "builder", "--actor-type", "ai")
+        coord(root, "task", "create", "--id", "OLD-1", "--title", "Made before the upgrade", "--actor", "dev")
+
+        result = install(root)
+        self.assertEqual(result["scaffold_found"], old)
+        self.assertTrue(Path(result["scaffold_backup"]).is_file())
+        self.assertIn(f"pre-scaffold-{PINNED}-", result["scaffold_backup"])
+        self.assertEqual(coord(root, "version")["data"]["cli_version"], PINNED)
+        self.assertEqual(coord(root, "task", "show", "OLD-1")["data"]["title"], "Made before the upgrade")
         self.assertEqual(git_status(root), "")
 
 
@@ -155,16 +183,18 @@ class RefusalTest(unittest.TestCase):
             self.assertIn("not_a_repo", result.stderr)
 
     def test_refuses_to_downgrade_a_newer_scaffold(self) -> None:
-        holder, root = git_project()
-        self.addCleanup(holder.cleanup)
-        (root / ".agents/agentic-project-scaffold-lite").mkdir(parents=True)
-        (root / ".agents/agentic-project-scaffold-lite/VERSION").write_text("2.0.0\n")
         from tests.helpers import REPO, SCAFFOLD_SRC, TRACKER_SRC, run
 
-        result = run([str(REPO / "bin/softory"), "install", "--target", str(root),
-                      "--scaffold-src", SCAFFOLD_SRC or "", "--tracker-src", TRACKER_SRC or ""], root, check=False)
-        self.assertIn("scaffold_version_conflict", result.stderr)
-        self.assertEqual((root / ".agents/agentic-project-scaffold-lite/VERSION").read_text(), "2.0.0\n")
+        for newer in ("2.0.0", "1.4.9"):
+            with self.subTest(newer=newer):
+                holder, root = git_project()
+                self.addCleanup(holder.cleanup)
+                (root / ".agents/agentic-project-scaffold-lite").mkdir(parents=True)
+                (root / ".agents/agentic-project-scaffold-lite/VERSION").write_text(newer + "\n")
+                result = run([str(REPO / "bin/softory"), "install", "--target", str(root),
+                              "--scaffold-src", SCAFFOLD_SRC or "", "--tracker-src", TRACKER_SRC or ""], root, check=False)
+                self.assertIn("scaffold_version_conflict", result.stderr)
+                self.assertEqual((root / ".agents/agentic-project-scaffold-lite/VERSION").read_text(), newer + "\n")
 
     def test_refuses_tracked_claude_local(self) -> None:
         holder, root = git_project({"CLAUDE.local.md": "mine\n"})

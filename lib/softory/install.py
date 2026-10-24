@@ -1,4 +1,4 @@
-"""Install softory, scaffold 1.4.0, and the tracker into a project, hidden from git."""
+"""Install softory, scaffold 1.4.1, and the tracker into a project, hidden from git."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .coordination import Coordination
 from .errors import SoftoryError
 from .project import PROTECTED_DIRS, Project, integrity_hashes, make_read_only, write_protected
 from .registration import register_roster
-from .sources import fetch_sources
+from .sources import fetch_sources, version_tuple
 
 SKILL_ROOTS = (".claude/skills", ".agents/skills")
 BUNDLE_PARTS = (
@@ -32,9 +32,9 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
             raise SoftoryError(f"{relative} is tracked in git; softory keeps it local. Untrack it first.", "tracked_path")
 
     previous = _previous_manifest(target)
-    scaffold_found = _existing_scaffold(target)
-    status_before = gitlocal.status_entries(target)
     deps = json.loads((source / "dependencies.json").read_text(encoding="utf-8"))
+    scaffold_found = _existing_scaffold(target, deps["scaffold"]["version"])
+    status_before = gitlocal.status_entries(target)
 
     # Decide every path first and hide it before writing anything, so even a
     # failed install never shows up in git status.
@@ -48,6 +48,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
 
     with tempfile.TemporaryDirectory(prefix="softory-src-") as scratch:
         scaffold_src, tracker_src = fetch_sources(deps, Path(scratch), options)
+        backup = _backup_before_upgrade(target, scaffold_found, deps["scaffold"]["version"])
         _install_scaffold(scaffold_src, target)
         bundle = target / BUNDLE_DIR
         _copy_bundle(source, bundle)
@@ -89,7 +90,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
 
     leaked = sorted(gitlocal.status_entries(target) - status_before)
     return {"target": str(target), "scaffold_found": scaffold_found, "scaffold_installed": deps["scaffold"]["version"],
-            "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
+            "scaffold_backup": backup, "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
 
 
 def _protect(bundle: Path) -> dict[str, str]:
@@ -122,34 +123,44 @@ def _previous_manifest(target: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
-def _existing_scaffold(target: Path) -> str | None:
-    """The scaffold version already in the project. Refuse anything but 1.x:
-    reinstalling 1.4 over a 2.x scaffold would run old code on a newer database."""
+def _existing_scaffold(target: Path, pinned: str) -> str | None:
+    """The scaffold version already in the project. Refuse one newer than the pin:
+    reinstalling would run older code on a database a newer CLI has used."""
     version_file = target / SCAFFOLD_DIR / "VERSION"
     if not version_file.is_file():
         return None
     version = version_file.read_text(encoding="utf-8").strip()
-    if not version.startswith("1."):
-        raise SoftoryError(f"This project already runs scaffold {version}; softory pins 1.4.0 and won't downgrade it.",
+    if version_tuple(version) > version_tuple(pinned):
+        raise SoftoryError(f"This project already runs scaffold {version}; softory pins {pinned} and won't downgrade it.",
                            "scaffold_version_conflict", {"found": version})
     return version
 
 
-def _install_scaffold(scaffold_src: Path, target: Path) -> None:
-    """Run the scaffold's own installer, then undo its edit to .gitignore."""
-    gitignore = target / ".gitignore"
-    before = gitignore.read_bytes() if gitignore.exists() else None
+def _backup_before_upgrade(target: Path, found: str | None, pinned: str) -> str | None:
+    """Back up the database with the project's current CLI before replacing that CLI,
+    as the scaffold's upgrade guide asks. Same version or a fresh project: no backup."""
+    if not found or version_tuple(found) >= version_tuple(pinned) or not (target / ".coordination" / "config.yml").is_file():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    folder = target / ".coordination" / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    output = folder / f"pre-scaffold-{pinned}-{stamp}.sqlite3"
     try:
-        result = subprocess.run(  # noqa: S603 - the pinned scaffold installer
-            [str(scaffold_src / "scripts" / "install.sh"), "--target", str(target),
-             "--adapter", "sqlite", "--no-agents-file"],
-            capture_output=True, text=True, check=False,
-        )
-    finally:
-        if before is None:
-            gitignore.unlink(missing_ok=True)
-        else:
-            gitignore.write_bytes(before)
+        Coordination(target / COORDINATION_BIN, target).run("backup", "--output", str(output))
+    except SoftoryError as error:
+        raise SoftoryError(f"Couldn't back up the database before upgrading scaffold {found} to {pinned}: "
+                           f"{error.message}. The scaffold was left as it was.", "backup_failed") from error
+    return str(output)
+
+
+def _install_scaffold(scaffold_src: Path, target: Path) -> None:
+    """Run the scaffold's own installer. ``--no-gitignore`` (1.4.1) keeps it off the
+    tracked .gitignore; softory hides everything through .git/info/exclude instead."""
+    result = subprocess.run(  # noqa: S603 - the pinned scaffold installer
+        [str(scaffold_src / "scripts" / "install.sh"), "--target", str(target),
+         "--adapter", "sqlite", "--no-agents-file", "--no-gitignore"],
+        capture_output=True, text=True, check=False,
+    )
     if result.returncode != 0:
         raise SoftoryError("Scaffold installer failed: " + (result.stderr or result.stdout).strip(), "scaffold_install_failed")
 

@@ -227,13 +227,13 @@ def related_live(coord: Coordination, task: dict[str, Any], gates: dict[str, Any
 
 def reviews_of(coord: Coordination, task_id: str) -> list[dict[str, Any]]:
     """Every review of one task, oldest first."""
-    return coord.all_rows("review", "list", "--task", task_id, "--order-by", "created_at:asc", "--order-by", "id:asc")
+    return coord.all_rows("review", "list", "--task", task_id, "--order-by", "sequence:asc")
 
 
 def all_reviews(coord: Coordination) -> dict[str, list[dict[str, Any]]]:
     """Every review, grouped by task, oldest first (the order latest_reviews expects)."""
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for review in coord.all_rows("review", "list", "--order-by", "created_at:asc", "--order-by", "id:asc"):
+    for review in coord.all_rows("review", "list", "--order-by", "sequence:asc"):
         grouped.setdefault(review.get("task_id") or "", []).append(review)
     return grouped
 
