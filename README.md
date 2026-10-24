@@ -19,7 +19,7 @@ On top of them, softory adds the team, the rules, and the craft.
 | **Skills** | Nine skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, architecture, and token economy. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
 | **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, and the right role is closing. |
 
-Model-agnostic: any role runs on any harness. The defaults put **Claude Opus 5.5** on Quinn and Jade, where quality pays most, and **Codex with GPT-6.1 Sol** on Greg, Darwin, Gold, and Toby, which costs about an eighth as much per task. Jade and Gold review each other, so peer reviews are cross-model. [docs/models.md](docs/models.md) has the benchmarks and prices.
+Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, and Gold (agent coding and web design), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
 
 ## Requirements
 

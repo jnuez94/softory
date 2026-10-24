@@ -11,7 +11,7 @@ Phase 1 of running unattended: the team works without the owner up to a pull req
 - **Digest and paging.** `softory digest` lists what needs the owner: proposals, escalations to the owner, capped tasks, unread messages, silent and paused roles, and budget warnings. A unit closed without the gate, or a role over budget, pages at once (once a day each, outside quiet hours); the rest goes in one daily digest, to the owner's inbox and through `paging.command`.
 - **Permissions per role.** Claude Code roles run with a generated settings file: edits only in their lane's paths or their docs folder, the coordination and git commands they need, and never softory's or the database's files.
 - **Builders hear about requested changes.** `pending` now wakes a builder whose task in review got a "changes requested", instead of waiting for a message.
-- **Models from benchmarks.** Quinn and Jade default to Claude Opus 5.5; Greg, Darwin, Gold, and Toby to Codex with GPT-6.1 Sol, which scored 58.2% on Terminal-Bench 4.0 against Opus 5.5's 64.8% at about an eighth of the cost. Codex roles escalate to Opus 5.5. [docs/models.md](docs/models.md) has the sources.
+- **Models from role-fit benchmarks.** Darwin, Quinn, Jade, and Gold default to Claude Opus 5.5, which leads Terminal-Bench 4.0 (64.8%) and the WebDev Arena (1807). Toby and Greg default to Codex with GPT-6 Astra, which leads SEC-Bench Pro (85.4%) and ties Opus on CWE-bench (68% to 67%). A cheaper Sol setup with escalation is documented for tight budgets. [docs/models.md](docs/models.md) has the sources.
 - **`softory setup`** checks the owner's one-time steps and says what is left.
 
 ## [0.3.1] - 2026-10-24

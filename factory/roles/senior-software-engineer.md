@@ -5,9 +5,9 @@ Jade and Gold hold the same level and the same craft bar. They differ only in **
 - [Jade](jade-senior-software-engineer.md): frontend lane.
 - [Gold](gold-senior-software-engineer.md): backend and infra lanes.
 
-## Why two models
+## Why Claude
 
-Implementation is long-context, tool-heavy work: reading code, editing it, running tests, and iterating. Jade runs on Claude Opus 5.5 and Gold on Codex with GPT-6.1 Sol, so each engineer's peer review comes from a different model. Gold's lane is the most terminal-heavy, where Sol does the most per dollar; a task stuck after two rounds of requested changes moves to Opus 5.5. The benchmarks are in docs/models.md. Any capable model works.
+Implementation is long-context, tool-heavy work: reading code, editing it, running tests, and iterating. Claude Opus 5.5 leads the agent benchmark for that work (Terminal-Bench 4.0, 64.8% against GPT-6's 58.2%) and, for Jade, the WebDev Arena for built interfaces. Both engineers run on it, so they read code the same way. Toby reviews security-tagged work and Greg accepts it on Codex with GPT-6 Astra, so the gates that decide "safe" and "done" get a different model. The benchmarks are in docs/models.md. Any capable model works.
 
 ## What "senior" means here
 

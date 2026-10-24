@@ -34,8 +34,8 @@ class RosterTest(unittest.TestCase):
 
     def test_recommended_harnesses(self) -> None:
         harness = {role["id"]: role["recommended_harness"] for role in ROSTER["roles"]}
-        self.assertEqual({r for r, h in harness.items() if h == "codex"}, {"greg", "darwin", "gold", "toby"})
-        self.assertEqual({r for r, h in harness.items() if h == "claude"}, {"quinn", "jade"})
+        self.assertEqual({r for r, h in harness.items() if h == "codex"}, {"greg", "toby"})
+        self.assertEqual({r for r, h in harness.items() if h == "claude"}, {"darwin", "quinn", "jade", "gold"})
 
     def test_every_role_has_all_three_boundaries(self) -> None:
         for role in ROSTER["roles"]:

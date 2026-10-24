@@ -66,7 +66,7 @@
       "name": "Darwin",
       "title": "UX Designer",
       "lane": "design",
-      "recommended_harness": "codex",
+      "recommended_harness": "claude",
       "profile": "factory/roles/darwin-ux-designer.md",
       "goal": "Make every feature usable, accessible, and consistent for the people who use it.",
       "responsibilities": [
@@ -180,7 +180,7 @@
       "name": "Gold",
       "title": "Senior Software Engineer (platform)",
       "lane": "backend",
-      "recommended_harness": "codex",
+      "recommended_harness": "claude",
       "profile": "factory/roles/gold-senior-software-engineer.md",
       "goal": "Deliver correct, tested, observable services, data, and tooling from the task.",
       "responsibilities": [

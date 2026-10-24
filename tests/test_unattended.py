@@ -40,9 +40,12 @@ class CharterUnitTest(unittest.TestCase):
         self.assertEqual(charters.unknown_keys(DEFAULTS, {"budgte": 1, "lanes": {"mobile": []}}), ["budgte"])
 
     def test_escalation_switches_model(self) -> None:
-        self.assertEqual(charters.model_for(DEFAULTS, "gold", False)["model"], "gpt-6.1-sol")
-        self.assertEqual(charters.model_for(DEFAULTS, "gold", True)["harness"], "claude")
+        self.assertEqual(charters.model_for(DEFAULTS, "toby", False), {"harness": "codex", "model": "gpt-6-astra"})
         self.assertEqual(charters.model_for(DEFAULTS, "jade", True)["model"], "claude-opus-5-5")  # no escalation set
+        cheap = charters.merge(DEFAULTS, {"models": {"gold": {"harness": "codex", "model": "gpt-6.1-sol",
+                                                             "escalate": {"harness": "claude", "model": "claude-opus-5-5"}}}})
+        self.assertEqual(charters.model_for(cheap, "gold", False)["model"], "gpt-6.1-sol")
+        self.assertEqual(charters.model_for(cheap, "gold", True)["harness"], "claude")
 
     def test_claude_settings_keep_a_role_in_its_lane(self) -> None:
         charter = charters.merge(DEFAULTS, {"lanes": {"frontend": ["web/**"]}})

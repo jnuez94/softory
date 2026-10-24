@@ -1,55 +1,41 @@
 # Which model for each role
 
-Chosen on 2026-10-24 from public benchmarks and list prices. The defaults are in [factory/governance/charter.json](../factory/governance/charter.json) under `models`; override any of them in your charter. Re-check when a new model ships or after your own trial, since `softory usage` and `.agents/softory/run/runs.jsonl` show what each role actually spends.
-
-## The evidence
-
-The most useful public benchmark for agents that work through a terminal is Terminal-Bench 4.0, run like-for-like on tbench.ai (five trials, eight-hour timeout). SWE-bench Verified and Terminal-Bench 2.x are saturated and archived, so they no longer separate today's models.
-
-| Harness + model | Terminal-Bench 4.0 | Cost of the full run | Tokens used | List price, $ per 1M in / out |
-| --- | --- | --- | --- | --- |
-| Claude Code + Claude Opus 5.5 | 64.8% ±3.1 | $4.7k | 8.0B | 4 / 20 |
-| Claude Sonnet 5.5 | 61.8% ±2.9 | $7.3k | 19.4B | 2 / 10 |
-| Codex + GPT-6.1 Sol | 58.2% ±3.1 | $0.6k | 1.5B | 2 / 10 |
-| Codex + GPT-6 Astra | 58.2% ±2.8 | $3.3k | 1.5B | 10 / 50 |
-| GPT-6 Luna | 16.4% | $0.1k | not stated | 0.10 / 0.50 |
-
-What it says:
-
-- **Opus 5.5 is the strongest agent**, about 6.6 points ahead of GPT-6.1 Sol, which is roughly two standard errors.
-- **GPT-6.1 Sol gives the most per dollar and per token.** It costs about an eighth of Opus 5.5 for the same tasks and uses about a fifth of the tokens.
-- **Sonnet 5.5 costs more than Opus 5.5 in agent runs**, despite half the token price, because it used 2.4 times the tokens. It has no role here.
-- **GPT-6 Astra matches Sol's score at 5.5 times the cost**, so it has no role either.
-- **Luna and Haiku 5.5 are too weak or too new.** Luna is far behind on agent work. Haiku 5.5 ($0.10 / $0.50) has no agent benchmark yet. It's worth a trial for Greg once one appears.
-
-On SWE-bench Pro, BenchLM lists Opus 5.5 at 89.9% (not in Anthropic's own launch table, so treat it as unconfirmed) and Sonnet 5.5 at 81.3%, with no GPT-6 scores. That doesn't change the picture.
+Chosen on 2026-10-24. Each role is matched to the benchmark that measures its own kind of work, not one general coding score, and to the harness that is strongest at it. Cost is a tiebreaker, not the goal. The defaults are in [factory/governance/charter.json](../factory/governance/charter.json) under `models`; override any of them in your charter, and check `softory usage` after a week to see what each role actually spends.
 
 ## The picks
 
-| Role | Default | Escalates to | Why |
+| Role | Harness and model | The benchmark that fits the work | Why |
 | --- | --- | --- | --- |
-| Quinn | Claude Code, `claude-opus-5-5` | – | Few runs, high leverage: architecture and task breakdown decide everyone else's rework. Pay for the strongest model here. |
-| Jade | Claude Code, `claude-opus-5-5` | – | One builder on the strongest model. Jade and Gold review each other, so putting them on different models makes every peer review cross-model. |
-| Gold | Codex, `gpt-6.1-sol` | Opus 5.5 | Most of the terminal-heavy work (backend, CI, infra) at the best cost per task. |
-| Greg | Codex, `gpt-6.1-sol` | Opus 5.5 | Mostly writing and acceptance, and the role that wakes most often. Different from Jade, so acceptance gets a second model's view. |
-| Darwin | Codex, `gpt-6.1-sol` | Opus 5.5 | No public benchmark measures UX work. Sol is cheap, and Darwin reviews Jade's UI, so a different model reads it. |
-| Toby | Codex, `gpt-6.1-sol` | Opus 5.5 | Security review on a different model from Jade's and Quinn's. Gold's work is the same model family, so Quinn's architecture review and the CI check matter more there. |
+| Darwin (UX) | Claude Code, `claude-opus-5-5` | WebDev Arena, people voting on interfaces models build: Opus 5.5 1807, GPT-6 Astra 1775, Sonnet 5.5 1768, GPT-6.1 Sol 1749 | First on design quality, and Claude is the stronger design harness. Same model as Jade, so spec and build share context. |
+| Jade (frontend) | Claude Code, `claude-opus-5-5` | WebDev Arena (above), and Terminal-Bench 4.0 for agent work: Opus 5.5 64.8%, GPT-6.1 Sol and Astra 58.2% | First on both the look and the engineering of web work. |
+| Gold (backend, infra) | Claude Code, `claude-opus-5-5` | Terminal-Bench 4.0 (above); SWE-bench Pro: Opus 5.5 89.9% (unconfirmed), Sonnet 5.5 81.3%, no GPT-6 score | Terminal-heavy work is exactly what Terminal-Bench measures, and Opus leads it by 6.6 points. |
+| Quinn (architecture) | Claude Code, `claude-opus-5-5` | Terminal-Bench 4.0 and SWE-bench Pro (above) | Architecture and task breakdown decide everyone's rework, so it gets the strongest engineering model. |
+| Toby (security) | Codex, `gpt-6-astra` | SEC-Bench Pro: Astra 85.4%, Sol 78.8%. CWE-bench defensive patching: Astra 68%, Opus 5.5 67%. ExploitGym: Astra 42.4%, Sol 35.1% | Leads or ties the defensive-security benchmarks, Codex is the stronger security harness, and every builder runs on Claude, so each security review is a different model's view. |
+| Greg (product) | Codex, `gpt-6-astra` | AA-Briefcase, long-horizon knowledge work: Astra about 90 Elo above GPT-5.6 Sol; hallucination rate down from 92% to 51% | Acceptance decides "done", so it gets a strong, careful model on a different family from the builders. |
 
-**Escalation:** once a task has had `task_caps.escalate_model_after` rounds of requested changes (default 2), the runner runs that role on its `escalate` model for the next run. Cheap by default, strong when the cheap model is stuck. At `review_rounds` (default 3) the task stops and goes to your digest.
+This matches the 2026-10-21 split (Claude for Darwin, Quinn, Jade, and Gold; Codex for Greg and Toby), now with the strongest model in each harness.
 
-There's no vendor preference in this. Four roles run on Codex because GPT-6.1 Sol is the cost leader, and the two roles where quality pays most run on Opus 5.5 because it's the score leader.
+## What it costs, and the cheaper option
+
+On Terminal-Bench 4.0 the full run cost $4.7k with Opus 5.5 (8.0B tokens), $3.3k with GPT-6 Astra (1.5B), and $0.6k with GPT-6.1 Sol (1.5B). Astra's list price is higher than Opus's ($10 / $50 against $4 / $20 per million tokens), but it used about a fifth of the tokens, so per task it is cheaper. The runner's `pending` check, budgets, and review caps keep idle and stuck roles from spending.
+
+If the budget is tight, the best trade is Gold and Greg on `gpt-6.1-sol` with `escalate` set to `claude-opus-5-5` (Gold) or `gpt-6-astra` (Greg). Sol scores the same as Astra on Terminal-Bench 4.0 at a fifth of the cost, and the escalation moves a task to the stronger model after two rounds of requested changes. Keep Toby, Darwin, and Quinn on the defaults; those are the specialist calls.
+
+Models with no role: Sonnet 5.5 scores below Opus 5.5 everywhere above and used 2.4 times the tokens on Terminal-Bench 4.0, so it costs more per task. GPT-6 Luna (16.4% on Terminal-Bench 4.0) and Haiku 5.5 (no agent benchmark yet) are too weak or too new.
 
 ## Caveats
 
-- The numbers come from aggregators that disagree with each other. Anthropic's own run puts Sonnet 5.5 at 70.6%, and Artificial Analysis's mini-SWE-agent run ranks Sonnet 5.5 above Opus 5.5. The table above uses tbench.ai's like-for-like board.
-- Benchmark cost isn't your cost. Subscriptions (Claude Pro or Max, ChatGPT Plus or Pro) bill differently from the API. Use a week of `softory usage` in Vault Radar to set the budget.
+- **Prompt injection.** Gray Swan's indirect prompt injection test succeeds 1% of the time against Opus 5.5 and 8.5% against GPT-6 Astra (15 attempts, lower is better). Toby and Greg read code and text other agents wrote, so they run in Codex's workspace sandbox, and nothing they read can change the gate.
+- **Vals CyberBench is left out.** It is an offensive, capture-the-flag style test where refusals drive the scores: Opus 5.5 scores 55.4% normally and 74.6% under the cyber verification program, and Astra scores 41.1%. It doesn't measure defensive review.
+- **Aggregators disagree.** Anthropic's own run puts Sonnet 5.5 at 70.6% on Terminal-Bench 4.0, and Artificial Analysis's harness ranks it above Opus 5.5. The table uses tbench.ai's like-for-like board. Opus 5.5's 89.9% on SWE-bench Pro isn't in Anthropic's launch table.
+- **Benchmark cost isn't your cost.** Subscriptions bill differently from the API.
 
 ## Sources
 
-- [Terminal-Bench 4.0 leaderboard summary](https://codingfleet.com/blog/terminal-bench-4-leaderboard-2026/) (tbench.ai board, updated 2026-10-23) and [Terminal-Bench 4.0 release notes](https://www.tbench.ai/news/terminal-bench-4-0)
-- [Artificial Analysis, Terminal-Bench 4.0](https://artificialanalysis.ai/evaluations/terminalbench-v4-0)
-- [BenchLM coding leaderboard](https://benchlm.ai/coding) (refreshed 2026-10-23)
-- [OpenAI API pricing](https://developers.openai.com/api/docs/pricing)
-- [Claude Opus 5.5 price cut and Claude 5.5 prices](https://www.usagepricing.com/blueprint/activity/anthropic-2026-10-05-opus-5-5-price-cut)
-- [Vals AI: SWE-bench Verified](https://www.vals.ai/benchmarks/swebench) and [Terminal-Bench 2.0](https://www.vals.ai/benchmarks/terminal-bench-2), both archived
-- [Morph's coding agent leaderboard](https://www.morphllm.com/best-ai-coding-agents-2026) (2026-10-06; Morph sells coding tools, so it was used only to cross-check)
+- [WebDev Arena leaderboard](https://www.benchleader.com/benchmarks/lmarena_webdev) (results of 2026-10-22) and [Arena's note on Opus 5.5](https://x.com/arena/status/2103110782540255504)
+- [Terminal-Bench 4.0 leaderboard summary](https://codingfleet.com/blog/terminal-bench-4-leaderboard-2026/) (tbench.ai board, updated 2026-10-23), [release notes](https://www.tbench.ai/news/terminal-bench-4-0), and [Artificial Analysis's run](https://artificialanalysis.ai/evaluations/terminalbench-v4-0)
+- [BenchLM cybersecurity benchmarks](https://benchlm.ai/cybersecurity) (refreshed 2026-10-23): SEC-Bench Pro, CWE-bench, ExploitGym, Gray Swan
+- [Vals AI CyberBench](https://www.vals.ai/benchmarks/cyber) (2026-10-12)
+- [BenchLM coding leaderboard](https://benchlm.ai/coding) (SWE-bench Pro, refreshed 2026-10-23)
+- [Artificial Analysis on GPT-6 Astra](https://artificialanalysis.ai/es/articles/benchmarking-gpt-6-astra) (2026-09-09): AA-Briefcase, AA-Omniscience
+- [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and [Claude 5.5 prices](https://www.usagepricing.com/blueprint/activity/anthropic-2026-10-05-opus-5-5-price-cut)
