@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import grants
+from . import grants, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import is_paused
@@ -46,7 +46,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
 
     work = queue(project, coord, agent, board)
     rounds = review_rounds(board)
-    caps = charters.load(project)["task_caps"]
+    charter = charters.load(project)
+    caps = charter["task_caps"]
     capped = {i for i, n in rounds.items() if n >= caps["review_rounds"]}
     reasons = []
     inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
@@ -58,9 +59,17 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     accepting = set(board.gates["accepting_decisions"])
     sent_back = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
                  and any(r.get("decision") not in accepting for r in latest_reviews({"reviews": board.reviews.get(t["id"], [])}).values())]
+    tests = {t["id"]: verify.tests_state(project, charter, board.show(t["id"]), board.gates)
+             for t in board.tasks if t["status"] == "review"} if charter["verify"]["command"] else {}
+    # A reviewer waits until softory saw the tests pass; the builder is woken to run or fix them instead.
+    untested = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
+                and tests.get(t["id"]) in ("not run", "failed") and t["id"] not in sent_back]
+    reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")]
+    batching = _batch_hold(charter, reviews, touched, now)
     waiting = {
         "changes requested": sent_back,
-        "reviews waiting": [t["id"] for t in work["reviews_waiting"]],
+        "tests not passed at the commit (run softory verify, fix if it fails)": untested,
+        "reviews waiting": [] if batching else reviews,
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"],
     }
@@ -80,10 +89,26 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         result["paused"] = hold
     if escalate:
         result["escalate"] = escalate
+    if batching:
+        result["batching"] = batching
     held = sorted(capped & {i for ids in waiting.values() for i in ids})
     if held:
         result["capped"] = held
     return result
+
+
+def _batch_hold(charter: dict[str, Any], reviews: list[str], touched: dict[str, str],
+                now: datetime) -> dict[str, Any] | None:
+    """Why waiting reviews are held for a fuller batch, or None when a reviewer should wake now."""
+    rule = charter.get("review_batch") or {}
+    least, wait = int(rule.get("min") or 1), float(rule.get("max_wait_minutes") or 0)
+    if not reviews or len(reviews) >= least:
+        return None
+    oldest = min(parse_time(touched[i]) for i in reviews if touched.get(i)) if any(touched.get(i) for i in reviews) else now
+    waited = (now - oldest).total_seconds() / 60
+    if waited >= wait:
+        return None
+    return {"ids": reviews, "until": f"{least} reviews or {wait:g} min ({waited:.0f} so far)"}
 
 
 def review_rounds(board: Board) -> dict[str, int]:

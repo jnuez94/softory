@@ -44,7 +44,7 @@ def unknown_keys(base: Any, overrides: Any, prefix: str = "") -> list[str]:
     """Override keys the defaults don't have. Lane names and model roles may be added."""
     if not isinstance(overrides, dict) or not isinstance(base, dict):
         return []
-    open_maps = {"lanes", "models", "run.harnesses", "budget.roles"}
+    open_maps = {"lanes", "models", "run.harnesses", "budget.roles", "prices"}
     found = []
     for key, value in overrides.items():
         path = f"{prefix}{key}"
@@ -111,3 +111,11 @@ def model_for(charter: dict[str, Any], role: str, escalated: bool) -> dict[str, 
     if not pick.get("harness"):
         raise SoftoryError(f"The charter names no harness for {role}", "configuration_error")
     return {"harness": pick["harness"], "model": pick.get("model", "")}
+
+
+def effort_for(charter: dict[str, Any], role: str, job: str) -> str:
+    """Reasoning effort for a build or review run: the role's own setting, else the charter's for that job."""
+    own = (charter["models"].get(role) or {}).get("effort")
+    if isinstance(own, dict):
+        own = own.get(job)
+    return str(own or (charter.get("effort") or {}).get(job) or "")

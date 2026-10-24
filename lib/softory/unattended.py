@@ -42,7 +42,7 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--send", action="store_true")
     p = sub.add_parser("schedule", help="Write a launchd job and print a cron line for the runner")
     p.add_argument("--minutes", type=int, default=5)
-    sub.add_parser("usage", help="Today's runs and minutes per role against the budget")
+    sub.add_parser("usage", help="Today's runs, minutes, tokens, and cost per role against the budget")
 
 
 def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) -> int:

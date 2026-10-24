@@ -23,6 +23,10 @@ If the budget is tight, the best trade is Gold and Greg on `gpt-6.1-sol` with `e
 
 Models with no role: Sonnet 5.5 scores below Opus 5.5 everywhere above and used 2.4 times the tokens on Terminal-Bench 4.0, so it costs more per task. GPT-6 Luna (16.4% on Terminal-Bench 4.0) and Haiku 5.5 (no agent benchmark yet) are too weak or too new.
 
+## Effort and real cost
+
+Reviews run at `effort.review` (medium) and builds at `effort.build` (high), so a review doesn't pay for build-level reasoning; set `models.<role>.effort` to raise one role, such as Toby's reviews. Every run now logs the tokens and dollars its harness reports, so after a week `softory usage` and `.agents/softory/run/runs.jsonl` show what each role really costs, which is a better guide than the benchmark costs above.
+
 ## Caveats
 
 - **Prompt injection.** Gray Swan's indirect prompt injection test succeeds 1% of the time against Opus 5.5 and 8.5% against GPT-6 Astra (15 attempts, lower is better). Toby and Greg read code and text other agents wrote, so they run in Codex's workspace sandbox, and nothing they read can change the gate.

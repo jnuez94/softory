@@ -64,6 +64,39 @@ class CharterUnitTest(unittest.TestCase):
         deny = perms.settings_for(charter, "jade")["permissions"]["deny"]
         self.assertIn("Edit(./.agents/**)", deny)
 
+    def test_claude_bash_rules_use_the_space_wildcard(self) -> None:
+        allow = perms.settings_for(DEFAULTS, "jade")["permissions"]["allow"]
+        self.assertTrue(all(rule.endswith(" *)") for rule in allow if rule.startswith("Bash(")))
+
+    def test_usage_reads_each_harness_report(self) -> None:
+        from softory import usage
+        claude = json.dumps({"type": "result", "total_cost_usd": 0.1234567,
+                             "usage": {"input_tokens": 10, "cache_creation_input_tokens": 5,
+                                       "cache_read_input_tokens": 100, "output_tokens": 7}})
+        self.assertEqual(usage.parse(claude, "claude-opus-5-5", DEFAULTS["prices"]),
+                         {"input_tokens": 15, "cached_tokens": 100, "output_tokens": 7, "usd": 0.1235})
+        codex = "\n".join([json.dumps({"type": "thread.started"}),
+                           json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1_000_000,
+                                       "cached_input_tokens": 400_000, "output_tokens": 100_000}})])
+        found = usage.parse(codex, "gpt-6-astra", DEFAULTS["prices"])
+        self.assertEqual((found["input_tokens"], found["cached_tokens"]), (600_000, 400_000))
+        self.assertEqual(found["usd"], 6 + 0.4 + 5)
+        self.assertTrue(found["usd_estimated"])
+        self.assertEqual(usage.parse("plain text", "m", {}), {})
+
+    def test_effort_follows_the_job_and_empty_flags_drop(self) -> None:
+        from softory import runner, runprompt
+        self.assertEqual(runprompt.job_of({"reasons": [{"why": "reviews waiting"}, {"why": "unread messages"}]}), "review")
+        self.assertEqual(runprompt.job_of({"reasons": [{"why": "reviews waiting"}, {"why": "assigned work changed"}]}), "build")
+        self.assertEqual(charters.effort_for(DEFAULTS, "toby", "review"), "medium")
+        own = charters.merge(DEFAULTS, {"models": {"toby": {"effort": {"review": "high"}}}})
+        self.assertEqual(charters.effort_for(own, "toby", "review"), "high")
+        pick = {"harness": "codex", "model": "gpt-6-astra"}
+        command = runner.harness_command(None, DEFAULTS, "toby", pick, "go", "high")
+        self.assertIn('model_reasoning_effort="high"', command)
+        self.assertNotIn("-c", runner.harness_command(None, DEFAULTS, "toby", pick, "go", ""))
+        self.assertEqual(command[-1], "go")
+
     def test_quiet_hours_wrap_midnight(self) -> None:
         self.assertTrue(digest._quiet(datetime(2026, 1, 1, 23), [22, 8]))
         self.assertTrue(digest._quiet(datetime(2026, 1, 1, 3), [22, 8]))
@@ -91,14 +124,15 @@ class UnattendedTest(unittest.TestCase):
         run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", name], self.root)
         return run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
 
-    def build(self, task: str, builder: str, sha: str) -> None:
+    def build(self, task: str, builder: str, sha: str, review: bool = True) -> None:
         session = start(self.root, builder)["COORDINATION_SESSION"]
         coord(self.root, "--session", session, "task", "claim", task, "--agent", builder, "--if-revision", revision(self.root, task))
         coord(self.root, "evidence", "add", "--task", task, "--uri", f"commit:{sha}", "--type", "commit", "--actor", builder)
         coord(self.root, "--session", session, "task", "release", task, "--to", "review", "--actor", builder,
               "--if-revision", revision(self.root, task))
-        coord(self.root, "review", "add", "--id", f"REV-{task}-1", "--task", task, "--reviewer", "gold",
-              "--artifact", sha, "--scope", "t", "--decision", "accepted")
+        if review:
+            coord(self.root, "review", "add", "--id", f"REV-{task}-1", "--task", task, "--reviewer", "gold",
+                  "--artifact", sha, "--scope", "t", "--decision", "accepted")
         softory(self.root, "end", "--session", session)
 
     def test_only_the_owner_approves_the_charter(self) -> None:
@@ -201,3 +235,35 @@ class UnattendedTest(unittest.TestCase):
         steps = json.loads(softory(self.root, "setup").stdout)
         self.assertFalse(next(s for s in steps["steps"] if s["step"] == "charter approved")["done"])
         self.assertTrue(Path(steps["schedule"]["launchd"]).is_file())
+
+    def test_reviews_wait_for_passing_tests_and_a_batch(self) -> None:
+        self.approve({"verify": {"command": "true"}, "review_batch": {"min": 1, "max_wait_minutes": 60}})
+        sha = self.commit("web/b.js", "x\n")
+        self.build("TASK-1", "jade", sha, review=False)
+        builder = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
+        self.assertIn("tests not passed", json.dumps(builder["reasons"]))
+        reviewers = [r for r in DEFAULTS["run"]["roles"] if r != "jade"]
+        waiting = lambda: {r for r in reviewers if "reviews waiting" in json.dumps(json.loads(
+            softory(self.root, "pending", r, "--since", "2000-01-01", check=False).stdout)["reasons"])}
+        self.assertEqual(waiting(), set())
+        softory(self.root, "verify", "TASK-1", "--actor", "jade")
+        woken = waiting()
+        self.assertTrue(woken)
+        self.approve({"verify": {"command": "true"}, "review_batch": {"min": 3, "max_wait_minutes": 60}})
+        self.assertEqual(waiting(), set())
+        held = json.loads(softory(self.root, "pending", sorted(woken)[0], "--since", "2000-01-01", check=False).stdout)
+        self.assertEqual(held["batching"]["ids"], ["TASK-1"])
+
+    def test_a_run_gets_the_work_in_its_prompt_and_logs_tokens_and_effort(self) -> None:
+        (self.root / ".git/report.json").write_text(json.dumps({"total_cost_usd": 0.5,
+                                                                 "usage": {"input_tokens": 10, "output_tokens": 5}}))
+        script = 'printf %s "$1" > .git/prompt; echo {effort} > .git/effort; cat .git/report.json'
+        self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script, "sh", "{prompt}"]}},
+                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}}})
+        ran = json.loads(softory(self.root, "run-role", "jade").stdout)
+        self.assertEqual((ran["job"], ran["effort"], ran["usd"], ran["output_tokens"]), ("build", "high", 0.5, 5))
+        self.assertEqual((self.root / ".git/effort").read_text().strip(), "high")
+        prompt = (self.root / ".git/prompt").read_text()
+        self.assertIn("TASK-1 [todo, parent STORY-1] List", prompt)
+        self.assertLess(prompt.index("End with softory end"), prompt.index("Waiting for you"))
+        self.assertEqual(json.loads(softory(self.root, "usage").stdout)["jade"]["usd"], 0.5)

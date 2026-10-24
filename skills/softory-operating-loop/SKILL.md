@@ -13,7 +13,7 @@ description: How a softory role starts, picks up, does, hands off, and closes wo
 eval "$($S start <role> --harness <claude|codex> --model <model>)"   # exports COORDINATION_SESSION and SOFTORY_ROLE
 ```
 
-Running unattended (the runner started you)? The prompt already lists what is waiting, so skip the full orientation and go straight to that unit.
+Running unattended (the runner started you)? The prompt already lists what is waiting with each unit's acceptance criteria, requested changes, and changed files, so skip the full orientation and go straight to the work. A review run clears every waiting review.
 
 Then orient yourself in one pass. Don't page through everything:
 

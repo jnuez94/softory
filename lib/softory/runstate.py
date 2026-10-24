@@ -80,8 +80,13 @@ def budget(project: Project, charter: dict[str, Any], role: str) -> dict[str, An
     """Today's use against the charter's caps, as fractions of each."""
     rows = runs_today(project, role)
     limits = limits_for(charter, role)
-    used = {"runs": len(rows), "minutes": round(sum(r.get("minutes", 0) for r in rows), 1)}
-    share = max(used["runs"] / limits["runs_per_role_per_day"], used["minutes"] / limits["minutes_per_role_per_day"])
+    used = {"runs": len(rows), "minutes": round(sum(r.get("minutes", 0) for r in rows), 1),
+            "usd": round(sum(r.get("usd") or 0 for r in rows), 2),
+            "tokens": {k: sum(r.get(f"{k}_tokens") or 0 for r in rows) for k in ("input", "cached", "output")}}
+    shares = [used["runs"] / limits["runs_per_role_per_day"], used["minutes"] / limits["minutes_per_role_per_day"]]
+    if float(limits.get("usd_per_role_per_day") or 0) > 0:
+        shares.append(used["usd"] / float(limits["usd_per_role_per_day"]))
+    share = max(shares)
     return {**used, "share": round(share, 2), "over": share >= 1, "warn": share >= limits["warn_at"]}
 
 

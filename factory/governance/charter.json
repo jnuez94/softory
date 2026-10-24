@@ -8,11 +8,13 @@
     "needs_owner_tags": ["auth", "data", "paid"]
   },
   "budget": {
-    "description": "Caps per role per day, in runs and minutes, so they hold whatever the model costs. Set for Opus 5.5 and GPT-6 Astra; tune after a week of softory usage. roles overrides any cap for one role.",
+    "description": "Caps per role per day, in runs and minutes, so they hold whatever the model costs. Set for Opus 5.5 and GPT-6 Astra; tune after a week of softory usage. The usd caps are off at 0; usd_per_run is enforced by Claude Code itself, and the daily usd cap counts the cost each run reports. roles overrides any cap for one role.",
     "runs_per_role_per_day": 24,
     "minutes_per_role_per_day": 120,
     "minutes_per_run": 30,
     "warn_at": 0.8,
+    "usd_per_run": 0,
+    "usd_per_role_per_day": 0,
     "roles": {
       "greg": {"minutes_per_run": 15, "minutes_per_role_per_day": 60},
       "darwin": {"minutes_per_run": 20, "minutes_per_role_per_day": 60},
@@ -22,6 +24,11 @@
   "task_caps": {
     "review_rounds": 3,
     "escalate_model_after": 2
+  },
+  "review_batch": {
+    "description": "Wake a reviewer once this many reviews wait, or once the oldest has waited this long, so one run clears several. Reviews also wait until softory verify passes at the commit.",
+    "min": 2,
+    "max_wait_minutes": 60
   },
   "verify": {
     "command": "",
@@ -50,9 +57,22 @@
   "run": {
     "roles": ["greg", "darwin", "quinn", "jade", "gold", "toby"],
     "harnesses": {
-      "claude": ["claude", "-p", "{prompt}", "--model", "{model}", "--settings", "{settings}"],
-      "codex": ["codex", "exec", "--model", "{model}", "--sandbox", "workspace-write", "{prompt}"]
+      "claude": ["claude", "-p", "{prompt}", "--model", "{model}", "--effort", "{effort}", "--settings", "{settings}",
+                 "--output-format", "json", "--max-budget-usd", "{usd_per_run}"],
+      "codex": ["codex", "exec", "--json", "--model", "{model}", "-c", "model_reasoning_effort=\"{effort}\"",
+                "--sandbox", "workspace-write", "{prompt}"]
     }
+  },
+  "effort": {
+    "description": "Reasoning effort by kind of run: review when a role only has reviews, closes, or messages waiting, otherwise build. models.<role>.effort overrides it for one role.",
+    "build": "high",
+    "review": "medium"
+  },
+  "prices": {
+    "description": "USD per million tokens, used only when a harness reports tokens but no cost (Codex). Check them against your plan.",
+    "claude-opus-5-5": {"input": 4, "cached": 0.4, "output": 20},
+    "gpt-6-astra": {"input": 10, "cached": 1, "output": 50},
+    "gpt-6.1-sol": {"input": 2, "cached": 0.1, "output": 10}
   },
   "models": {
     "description": "Per role: the default harness and model, and an optional stronger one used once a task has had escalate_model_after rounds of requested changes. Chosen on 2026-10-24 from benchmarks that fit each role's work; see docs/models.md.",

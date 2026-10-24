@@ -51,9 +51,9 @@ def settings_for(charter: dict[str, Any], role: str) -> dict[str, Any]:
     extra = charter.get("permissions") or {}
     bash = [*COMMON_BASH, *([charter["verify"]["command"]] if charter["verify"].get("command") else []),
             *(extra.get("allow_bash") or [])]
-    allow = ["Read", "Grep", "Glob", "TodoWrite", *edit, *(f"Bash({command}:*)" for command in bash)]
+    allow = ["Read", "Grep", "Glob", "TodoWrite", *edit, *(f"Bash({command} *)" for command in bash)]
     deny = [*(f"{tool}(./{path})" for path in NEVER_EDIT for tool in ("Edit", "Write")), "Read(./.env*)",
-            *(f"Bash({command}:*)" for command in extra.get("deny_bash") or [])]
+            *(f"Bash({command} *)" for command in extra.get("deny_bash") or [])]
     return {"permissions": {"defaultMode": "default", "allow": allow, "deny": deny}}
 
 

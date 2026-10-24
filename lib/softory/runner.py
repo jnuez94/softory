@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import charter as charters
-from . import digest, perms, watch
+from . import digest, perms, runprompt, usage, watch
 from .runstate import budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -90,53 +90,61 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
         return {"role": role, "ran": False, "why": "nothing pending"}
     escalated = bool(wanted.get("escalate"))
     pick = charters.model_for(charter, role, escalated)
-    command = harness_command(project, charter, role, pick, prompt(project, role, pick, wanted))
+    job = runprompt.job_of(wanted)
+    effort = charters.effort_for(charter, role, job)
+    limits = limits_for(charter, role)
+    text = runprompt.build(project, coord, charter, role, pick, wanted, job)
+    command = harness_command(project, charter, role, pick, text, effort, limits.get("usd_per_run") or 0)
     pid_file = state_dir(project) / f"{role}.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
     started = now()
-    limit = float(limits_for(charter, role)["minutes_per_run"]) * 60
+    logs = state_dir(project) / "logs"
+    logs.mkdir(exist_ok=True)
+    out_path = logs / f"{role}-{started.strftime('%Y%m%dT%H%M%SZ')}.out"
     try:
-        child = subprocess.Popen(command, cwd=project.root, env=_clean_env(), start_new_session=True)  # noqa: S603
-        try:
-            code = child.wait(timeout=limit)
-        except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGTERM)
-            code = 124
+        with out_path.open("w", encoding="utf-8") as out:
+            child = subprocess.Popen(command, cwd=project.root, env=_clean_env(), start_new_session=True,  # noqa: S603
+                                     stdout=out, stdin=subprocess.DEVNULL)
+            try:
+                code = child.wait(timeout=float(limits["minutes_per_run"]) * 60)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGTERM)
+                code = 124
     except FileNotFoundError as error:
         code = 127
         print(f"softory: {error}", file=sys.stderr)
     finally:
         pid_file.unlink(missing_ok=True)
+    spent = usage.parse(out_path.read_text(encoding="utf-8", errors="replace") if out_path.is_file() else "",
+                        pick["model"], charter.get("prices") or {})
     row = {"role": role, "started": started.isoformat(timespec="seconds"), "harness": pick["harness"],
-           "model": pick["model"], "escalated": escalated, "exit": code,
-           "minutes": round((now() - started).total_seconds() / 60, 2),
-           "reasons": [r["why"] for r in wanted["reasons"]]}
+           "model": pick["model"], "escalated": escalated, "job": job, "effort": effort, "exit": code,
+           "minutes": round((now() - started).total_seconds() / 60, 2), **spent,
+           "prompt_chars": len(text), "reasons": [r["why"] for r in wanted["reasons"]]}
     with (state_dir(project) / "runs.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(row) + "\n")
     return {"ran": True, **row}
 
 
 def harness_command(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str],
-                    text: str) -> list[str]:
+                    text: str, effort: str = "", usd_per_run: float = 0) -> list[str]:
+    """The harness's template with values filled in. A flag whose value comes out empty is left out."""
     template = charter["run"]["harnesses"].get(pick["harness"])
     if not template:
         raise SoftoryError(f"run.harnesses has no command for {pick['harness']}", "configuration_error")
     settings = perms.write_settings(project, charter, role) if pick["harness"] == "claude" else ""
-    values = {"prompt": text, "model": pick["model"], "settings": str(settings), "role": role}
-    return [part.format(**values) for part in template]
-
-
-def prompt(project: Project, role: str, pick: dict[str, str], wanted: dict[str, Any]) -> str:
-    """Short on purpose: the agent reads the details itself, with limits."""
-    name = project.role(role)["name"]
-    waiting = "; ".join(f"{r['why']}" + (f": {', '.join(r['ids'][:8])}" if r.get("ids") else "")
-                        for r in wanted["reasons"])
-    return (f"You are {name} ({role}) in a softory project, running unattended: nobody is watching. "
-            f"Waiting for you: {waiting}. "
-            f"Start with: eval \"$(.agents/softory/bin/softory start {role} --harness {pick['harness']} "
-            f"--model {pick['model']})\". Follow the softory-operating-loop and softory-token-economy skills. "
-            f"Finish one unit, then stop. If you need the owner, raise an escalation with --owner owner and move on; "
-            f"never wait for an answer. End with softory end.")
+    values = {"prompt": text, "model": pick["model"], "settings": str(settings), "role": role, "effort": effort,
+              "usd_per_run": f"{float(usd_per_run):g}" if float(usd_per_run or 0) > 0 else ""}
+    command: list[str] = []
+    for part in template:
+        filled = part.format(**values)
+        empty = "{" in part and all(not values[k] for k in values if "{" + k + "}" in part)
+        if empty:
+            if command and command[-1].startswith("-"):
+                command.pop()  # the flag that named the empty value
+            continue
+        command.append(filled)
+    return command
 
 
 def schedule(project: Project, minutes: int = 5) -> dict[str, Any]:

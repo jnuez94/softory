@@ -12,6 +12,9 @@ Phase 1 of running unattended: the team works without the owner up to a pull req
 - **Permissions per role.** Claude Code roles run with a generated settings file: edits only in their lane's paths or their docs folder, the coordination and git commands they need, and never softory's or the database's files.
 - **Builders hear about requested changes.** `pending` now wakes a builder whose task in review got a "changes requested", instead of waiting for a message.
 - **Models from role-fit benchmarks.** Darwin, Quinn, Jade, and Gold default to Claude Opus 5.5, which leads Terminal-Bench 4.0 (64.8%) and the WebDev Arena (1807). Toby and Greg default to Codex with GPT-6 Astra, which leads SEC-Bench Pro (85.4%) and ties Opus on CWE-bench (68% to 67%). A cheaper Sol setup with escalation is documented for tight budgets. [docs/models.md](docs/models.md) has the sources.
+- **Less wasted work per run.** Reviewers aren't woken until `softory verify` passed at the commit (the builder is woken to fix the tests instead), and wake in batches: at `review_batch.min` waiting reviews (2) or after `review_batch.max_wait_minutes` (60), clearing all of them in one run. The prompt carries each waiting unit's title, acceptance criteria, requested changes, and changed files, with the fixed rules first so the prompt cache applies. Effort follows the job: `effort.review` (medium) for runs with only reviews, closes, or messages, `effort.build` (high) otherwise, with a per-role override.
+- **Real tokens and cost.** Runs log input, cached, and output tokens and dollars from each harness's own report (`--output-format json` for Claude Code, `--json` for Codex; Codex dollars are estimated from `prices`). `softory usage` totals them. Optional `usd_per_run` and `usd_per_role_per_day` caps, off by default.
+- Claude Code permission rules use the `Bash(cmd *)` form.
 - **`softory setup`** checks the owner's one-time steps and says what is left.
 
 ## [0.3.1] - 2026-10-24

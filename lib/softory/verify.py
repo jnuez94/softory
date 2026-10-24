@@ -24,7 +24,7 @@ from typing import Any
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
-from .units import CODE_EVIDENCE, lane_of, tags_of
+from .units import CODE_EVIDENCE, lane_of, tags_of, unit_of
 
 CODE_UNITS = ("task", "bug")
 _SHA = re.compile(r"\b([0-9a-f]{7,40})\b")
@@ -119,6 +119,16 @@ def changed_files(root: Path, base: str, sha: str) -> list[str] | None:
     if found.returncode != 0:
         return None
     return [line for line in found.stdout.splitlines() if line]
+
+
+def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any], gates: dict[str, Any]) -> str:
+    """'passed', 'failed', or 'not run' at the unit's commit; 'n/a' when the charter has no tests or it isn't code."""
+    if not charter["verify"]["command"] or unit_of(task, gates) not in CODE_UNITS:
+        return "n/a"
+    entry = ledger(project).get(commit_of(project.root, task) or "")
+    if not entry:
+        return "not run"
+    return "passed" if entry["passed"] else "failed"
 
 
 def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit: str | None,
