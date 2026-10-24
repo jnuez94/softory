@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.1] - 2026-10-24
+
+Moves to scaffold **1.4.1**, the schema-1 maintenance release that fixed fifteen of softory's gaps. The schema is unchanged, so Vault Radar's database needs no migration. [docs/gaps.md](docs/gaps.md) lists what 1.4.1 fixed and what softory now uses.
+
+- **Pin.** `dependencies.json` pins scaffold `v1.4.1` (`9e534a6`). The installer accepts 1.4.1 or a later 1.x and still refuses 2.x, which the tracker can't read.
+- **Upgrade with a backup.** Re-running the installer on a project with an older 1.x scaffold (Vault Radar runs 1.4.0) backs the database up with the project's current CLI first, to `.coordination/backups/pre-scaffold-1.4.1-<time>.sqlite3`, and reports the path as `scaffold_backup`. The backup is audited under the owner once the owner is registered. If it fails, the scaffold is left as it was. A project on a newer scaffold, 1.x or 2.x, is refused instead of silently downgraded. The README's upgrade steps say to pause scheduled roles first and how to restore.
+- **Codex reads the current scaffold block.** When a project commits its own `AGENTS.md` with an older scaffold block (Vault Radar's still says `inbox mark-read --cursor HEAD`, which the CLI rejects), the generated `AGENTS.override.md` now carries the installed scaffold's block instead of copying the old one. The tracked file is untouched; `softory doctor` warns about it and says how to update it.
+- **`triage` lists work closed outside softory**: done since install without softory's close or drop note, meaning someone ran `task status done` directly and the gate never saw it. None in Vault Radar's data.
+- **No `.gitignore` edits.** The scaffold installer runs with `--no-gitignore`, replacing softory's snapshot and restore.
+- **Latest review is really the latest.** Review lookups sort by `sequence`. `task show` still sorts reviews by second and then ID, so an accept (REV-9) and a request for changes (REV-10) in the same second read as "accepted"; softory now re-reads that task's reviews in recorded order, and the gate holds.
+- **Closers don't become builders.** Claims made only to close or drop use `task claim --no-assign`, instead of adding the assignee and taking it back.
+- **Rulings and proposals name who recorded them.** `softory ruling` and `softory propose` pass `--recorded-by`, so the audit row is written by the role, and the decision stays the owner's.
+- `softory doctor` adds `warnings` from the scaffold's new filesystem report, such as FUSE leftovers beside the database. They never fail doctor.
+- Softory ignores an inherited `COORDINATION_DB`; the project it runs in decides the database.
+- The scaffold's strict `closure_policy` and `dependency_policy` stay off: they would refuse review records, dropped work, and stacked work. See S24.
+
 ## [0.3.0] - 2026-10-23
 
 From the owner's eight points after a week in Vault Radar, and an independent review of 0.2.0. Don't install 0.2.0; install this.

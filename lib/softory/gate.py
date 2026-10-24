@@ -138,7 +138,7 @@ def closers(task: dict[str, Any], gates: dict[str, Any]) -> set[str]:
 
 
 def latest_reviews(task: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Each reviewer's most recent review, in the CLI's (created_at, id) order."""
+    """Each reviewer's most recent review, in insertion order (the CLI's ``sequence``)."""
     latest: dict[str, dict[str, Any]] = {}
     for review in task.get("reviews") or []:
         latest[review.get("reviewer_id") or review["reviewer"]] = review

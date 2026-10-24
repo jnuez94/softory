@@ -2,6 +2,30 @@
 
 Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker at **`ee3dee6`**. Each gap lists what softory does in the meantime and a suggested fix upstream. They're ordered by impact.
 
+## Fixed in scaffold 1.4.1
+
+Scaffold **1.4.1** (`9e534a6`, tag `v1.4.1`, the schema-1 `1.x` branch) fixed fifteen of the gaps below, and its tags and maintenance branch settle S7 and S8. Softory 0.3.1 pins it. Schema version 1 is unchanged, so an upgrade needs no migration; softory's installer backs the database up first anyway.
+
+| Gap | What 1.4.1 added | What softory does now |
+| --- | --- | --- |
+| S1, S2 | `closure_policy: strict` and `dependency_policy: strict` in `.coordination/config.yml`, both off by default | Leaves both off. Strict closure would refuse review records and dropped work, and strict dependencies would refuse stacked work (S24). `softory close` still runs the gate. |
+| S3 | `--no-gitignore` and `--ignore-file` on the installer | Passes `--no-gitignore`; the `.gitignore` snapshot and restore are gone. |
+| S6 | `agent update` edits the profile fields | Not used yet. Roles registered before softory, as in Vault Radar, keep their own profiles. |
+| S7, S8 | Release tags, and a `1.x` branch for schema 1 | Pins the `v1.4.1` commit. |
+| S9 | Repeatable `task list --tag` with AND | Not needed yet; softory still filters in Python. |
+| S10 | Review rows carry `sequence`, and `review list` sorts by it | Sorts by `sequence`. `task show` still sorts by second and then ID (S23), so softory re-reads a task's reviews from `review list` when two share a second. |
+| S11 | `doctor` reports the database's filesystem and FUSE leftovers | `softory doctor` shows these under `warnings`; they never fail it. |
+| S12 | `COORDINATION_DB`, and discovery from a linked worktree | Softory ignores an inherited `COORDINATION_DB`, so the project it runs in decides the database. |
+| S13 | `health` lists `tasks_with_accepting_reviews` | `softory triage` still lists them, with the gate's view. |
+| S16 | `inbox count` and `audit activity` | Not used yet; `softory pending` still composes its answer. |
+| S17 | `dependency list` | Not used yet. |
+| S19 | `task claim --no-assign` | Claims to close or drop use it, so the closer never becomes a builder. |
+| S20 | `decision add --recorded-by` | `softory ruling` and `softory propose` use it: the decision stays the owner's, and the audit row names the role that recorded it. |
+| S21 | The AGENTS block marks the inbox read with the listing's `head` | Picked up on install. A project that commits its own `AGENTS.md` keeps its older block, so the Codex override swaps in the installed one and `doctor` warns. |
+| S22 | `next_offset` on full pages | `softory all` keeps paging until a short page, which still works. |
+
+Still open: S4, S5, S14, S15, S18, and the new S23 and S24.
+
 ## Scaffold (agentic-project-scaffold-lite 1.4.0)
 
 | # | Gap | Impact | Softory's workaround | Suggested fix |
@@ -28,6 +52,8 @@ Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker a
 | S20 | **Recording someone else's decision fails in a session.** `decision add --owner owner` from a role's session fails with `session_actor_mismatch`, and decisions have no recorded-by field. | Agents log the owner's rulings under their own name, as Quinn did in Vault Radar | `softory ruling` records it without a session, owned by the owner, with "recorded by <role> (<session>)" and where the owner said it in the context. | A `--recorded-by` field on decisions, filled from the session. |
 | S21 | **The scaffold's own instructions don't match its CLI.** The AGENTS block says `inbox mark-read --cursor HEAD`, but `--cursor` takes only a number, and the block never mentions `message show`. | Agents fail to mark their inbox read, and believe they can't show one message | `softory inbox` prints the exact `--mark-read N`, and `softory message <ID>` wraps `message show`. | Correct the block to use the `head` number from `inbox list` (a literal `HEAD` would also mark messages that arrived after the listing), and document `message show`. |
 | S22 | **Lists stop at 500 rows with no total or next page.** | A caller can't tell a full page from the end | `softory all <entity> list` pages until a short page. | Return `total` or `next_offset` in list envelopes. |
+| S23 | **`task show` still sorts reviews by `created_at` and then ID** (found on 1.4.1). Only `review list` sorts by `sequence`, and `task show`'s reviews carry no `sequence`. Verified: two reviews added in one second come back as REV-10 before REV-9. | Anyone reading "latest review" from `task show` can take an accept as the last word when a request for changes followed it in the same second | Softory re-reads the task's reviews from `review list --order-by sequence:asc` whenever two share a second. | Sort `task show`'s reviews by rowid and include `sequence`, as `review list` does. |
+| S24 | **The strict policies can't express softory's rules** (1.4.1). `closure_policy: strict` wants an accepted review on the task itself, so it refuses a review record (which closes on its own verdicts) and dropped work (which has none). `dependency_policy: strict` refuses a claim on work stacked on unfinished work. | S1 and S2 stay honor-system in softory projects | Both policies stay off; `softory close` runs the gate, and `softory triage` lists units that reached done without it. | Let strict closure accept a recorded `--because decision:<ID>` instead of a review (softory's drops already pass one), or add S18's `cancelled`, and exempt tasks tagged as records; or offer a pre-transition hook. Let strict dependencies take a dependency type that means "built on" without blocking a claim. |
 
 ## Tracker (agentic-scaffold-project-task-tracker, `ee3dee6`)
 
@@ -39,5 +65,6 @@ Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker a
 | T4 | **CLI support stops below 2.0.0.** | See S8 | Pin 1.4.0 | Support schema 2, or document the 1.x branch. |
 | T5 | **Reviews don't show gate status.** There's no "required reviewers" or self-review flag. | Operators can't see why a unit can't close | `softory gate` and `softory reviewers` | Optional: read a project-local gates file, or show a "reviewed by assignee" warning. |
 | T6 | **No view of finished-but-open work.** There's no filter for open tasks whose latest review accepts them. | The tracker shows a large todo list that is mostly done | `softory triage` | A filter or health card: open tasks with an accepted latest review and no open rejection. |
+| T7 | **Its tests expect CLI version `1.4.0` exactly.** Against scaffold 1.4.1, 510 of 514 tests pass at `ee3dee6`; the other four assert the version string. The console itself accepts `>=1.4.0,<2.0.0` and works. | Its suite reads as failing on any newer 1.x | None needed; softory doesn't run the tracker's tests. | Compare against `SUPPORTED_CLI_VERSION` or the installed CLI's version instead of a literal. |
 
-S1 matters most. Until the CLI enforces closure rules, softory's boundaries hold only as long as agents follow the operating loop.
+S1 matters most. Scaffold 1.4.1 can now enforce closure, but not in a form that allows softory's review records and dropped work (S24), so softory's boundaries still hold only as long as agents follow the operating loop.

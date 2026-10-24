@@ -2,10 +2,12 @@
   "schema": 1,
   "scaffold": {
     "repository": "https://github.com/jnuez94/agentic-project-scaffold-lite",
-    "version": "1.4.0",
-    "commit": "172df835aaaf119151901927641d04f04e27bbc2",
+    "version": "1.4.1",
+    "commit": "9e534a6282c972b88151028ce0eadef57ed41e1d",
     "adapter": "sqlite",
-    "why_not_2x": "2.0.0 adds an audit change log, archiving, and an explicit migrate command; none is needed yet, and the tracker supports CLI >=1.4.0,<2.0.0. Upgrading later is `coordination migrate`."
+    "why_not_2x": "2.0.0 moves to schema version 2 (ledger, change log, migrate, archive), and the tracker supports CLI >=1.4.0,<2.0.0. 1.4.1 is the schema-1 maintenance release on the 1.x branch, with fixes for 15 of softory's gaps.",
+    "tag": "v1.4.1",
+    "minimum": "1.4.1"
   },
   "tracker": {
     "repository": "https://github.com/jnuez94/agentic-scaffold-project-task-tracker",

@@ -346,3 +346,88 @@ class WaiverAndIntegrityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FAKE_CLI = '''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_CLI_LOG"], "a") as log:
+    log.write(" ".join(args) + "\\n")
+tie = os.environ.get("FAKE_CLI_TIE") == "1"
+second = "2026-10-24T10:00:01+00:00"
+# Recorded in this order: REV-9 accepted, then REV-10 asks for changes.
+nine = {"id": "REV-9", "reviewer_id": "gold", "decision": "accepted", "created_at": "2026-10-24T10:00:00+00:00"}
+ten = {"id": "REV-10", "reviewer_id": "gold", "decision": "changes_requested", "created_at": second}
+if tie:
+    nine["created_at"] = second
+if args[:2] == ["task", "show"]:
+    shown = [ten, nine] if tie else [nine, ten]  # task show sorts by created_at, then ID text
+    data = {"id": args[2], "reviews": shown}
+elif args[:2] == ["review", "list"]:
+    data = [dict(nine, sequence=1), dict(ten, sequence=2)]
+else:
+    data = None
+print(json.dumps({"ok": True, "data": data}))
+'''
+
+
+class ReviewOrderTest(unittest.TestCase):
+    """``task show`` sorts reviews by whole seconds, then ID, so REV-10 can come before REV-9."""
+
+    def setUp(self) -> None:
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from softory.coordination import Coordination
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        binary = Path(folder.name) / "coordination"
+        binary.write_text(FAKE_CLI)
+        binary.chmod(0o755)
+        self.log = Path(folder.name) / "calls.log"
+        self.coord = Coordination(binary, Path(folder.name))
+        self.environ = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.environ)))
+        os.environ["FAKE_CLI_LOG"] = str(self.log)
+
+    def test_a_tie_reads_reviews_in_the_order_they_were_recorded(self) -> None:
+        import os
+
+        os.environ["FAKE_CLI_TIE"] = "1"
+        task = self.coord.task("TASK-1")
+        self.assertEqual([r["id"] for r in task["reviews"]], ["REV-9", "REV-10"])
+        self.assertEqual(gate.latest_reviews(task)["gold"]["decision"], "changes_requested")
+
+    def test_no_tie_costs_no_extra_call(self) -> None:
+        import os
+
+        os.environ["FAKE_CLI_TIE"] = "0"
+        self.assertEqual([r["id"] for r in self.coord.task("TASK-1")["reviews"]], ["REV-9", "REV-10"])
+        self.assertEqual(self.log.read_text().splitlines(), ["task show TASK-1"])
+
+    def test_an_inherited_database_path_is_ignored(self) -> None:
+        import os
+
+        os.environ["COORDINATION_DB"] = "/somewhere/else.sqlite3"
+        os.environ["FAKE_CLI_TIE"] = "0"
+        probe = self.log.parent / "env.txt"
+        script = self.coord.binary.read_text().replace(
+            "args = sys.argv[1:]", f"args = sys.argv[1:]\nopen({str(probe)!r}, 'w').write(os.environ.get('COORDINATION_DB', ''))")
+        self.coord.binary.write_text(script)
+        self.coord.task("TASK-1")
+        self.assertEqual(probe.read_text(), "")
+
+
+class ScaffoldBlockTest(unittest.TestCase):
+    def test_refresh_swaps_only_the_scaffold_block(self) -> None:
+        from softory import instructions
+
+        start, end = instructions.SCAFFOLD_START, instructions.SCAFFOLD_END
+        text = f"# Rules\n\n{start}\nold --cursor HEAD\n{end}\n\nUse tabs.\n"
+        current = f"{start}\nnew head number\n{end}\n"
+        self.assertEqual(instructions.refresh_scaffold_block(text, current),
+                         f"# Rules\n\n{start}\nnew head number\n{end}\n\nUse tabs.\n")
+        self.assertEqual(instructions.refresh_scaffold_block("# Rules\n", current), "# Rules\n")
+        self.assertEqual(instructions.refresh_scaffold_block(text, None), text)

@@ -43,6 +43,16 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
     check("coordination_cli", str(cli).startswith("1."), f"CLI {cli} (tracker needs >=1.4.0,<2.0.0)")
     health = coord.call("doctor")
     check("coordination_doctor", bool(health.get("ok")), "database healthy" if health.get("ok") else str(health.get("error")))
+    # Scaffold 1.4.1 reports the database's filesystem. A warning never fails doctor:
+    # it can't tell a VM that's still attached from one that left files behind.
+    report = health.get("data") or {}
+    warnings = [report["filesystem_warning"]] if report.get("filesystem_warning") else []
+    if report.get("filesystem_fuse_leftovers"):
+        warnings.append("Leftover files beside the database: " + ", ".join(report["filesystem_fuse_leftovers"])
+                        + ". Delete them only when nothing in a VM or container has the folder open.")
+    older = _older_scaffold_block(project)
+    if older:
+        warnings.append(older)
     check("tracker", (project.bundle / "tracker" / "coordination_ui" / "__main__.py").is_file(), "tracker console present")
     missing = [r for r in project.role_ids() if not coord.agent_exists(r)]
     check("roles_registered", not missing, "missing: " + ", ".join(missing) if missing else "all roles registered")
@@ -61,7 +71,31 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
           "softory's rules, code, and local.json are as installed" if changed == []
           else "installed before integrity checks; re-run the installer" if changed is None
           else "changed since install: " + ", ".join(changed) + ". The gate fails until it's restored or reinstalled.")
-    return {"pass": all(c["pass"] for c in checks), "checks": checks, "installed_paths": paths}
+    return {"pass": all(c["pass"] for c in checks), "checks": checks, "warnings": warnings, "installed_paths": paths}
+
+
+def _installed_scaffold_block(project: Project) -> str | None:
+    """The installed scaffold's AGENTS block, saved at install (None before 0.3.1)."""
+    path = project.bundle / "generated" / instructions.SCAFFOLD_BLOCK_FILE
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+def _older_scaffold_block(project: Project) -> str | None:
+    """A warning when the project's own tracked AGENTS.md carries a scaffold block that differs
+    from the installed scaffold's. Codex gets the current one through AGENTS.override.md;
+    Claude Code reads AGENTS.md itself, and softory never edits a tracked file."""
+    current = _installed_scaffold_block(project)
+    agents = project.root / "AGENTS.md"
+    if not current or not agents.is_file() or not gitlocal.is_tracked(project.root, "AGENTS.md"):
+        return None
+    theirs = instructions.scaffold_block_of(agents.read_text(encoding="utf-8"))
+    if theirs is None or theirs.strip() == current.strip():
+        return None
+    stale = " It still says `inbox mark-read --cursor HEAD`, which the CLI rejects." if "--cursor HEAD" in theirs else ""
+    return ("AGENTS.md (tracked) has a scaffold block that differs from the installed scaffold's." + stale
+            + " To update it, replace everything between the agentic-project-scaffold-lite markers with "
+            f"{project.bundle.relative_to(project.root)}/generated/{instructions.SCAFFOLD_BLOCK_FILE}, "
+            "commit, and run softory sync.")
 
 
 def _stale_instruction_files(project: Project) -> list[str]:
@@ -74,7 +108,7 @@ def _stale_instruction_files(project: Project) -> list[str]:
         if action != "override" or not path.is_file():
             continue
         source = (project.root / "AGENTS.md").read_text(encoding="utf-8")
-        expected = instructions.OVERRIDE_HEADER + instructions.upsert_block(source, instructions.managed_block(body))
+        expected = instructions.override_text(source, body, _installed_scaffold_block(project))
         if path.read_text(encoding="utf-8") != expected:
             stale.append(name)
     return stale
@@ -104,7 +138,7 @@ def sync(project: Project) -> list[str]:
     generated = project.bundle / "generated"
     base_file = generated / "base.md" if (generated / "base.md").is_file() else generated / "instructions.md"
     body = instructions.compose(base_file.read_text(encoding="utf-8"), project.stand_ins())
-    instructions.write(project.root, actions, body)
+    instructions.write(project.root, actions, body, _installed_scaffold_block(project))
     (generated / "instructions.md").write_text(body, encoding="utf-8")
     return sorted(actions)
 

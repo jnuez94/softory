@@ -4,7 +4,7 @@ A software factory for Claude Code and Codex that uses the scaffold and tracker 
 
 Softory is built on two existing projects. It installs both:
 
-- [agentic-project-scaffold-lite](https://github.com/jnuez94/agentic-project-scaffold-lite) **1.4.0** is the harness-agnostic coordination layer: agents, sessions, tasks, reviews, decisions, escalations, and an audit log in a local SQLite database behind a deterministic CLI.
+- [agentic-project-scaffold-lite](https://github.com/jnuez94/agentic-project-scaffold-lite) **1.4.1** is the harness-agnostic coordination layer: agents, sessions, tasks, reviews, decisions, escalations, and an audit log in a local SQLite database behind a deterministic CLI.
 - [agentic-scaffold-project-task-tracker](https://github.com/jnuez94/agentic-scaffold-project-task-tracker) is a local web console over that database, for tracking decisions, tasks, reviews, escalations, and health.
 
 On top of them, softory adds the team, the rules, and the craft.
@@ -34,8 +34,8 @@ git clone https://github.com/jnuez94/softory.git
 
 The target must be the root of a git repository. The installer:
 
-1. Clones scaffold 1.4.0 and the tracker at the commits pinned in [dependencies.json](dependencies.json). Use `--scaffold-src` and `--tracker-src` to use local checkouts instead.
-2. Runs the scaffold's own installer with the SQLite backend.
+1. Clones scaffold 1.4.1 and the tracker at the commits pinned in [dependencies.json](dependencies.json). Use `--scaffold-src` and `--tracker-src` to use local checkouts instead.
+2. Runs the scaffold's own installer with the SQLite backend. A project on an older 1.x scaffold, such as 1.4.0, is upgraded in place after a backup to `.coordination/backups/pre-scaffold-<version>-<time>.sqlite3`. A newer scaffold is refused.
 3. Copies softory's factory, CLI, and tracker into `.agents/softory/`, and the skills into `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex).
 4. Writes the operating instructions where both harnesses read them (below).
 5. Registers `owner` (you) and the six roles in the coordination database.
@@ -50,7 +50,7 @@ Re-running it upgrades softory in place and keeps your coordination history.
 Everything softory adds is local. Nothing shows in `git status`, and nothing can be committed by accident.
 
 - Softory uses **`.git/info/exclude`**, not `.gitignore`. Exclude rules work the same way but live only in your local `.git` folder, so the project's history and other clones show no trace of the factory. Each clone runs the installer once.
-- The scaffold's installer edits `.gitignore`. Softory restores the file byte for byte afterwards.
+- Softory runs the scaffold's installer with `--no-gitignore`, so it doesn't touch `.gitignore`.
 - Softory never edits a file the project tracks. If the project commits its own `AGENTS.md`, softory leaves it alone and writes `AGENTS.override.md`, which Codex reads instead. It holds a copy of your `AGENTS.md` plus softory's block, and `softory sync` refreshes it. For Claude Code, softory writes `CLAUDE.local.md`, which imports `@AGENTS.md` when your project relies on it.
 - `softory doctor` checks all of this and lists every installed path.
 
@@ -128,6 +128,20 @@ git -C softory pull
 ```
 
 Sessions started before an upgrade keep the old rules until they restart; `softory triage` lists them.
+
+The installer replaces the coordination CLI too when softory pins a newer scaffold, so upgrade between runs:
+
+1. Pause scheduled roles (launchd, cron, or Codex automations) and let running sessions finish or end them.
+2. Run the installer. When it upgrades the scaffold it backs the database up first and prints the path as `scaffold_backup`.
+3. Check `.agents/softory/bin/softory doctor`, then resume the schedules.
+
+If something looks wrong afterwards, restore the backup with no sessions active:
+
+```sh
+.agents/agentic-project-scaffold-lite/bin/coordination restore --input <scaffold_backup> --actor owner --force
+```
+
+Scaffold 1.4.0 and 1.4.1 share schema version 1, so either CLI can restore it.
 
 ### Who changes the rules
 

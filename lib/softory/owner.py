@@ -157,7 +157,7 @@ def propose(project: Project, coord: Coordination, kind: str, change: dict[str, 
     session = os.environ.get("COORDINATION_SESSION") or "no session"
     decision = record_decision(coord, owner, "PROP", f"Proposed by {actor}: {title}", title,
                                f"Proposed by {actor} ({session}): {why}. Waiting for the owner's softory approve {proposal_id}.",
-                               status="proposed")
+                               status="proposed", recorded_by=actor)
     proposal = {"id": proposal_id, "kind": kind, "change": checked, "why": why, "proposed_by": actor,
                 "session": session, "created_at": _now(), "decision": decision, "status": "open"}
     _save_proposals(project, [*existing, proposal])
@@ -319,18 +319,20 @@ def ruling(project: Project, coord: Coordination, title: str, decision: str, whe
     session = os.environ.get("COORDINATION_SESSION") or "no session"
     background = f"Recorded by {actor} ({session}) on the owner's behalf. The owner said it here: {where}."
     decision_id = record_decision(coord, owner, f"RULING-{actor}", f"Owner ruling (recorded by {actor}): {title}",
-                                  decision, background + (f" {context}" if context else ""))
+                                  decision, background + (f" {context}" if context else ""), recorded_by=actor)
     return {"decision": decision_id, "owner": owner, "recorded_by": actor,
             "note": "A ruling is a record. It doesn't change the gate; a stand-in or waiver still needs softory approve."}
 
 
 def record_decision(coord: Coordination, owner: str, kind: str, title: str, decision: str, context: str,
-                    status: str = "accepted") -> str:
-    """Add a decision owned by ``owner``. No session: the owner's name can't match a role's session."""
+                    status: str = "accepted", recorded_by: str | None = None) -> str:
+    """Add a decision owned by ``owner``. No session: the owner's name can't match a role's session.
+    ``recorded_by`` writes the audit row under the role that recorded it (scaffold 1.4.1)."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     decision_id = f"SOFTORY-DEC-{kind}-{stamp}"
+    recorder = ["--recorded-by", recorded_by] if recorded_by and recorded_by != owner else []
     coord.run("decision", "add", "--id", decision_id, "--title", title[:200], "--owner", owner, "--status", status,
-              "--context", context, "--decision", decision)
+              "--context", context, "--decision", decision, *recorder)
     return decision_id
 
 

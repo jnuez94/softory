@@ -16,6 +16,16 @@ from .errors import SoftoryError
 from .project import Project
 from .units import stack_of, tags_of, unit_of
 
+#: The note every softory close leaves on a task; triage looks for done work without one.
+CLOSE_NOTE = "closed through softory gate"
+DROP_NOTE = "dropped ("
+
+
+def closed_by_softory(task: dict[str, Any]) -> bool:
+    """Whether a done task's note is one softory's close or drop wrote."""
+    note = task.get("notes") or ""
+    return note.startswith(CLOSE_NOTE) or note.startswith(DROP_NOTE)
+
 
 def update_tags(coord: Coordination, task: dict[str, Any], tags: list[str], actor: str) -> None:
     """Rewrite a task's tags. A task the actor holds needs its session; one held by someone else fails."""
@@ -26,17 +36,17 @@ def update_tags(coord: Coordination, task: dict[str, Any], tags: list[str], acto
 def move_to_done(coord: Coordination, task_id: str, actor: str, note: str, because: str | None = None) -> None:
     """Take a task to done through the moves the scaffold allows.
 
-    From todo or blocked that means a claim, which needs the actor's session
-    and makes the actor an assignee; softory takes that assignment back after.
+    From todo or blocked that means a claim, which needs the actor's session.
+    ``--no-assign`` keeps the claim from making the actor one of the builders.
     """
     task = coord.task(task_id)
-    was_assigned = actor in (task.get("assignees") or [])
     status = task["status"]
     if status == "in_progress" and task.get("claimed_by") != actor:
         raise SoftoryError(f"{task_id} is claimed by {task.get('claimed_by')}; they must release it first",
                            "task_already_claimed")
     if status in ("todo", "blocked"):
-        coord.run("task", "claim", task_id, "--agent", actor, "--if-revision", str(task["revision"]), session=True)
+        coord.run("task", "claim", task_id, "--agent", actor, "--no-assign", "--if-revision", str(task["revision"]),
+                  session=True)
         status = "in_progress"
     if status == "in_progress":
         coord.run("task", "release", task_id, "--to", "review", "--actor", actor,
@@ -44,8 +54,6 @@ def move_to_done(coord: Coordination, task_id: str, actor: str, note: str, becau
     extra = ["--because", because] if because else []
     coord.run("task", "status", task_id, "done", "--actor", actor, "--if-revision", _revision(coord, task_id),
               "--note", note, *extra)
-    if not was_assigned and actor in (coord.task(task_id).get("assignees") or []):
-        coord.run("task", "assign", task_id, "--actor", actor, "--remove", actor, "--if-revision", _revision(coord, task_id))
 
 
 def _revision(coord: Coordination, task_id: str) -> str:
@@ -95,7 +103,7 @@ def drop(project: Project, coord: Coordination, task_id: str, reason: str, super
     if superseded_by:
         tags.append(f"superseded-by:{superseded_by}")
     update_tags(coord, coord.task(task_id), tags, actor)
-    move_to_done(coord, task_id, actor, f"dropped ({kind}): {reason}", because=f"decision:{decision_id}")
+    move_to_done(coord, task_id, actor, f"{DROP_NOTE}{kind}): {reason}", because=f"decision:{decision_id}")
     parent = next((t.split(":", 1)[1] for t in tags if t.startswith("parent:")), None)
     result = {"dropped": task_id, "resolution": kind, "decision": decision_id}
     if superseded_by:
@@ -167,7 +175,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
     closed = []
     for member_id in order:
         try:
-            move_to_done(coord, member_id, actor, f"closed through softory gate with stack {name}")
+            move_to_done(coord, member_id, actor, f"{CLOSE_NOTE} with stack {name}")
         except SoftoryError as error:
             return {"closed": False, "stack": name, "closed_before_error": closed, "error": error.message}
         closed.append(member_id)
