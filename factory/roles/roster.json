@@ -47,8 +47,7 @@
         "Bug priority (not severity)"
       ],
       "review_authority": [
-        "Acceptance review on stories and epics",
-        "UX copy review for product voice (Darwin decides final wording)"
+        "Acceptance review on stories and epics"
       ],
       "escalation_rules": [
         "Scope, timeline, or external commitment changes go to the owner",

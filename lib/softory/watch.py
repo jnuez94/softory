@@ -1,8 +1,7 @@
 """For schedulers and the owner: should a role run now, and which roles have gone quiet?
 
-Neither starts a session or a model, so a scheduler can call them every few
-minutes for free: ``softory pending greg && codex exec ...`` and
-``softory silent --notify``.
+Neither starts a session or a model, so the runner can call them every tick
+for free.
 """
 
 from __future__ import annotations
@@ -118,13 +117,8 @@ def review_rounds(board: Board) -> dict[str, int]:
             if (n := sum(1 for r in rows if r.get("decision") not in accepting))}
 
 
-def silent(project: Project, coord: Coordination, hours: float = 12.0, notify: bool = False,
-           sender: str = "owner") -> dict[str, Any]:
-    """Roles with work waiting and no session seen for ``hours`` (or ever).
-
-    ``notify`` messages the owner once a day per silent role, so a scheduler
-    can run this hourly without repeating itself.
-    """
+def silent(project: Project, coord: Coordination, hours: float = 12.0) -> dict[str, Any]:
+    """Roles with work waiting and no session seen for ``hours`` (or ever). The digest reports them."""
     board = Board(project, coord)
     now = datetime.now(timezone.utc)
     roster = project.roster()
@@ -147,21 +141,7 @@ def silent(project: Project, coord: Coordination, hours: float = 12.0, notify: b
         quiet.append({"agent": agent, "last_seen": seen,
                       "hours_silent": None if seen is None else round((now - parse_time(seen)).total_seconds() / 3600, 1),
                       "waiting": {k: v for k, v in waiting.items() if v}})
-    notified = []
-    if notify:
-        owner = roster["owner"]["id"]
-        day = now.strftime("%Y%m%d")
-        for row in quiet:
-            message_id = f"SOFTORY-SILENT-{row['agent']}-{day}"
-            if coord.call("message", "show", message_id).get("ok"):
-                continue  # already told the owner today
-            since = f"since {row['last_seen']}" if row["last_seen"] else "ever"
-            waiting = ", ".join(f"{count} {kind.replace('_', ' ')}" for kind, count in row["waiting"].items())
-            coord.run("message", "send", "--id", message_id, "--sender", sender, "--recipient", owner,
-                      "--body", f"{row['agent']} has had no session {since}, with work waiting: {waiting}. "
-                                f"Check its schedule, or reassign the work.")
-            notified.append(row["agent"])
-    return {"hours": hours, "silent": quiet, "notified": notified}
+    return {"hours": hours, "silent": quiet}
 
 
 def last_seen(coord: Coordination, agent: str) -> str | None:

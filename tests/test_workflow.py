@@ -491,16 +491,12 @@ class WorkflowTest(unittest.TestCase):
         rows = json.loads(softory(self.root, "all", "task", "list", "--tag", "unit:task").stdout)
         self.assertEqual([row["id"] for row in rows], ["TASK-1"])
 
-    def test_silent_roles_alert_the_owner_once_a_day(self) -> None:
+    def test_silent_lists_roles_with_work_and_no_session(self) -> None:
         quiet = json.loads(softory(self.root, "silent", "--hours", "1", check=False).stdout)
         self.assertIn("jade", [row["agent"] for row in quiet["silent"]])  # TASK-1 waits, and jade never ran
         self.assertNotIn("darwin", [row["agent"] for row in quiet["silent"]])  # nothing waits for darwin
         start(self.root, "jade")
         self.assertNotIn("jade", [row["agent"] for row in json.loads(softory(self.root, "silent", "--hours", "1", check=False).stdout)["silent"]])
-        first = json.loads(softory(self.root, "silent", "--hours", "1", "--notify", check=False).stdout)
-        again = json.loads(softory(self.root, "silent", "--hours", "1", "--notify", check=False).stdout)
-        self.assertTrue(first["notified"])
-        self.assertEqual(again["notified"], [])
 
     def test_story_without_an_epic_is_flagged(self) -> None:
         made = json.loads(softory(self.root, "new", "story", "--title", "Loose", "--actor", "greg").stdout)

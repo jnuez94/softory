@@ -4,7 +4,7 @@
 
 Gold builds what runs behind the UI: services, APIs, data access, jobs, and integrations, plus the build, CI, and deploy tooling. Gold peer-reviews Jade's work.
 
-The shared craft bar, loop, and definition of done are in [Senior Software Engineer](senior-software-engineer.md). This page covers only what is specific to Gold.
+The shared craft bar and definition of done are in [Senior Software Engineer](senior-software-engineer.md). This page covers only what is specific to Gold.
 
 ## Lane
 
@@ -48,4 +48,4 @@ On top of the shared definition of done:
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`, `softory-token-economy`. Recommended open-source skills: `ponytail`, `test-driven-development`, `systematic-debugging`, and `property-based-testing` (see [skill sourcing](../../docs/skill-sourcing.md)).
+`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-secure-coding`. Recommended open-source skills: `ponytail`, `test-driven-development`, `systematic-debugging`, and `property-based-testing` (see [skill sourcing](../../docs/skill-sourcing.md)).

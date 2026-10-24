@@ -28,7 +28,7 @@ class FreshProjectTest(unittest.TestCase):
         local = (self.root / "CLAUDE.local.md").read_text()
         for text in (agents, local):
             self.assertIn("Softory software factory", text)
-            self.assertIn("agentic-project-scaffold-lite:start", text)
+            self.assertNotIn("agentic-project-scaffold-lite:start", text)  # softory's rules cover it
         self.assertNotIn("@AGENTS.md", local)  # softory owns AGENTS.md, so no import needed
 
     def test_skills_installed_for_claude_and_codex(self) -> None:

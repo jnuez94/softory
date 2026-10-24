@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("feedback", help="Tell softory's maintainers what got in your way; --list shows the notes")
     p.add_argument("note", nargs="?", help="What happened, and what you expected")
-    p.add_argument("--kind", choices=["friction", "bug", "idea"], default="friction")
+    p.add_argument("--kind", choices=feedback.KINDS, default="friction")
     p.add_argument("--task", help="The unit you were working on")
     p.add_argument("--actor", help="Your role (default: $SOFTORY_ROLE)")
     p.add_argument("--list", action="store_true", help="Show every note recorded in this project")
@@ -166,8 +166,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("silent", help="Exit 0 if a role has work waiting and no session for --hours; 3 if none")
     p.add_argument("--hours", type=float, default=12.0)
-    p.add_argument("--notify", action="store_true", help="Message the owner, once a day per silent role")
-    p.add_argument("--sender", default="owner", help="Who the message is from (default: owner)")
 
     p = sub.add_parser("inbox", help="Your unread messages, and the number to mark them read with")
     p.add_argument("--agent", help="Default: $SOFTORY_ROLE")
@@ -310,7 +308,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(result), end="")
         return 0 if result["pending"] else 3
     elif args.command == "silent":
-        result = watch.silent(project, coord, args.hours, args.notify, args.sender)
+        result = watch.silent(project, coord, args.hours)
         print(ops.dumps(result), end="")
         return 0 if result["silent"] else 3
     elif args.command == "inbox":

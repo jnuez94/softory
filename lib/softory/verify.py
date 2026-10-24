@@ -23,6 +23,7 @@ from typing import Any
 
 from .coordination import Coordination
 from .errors import SoftoryError
+from .gitlocal import git
 from .project import Project
 from .units import CODE_EVIDENCE, lane_of, tags_of, unit_of
 
@@ -40,10 +41,6 @@ def ledger(project: Project) -> dict[str, Any]:
         return json.loads(ledger_path(project).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-
-
-def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=False)  # noqa: S603,S607
 
 
 def commit_of(root: Path, task: dict[str, Any]) -> str | None:

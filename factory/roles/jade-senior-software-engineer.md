@@ -4,7 +4,7 @@
 
 Jade builds what the user sees and touches: UI components, pages, client state, and the client side of integrations. Jade peer-reviews Gold's work.
 
-The shared craft bar, loop, and definition of done are in [Senior Software Engineer](senior-software-engineer.md). This page covers only what is specific to Jade.
+The shared craft bar and definition of done are in [Senior Software Engineer](senior-software-engineer.md). This page covers only what is specific to Jade.
 
 ## Lane
 
@@ -42,4 +42,4 @@ On top of the shared definition of done:
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-design` (read-only, for the review bar), `softory-token-economy`. Recommended open-source skills: `ponytail`, `webapp-testing`, `test-driven-development`, and `systematic-debugging` (see [skill sourcing](../../docs/skill-sourcing.md)).
+`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-design` (only on `ui` tasks, to check against the spec). Recommended open-source skills: `ponytail`, `webapp-testing`, `test-driven-development`, and `systematic-debugging` (see [skill sourcing](../../docs/skill-sourcing.md)).

@@ -21,7 +21,7 @@ The agent ID is the durable identity. The harness and model are recorded per **s
 .agents/softory/bin/softory start quinn --harness codex   # any harness works
 ```
 
-The recommendations follow two principles: **each role on the model that scores best at its own kind of work**, and **the gates that decide "safe" and "done" on a different model from the builders**. Darwin, Quinn, Jade, and Gold run on Claude Opus 5.5, which leads the agent-coding and web-design benchmarks. Toby and Greg run on Codex with GPT-6 Astra, which leads the defensive-security benchmarks and long-horizon knowledge work. [docs/models.md](../../docs/models.md) has the benchmarks and prices behind this, and the charter's `models` setting overrides it.
+Each role defaults to the model that does its kind of work best, and the roles that decide "safe" and "done" run on a different model from the builders. [docs/models.md](../../docs/models.md) has the reasoning, the charter's `models` setting overrides it, and [docs/sources.md](../../docs/sources.md) lists the published guidelines each profile is drawn from.
 
 ## Where the boundaries live
 

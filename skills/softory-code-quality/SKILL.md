@@ -5,56 +5,46 @@ description: The softory bar for well-structured code, covering readability, reu
 
 # Code quality
 
-Good code is code the next person can change safely. Each rule below serves one of six properties. When two rules conflict, prefer the one higher in this list: **correct, readable, testable, maintainable, reusable, fast**.
+Good code is code the next person can change safely. When two rules conflict, prefer the one higher in this list: **correct, readable, testable, maintainable, reusable, fast**.
 
-## 1. Readability: the code explains itself
+## 1. Readability
 
-- **Names say what, not how.** `unpaidInvoices` beats `filteredList`. Booleans read as questions (`isExpired`, `hasAccess`). Functions are verbs (`sendReminder`). Avoid abbreviations except universal ones (`id`, `url`).
-- **One level of abstraction per function.** A function either orchestrates steps or does one step, never both.
-- **Short functions, flat control flow.** Aim for under about 30 lines. Return early on guard conditions instead of nesting. More than two levels of nesting is a signal to extract.
-- **Make the happy path obvious.** Handle errors and edge cases first, then the main logic at the left margin.
-- **Comments say why, not what.** Explain intent, constraints, and non-obvious trade-offs. Delete comments that restate the code. A TODO needs a task ID or it doesn't go in.
+- **Names say what, not how** (`unpaidInvoices`, not `filteredList`). Booleans read as questions, functions as verbs.
+- **One level of abstraction per function,** about 30 lines at most. Return early on guards; more than two levels of nesting means extract.
+- **Comments say why, not what.** A TODO needs a task ID or it doesn't go in.
 - **No magic values.** Name constants and say where they come from.
-- **Follow the project's formatter and linter.** Style isn't up for debate in review.
+- **The formatter and linter settle style.** It isn't up for debate in review.
 
-## 2. Reusability: share what is truly shared
+## 2. Reusability
 
-- **Rule of three.** Duplicate once, and extract on the third occurrence. Two similar blocks with different reasons to change aren't duplication.
-- **Extract by concept, not by coincidence.** A helper has a name the domain would recognize. `formatCurrency` is a concept. `doStuffForPageA` is not.
-- **Prefer composition** of small functions and objects over inheritance hierarchies.
-- **Small, explicit interfaces.** Take the narrowest input a function needs (an `id`, not the whole `user`), and return plain data.
-- **Search before you write.** Check the codebase for an existing utility before adding one (`grep -rn "def format_" src/`).
+- **Search before you write.** Check for an existing helper first (`grep -rn "def format_" src/`).
+- **Rule of three.** Extract on the third copy, and only for a concept the domain would name. Two blocks with different reasons to change aren't duplication.
+- **Narrow interfaces.** Take the smallest input a function needs (an `id`, not the whole `user`), and return plain data.
 
-## 3. Maintainability: change one thing in one place
+## 3. Maintainability
 
-- **High cohesion, low coupling.** A module owns one responsibility and hides its internals. Other modules use its public interface only.
-- **Respect module boundaries and dependency direction** from the ADRs: domain logic must not import from UI or transport layers.
-- **Keep files small.** About 300 lines is a soft cap. Past it, split by responsibility.
-- **SOLID where it pays:** single responsibility always, and dependency inversion at I/O boundaries. Don't add interfaces with one implementation "for the future".
-- **No dead code, no commented-out code, no speculative generality (YAGNI).** Version control remembers.
-- **Configuration is data.** Environment-specific values come from config or the environment, never inline.
-- **Leave it better, within scope.** Small refactors that touch the code you're changing are welcome. Wider ones become a new task.
+- **Respect the module boundaries and dependency direction in the ADRs.** Domain logic never imports from UI or transport layers.
+- **Files stay under about 300 lines.** Past that, split by responsibility.
+- **No dead code, no commented-out code, no speculative generality.** No interface with one implementation "for the future".
+- **Configuration is data,** from config or the environment, never inline.
+- **Leave it better, within scope.** Wider refactors become a new task.
 
-## 4. Testability: designed to be tested
+## 4. Testability
 
-- **Functional core, imperative shell.** Keep decisions in pure functions (input → output). Push I/O (network, disk, clock, randomness, environment) to thin outer layers.
-- **Inject what varies:** clock, random, HTTP client, and storage are passed in (as parameters or constructor arguments), not reached for globally.
-- **Deterministic by default.** No hidden time, ordering, or network dependence in logic.
-- **Observable results.** Functions return values or raise errors that can be asserted. Avoid output only through side effects or logs.
-- If a unit is hard to test, that's a design smell. Fix the design rather than reaching for heavier mocks.
+- **Functional core, imperative shell.** Decisions in pure functions; network, disk, clock, randomness, and environment in thin outer layers.
+- **Inject what varies** (clock, random, HTTP client, storage) instead of reaching for globals.
+- Hard to test means the design is wrong. Fix the design, not the mocks.
 
-## 5. Errors: fail loudly, safely, and in the right place
+## 5. Errors
 
-- **Validate at the boundary** (API handler, CLI parser, form) and trust validated data inside.
-- **Don't swallow errors.** Either handle one meaningfully (retry, fallback, user message) or let it propagate with context.
-- **Errors carry context** (what was attempted, with which ID) and never secrets or personal data.
-- **Fail closed** on security-relevant paths.
-- **One error style per layer:** exceptions or result types, consistently.
+- **Validate at the boundary** (handler, CLI parser, form) and trust validated data inside.
+- **Never swallow an error.** Handle it meaningfully or let it propagate with context: what was attempted, on which ID, and never secrets or personal data.
+- **Fail closed** on security-relevant paths. One error style per layer.
 
 ## 6. Simplicity and performance
 
 - **The simplest thing that meets the criteria.** No frameworks, layers, or patterns the task doesn't need.
-- **Measure before optimizing,** but don't write the obvious traps: queries inside loops (N+1), unbounded lists, or loading whole files to read one line.
+- **Measure before optimizing,** but never write the known traps: queries in loops (N+1), unbounded lists, whole files read for one line.
 
 ## Rubric (for authors and reviewers)
 

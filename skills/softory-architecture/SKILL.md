@@ -38,7 +38,7 @@ For each story:
 3. Put contracts first. When a frontend task depends on a new API, create the backend contract task first and add a `blocks` dependency.
 4. Create each one: `softory new task --parent STORY-n --lane <lane> --title "..." --tags <arch,ui,security,...> --actor quinn`, with the template in `.agents/softory/factory/templates/task.md`.
 5. Tag the reviews: `arch` if it changes a boundary, contract, or data model; `ui` if a user sees it; and `security`, `auth`, `data`, or `deps` per `softory-secure-coding`.
-6. Name the paths the task touches and must not touch.
+6. Name the paths the task touches and must not touch, and the tests expected: unit, integration, or end-to-end.
 
 ## Approving a dependency
 
@@ -50,6 +50,4 @@ Check the change against the ADRs and the design doc: boundaries respected, inte
 
 ## Disputes between engineers
 
-Hear both options in one message thread. Decide within one working cycle and record the decision with the rejected option and the reason. Escalate to the owner only if the decision changes scope.
-
-Sources: Michael Nygard, [Documenting Architecture Decisions](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions). Will Larson, [Staff archetypes](https://staffeng.com/guides/staff-archetypes/). Amazon, [Principal Engineering Community Tenets](https://amazon.jobs/en/landing_pages/pe-community-tenets).
+Hear both options in one message thread. Decide in that run and record the decision with the rejected option and the reason. Escalate to the owner only if the decision changes scope.

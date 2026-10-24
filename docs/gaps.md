@@ -4,25 +4,7 @@ Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker a
 
 ## Fixed in scaffold 1.4.1
 
-Scaffold **1.4.1** (`9e534a6`, tag `v1.4.1`, the schema-1 `1.x` branch) fixed fifteen of the gaps below, and its tags and maintenance branch settle S7 and S8. Softory 0.3.1 pins it. Schema version 1 is unchanged, so an upgrade needs no migration; softory's installer backs the database up first anyway.
-
-| Gap | What 1.4.1 added | What softory does now |
-| --- | --- | --- |
-| S1, S2 | `closure_policy: strict` and `dependency_policy: strict` in `.coordination/config.yml`, both off by default | Leaves both off. Strict closure would refuse review records and dropped work, and strict dependencies would refuse stacked work (S24). `softory close` still runs the gate. |
-| S3 | `--no-gitignore` and `--ignore-file` on the installer | Passes `--no-gitignore`; the `.gitignore` snapshot and restore are gone. |
-| S6 | `agent update` edits the profile fields | Not used yet. Roles registered before softory, as in Vault Radar, keep their own profiles. |
-| S7, S8 | Release tags, and a `1.x` branch for schema 1 | Pins the `v1.4.1` commit. |
-| S9 | Repeatable `task list --tag` with AND | Not needed yet; softory still filters in Python. |
-| S10 | Review rows carry `sequence`, and `review list` sorts by it | Sorts by `sequence`. `task show` still sorts by second and then ID (S23), so softory re-reads a task's reviews from `review list` when two share a second. |
-| S11 | `doctor` reports the database's filesystem and FUSE leftovers | `softory doctor` shows these under `warnings`; they never fail it. |
-| S12 | `COORDINATION_DB`, and discovery from a linked worktree | Softory ignores an inherited `COORDINATION_DB`, so the project it runs in decides the database. |
-| S13 | `health` lists `tasks_with_accepting_reviews` | `softory triage` still lists them, with the gate's view. |
-| S16 | `inbox count` and `audit activity` | Not used yet; `softory pending` still composes its answer. |
-| S17 | `dependency list` | Not used yet. |
-| S19 | `task claim --no-assign` | Claims to close or drop use it, so the closer never becomes a builder. |
-| S20 | `decision add --recorded-by` | `softory ruling` and `softory propose` use it: the decision stays the owner's, and the audit row names the role that recorded it. |
-| S21 | The AGENTS block marks the inbox read with the listing's `head` | Picked up on install. A project that commits its own `AGENTS.md` keeps its older block, so the Codex override swaps in the installed one and `doctor` warns. |
-| S22 | `next_offset` on full pages | `softory all` keeps paging until a short page, which still works. |
+Scaffold **1.4.1** (`9e534a6`, tag `v1.4.1`) fixed S1 to S3, S6 to S13, S16, S17, and S19 to S22, and its tags and `1.x` branch settle S7 and S8. Softory 0.3.1 pins it; [the changelog](../CHANGELOG.md) says what softory now uses from each fix. The entries below are kept for the record.
 
 Still open: S4, S5, S14, S15, S18, and the new S23 and S24.
 

@@ -38,7 +38,7 @@ def build(project: Project, coord: Coordination, charter: dict[str, Any], role: 
             "Do any waiting reviews and closes first, then finish one unit and stop.")
     stable = (f"You are {name} ({role}) in a softory project, running unattended: nobody is watching. "
               f"Start with: eval \"$(.agents/softory/bin/softory start {role} --harness {pick['harness']} "
-              f"--model {pick['model']})\". Follow the softory-operating-loop and softory-token-economy skills. "
+              f"--model {pick['model']})\". Follow the softory-operating-loop skill. "
               f"{rule} If you need the owner, raise an escalation with --owner owner and move on; never wait "
               f"for an answer. End with softory end. The details below were current when this run started; "
               f"look up more only when you need it.")
