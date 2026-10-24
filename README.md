@@ -16,7 +16,7 @@ On top of them, softory adds the team, the rules, and the craft.
 | **Roles** | Greg (Product Manager), Darwin (UX Designer), Quinn (Principal Engineer), Jade (Sr. SWE, frontend), Gold (Sr. SWE, backend and infra), and Toby (Security Engineer). Each has a profile collated from published role guidelines. See [factory/roles](factory/roles/README.md). |
 | **Boundaries** | A [RACI matrix](factory/governance/raci.md) with exactly one accountable role per activity, plus [decision, review, and work boundaries](factory/governance/boundaries.md), lanes, flex rules for when overlap is allowed, and escalation paths. |
 | **Units of work** | Epic (project) > story (feature) > task (function) or bug (fix), with templates, a definition of ready and done, and a [flow for each](factory/workflows/work-units.md). |
-| **Skills** | Nine skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, architecture, and token economy. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
+| **Skills** | Eight skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, and architecture. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
 | **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, and the right role is closing. |
 
 Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, and Gold (agent coding and web design), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
@@ -65,43 +65,22 @@ You are Jade. Pick up your next task.
 You are Toby. Review whatever is waiting for security review.
 ```
 
-Each role starts a session, which records the harness and model, and works through the coordination CLI. The commands they use, which you can use too:
+Each role starts a session, which records the harness and model, and works through the coordination CLI. The commands you'll use most:
 
 | Command | Does |
 | --- | --- |
-| `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
-| `softory end [--session ID]` | Ends the session, so its claims don't go stale |
-| `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
-| `softory new bug --from <ID> --title ... [--blocks-source]` | Files a follow-up from a review: same story and lane, linked back to the source. The source waits for it only with `--blocks-source` |
-| `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
-| `softory drop <ID> --reason ... [--superseded-by ID]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision |
-| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate |
-| `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
-| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, and your assigned work |
-| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. For schedulers |
-| `softory silent [--hours 12] [--notify]` | Exits 0 if any role has work waiting and no session for that long, and with `--notify` messages the owner once a day per role |
-| `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
-| `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
-| `softory reviewers <ID>` | Who must review it, and where each review stands |
-| `softory gate <ID>` | Whether it may close, with a reason for every check |
-| `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
-| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` asks the owner to mark an older review run as a record, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
-| `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
-| `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID> \| --all` | Agents ask (review adoptions ask too); the owner approves at a terminal. A waiver lets one review check pass on one task |
-| `softory ruling --title ... --decision ... --where ...` | Records a decision the owner made, under the owner's name, marked with who recorded it and where the owner said it |
-| `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
-| `softory triage` | Lists finished work nobody closed, older review runs to adopt, sessions to end or restart, and silent roles |
-| `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
-| `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
-| `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
-| `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
-| `softory charter show` / `charter approve <file>` | The settings unattended runs follow; the owner approves them once, at a terminal |
-| `softory setup` | The owner's one-time checklist, with each step checked |
-| `softory run [--dry-run]` / `run-role <role>` | One runner tick: starts each role that has work, inside the budget |
-| `softory pause [--role r]` / `resume [--role r]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal) |
-| `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate |
-| `softory digest [--send]` / `usage` / `schedule` | What needs the owner; today's runs against the budget; the launchd job and cron line |
-| `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
+| `softory tree [ID]` / `softory queue` | The epic > story > task hierarchy; a role's claimed, closable, review, and assigned work |
+| `softory new epic\|story\|task\|bug\|review ...` | Creates a unit with the right tags, assignee, and parent link |
+| `softory gate <ID>` / `softory close <ID>` | Whether a unit may close, with a reason for every check; close it only if it passes |
+| `softory triage` | Finished work nobody closed, older review runs to adopt, stale sessions, and silent roles |
+| `softory proposals` / `softory approve <ID> \| --all` | What agents asked you for (stand-ins, waivers, review adoptions); apply them at a terminal |
+| `softory standin add <agent> --for <roles> [--task IDs] [--until date]` | Lets an existing agent act for softory roles (owner only, at a terminal) |
+| `softory charter show` / `charter approve <file>` | The settings unattended runs follow; approve yours once, at a terminal |
+| `softory digest` / `usage` / `pause` / `resume` | What needs you; today's runs against the budget; stop and start unattended runs |
+| `softory tracker [--port N] [--open]` | The web console on 127.0.0.1 |
+| `softory doctor` | Checks the installation and that nothing leaks into git |
+
+`softory --help` lists every command, and `softory <command> --help` its options.
 
 The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
 
@@ -126,25 +105,6 @@ Each run is shaped to waste as little as possible:
 
 A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops and goes to your digest. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
 
-### Running roles on your own schedule
-
-A role on a timer usually wakes to nothing. In the Vault Radar pilot, 165 of Greg's 188 five-minute runs read the inbox and stopped. Put `softory pending` in front of the run so an idle role costs no model call:
-
-```sh
-cd ~/workspace/my-project && .agents/softory/bin/softory pending greg >/dev/null && codex exec "You are Greg. ..."
-```
-
-It exits 0 when the role has unread messages, something to close, or reviews or assigned work that changed since its last finished session started. So that a crashed or cut-short run can't strand work, any waiting work also counts once four hours pass without a run (`--retry-hours`). It exits 3 when there's nothing, or when the role already has a session that was active in the last 30 minutes.
-
-To hear when a role stops running while work waits, schedule `softory silent` hourly. On macOS, with launchd or cron:
-
-```sh
-cd ~/workspace/my-project && .agents/softory/bin/softory silent --hours 12 --notify >/tmp/softory-silent.json \
-  && osascript -e 'display notification "A role has gone quiet with work waiting. Run softory silent." with title "Softory"'
-```
-
-`--notify` also leaves a message in the owner's inbox, once a day per silent role.
-
 ### Upgrading
 
 Pull softory and run the installer again over the project. It keeps the database, your stand-ins, and every agent, and rewrites only softory's own files:
@@ -158,9 +118,9 @@ Sessions started before an upgrade keep the old rules until they restart; `softo
 
 The installer replaces the coordination CLI too when softory pins a newer scaffold, so upgrade between runs:
 
-1. Pause scheduled roles (launchd, cron, or Codex automations) and let running sessions finish or end them.
+1. Run `softory pause`, and let running sessions finish or end them.
 2. Run the installer. When it upgrades the scaffold it backs the database up first and prints the path as `scaffold_backup`.
-3. Check `.agents/softory/bin/softory doctor`, then resume the schedules.
+3. Check `.agents/softory/bin/softory doctor`, then `softory resume`.
 
 If something looks wrong afterwards, restore the backup with no sessions active:
 
@@ -216,9 +176,9 @@ factory/
   governance/            raci.md, boundaries.md, gates.json
   workflows/             units of work and their flows
   templates/             epic, story, and task descriptions
-skills/                  softory's nine skills
+skills/                  softory's eight skills
 lib/softory/             the CLI and installer (Python, standard library only)
-docs/                    skill-sourcing.md, gaps.md
+docs/                    models.md, sources.md, skill-sourcing.md, gaps.md
 dependencies.json        pinned scaffold and tracker commits
 external-skills.json     pinned open-source skills
 ```

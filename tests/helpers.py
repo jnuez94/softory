@@ -6,8 +6,11 @@ commits. Without them the integration tests skip, so the unit tests still run.
 
 from __future__ import annotations
 
+import atexit
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -46,9 +49,60 @@ def git_project(files: dict[str, str] | None = None) -> tuple[tempfile.Temporary
 
 
 def install(root: Path, *extra: str) -> dict:
-    result = run([str(SOFTORY), "install", "--target", str(root), "--owner-name", "Tester",
-                  "--scaffold-src", SCAFFOLD_SRC or "", "--tracker-src", TRACKER_SRC or "", *extra], root)
-    return json.loads(result.stdout)
+    """Install softory into ``root``. A first plain install into a project whose files
+    an earlier test already installed into is copied from that result instead, since
+    the installer gives the same output for the same files and that keeps the suite fast."""
+    fresh = not extra and not (root / ".agents").exists() and not (root / ".coordination").exists()
+    key = _files_key(root) if fresh else None
+    if key in _TEMPLATES:
+        template, result = _TEMPLATES[key]
+        _copy_install(template, root)
+        return {**result, "target": str(root)}
+    result = json.loads(_install(root, *extra).stdout)
+    if key is not None:
+        template = Path(tempfile.mkdtemp(prefix="softory-template-", dir=_template_root()))
+        _copy_install(root, template, git_dir=True)
+        _TEMPLATES[key] = (template, result)
+    return result
+
+
+def _install(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+    return run([str(SOFTORY), "install", "--target", str(root), "--owner-name", "Tester",
+                "--scaffold-src", SCAFFOLD_SRC or "", "--tracker-src", TRACKER_SRC or "", *extra], root)
+
+
+_TEMPLATES: dict[str, tuple[Path, dict]] = {}
+_TEMPLATE_ROOT: list[Path] = []
+
+
+def _template_root() -> Path:
+    if not _TEMPLATE_ROOT:
+        _TEMPLATE_ROOT.append(Path(tempfile.mkdtemp(prefix="softory-templates-")))
+        atexit.register(shutil.rmtree, _TEMPLATE_ROOT[0], True)
+    return _TEMPLATE_ROOT[0]
+
+
+def _files_key(root: Path) -> str:
+    """The project's tracked files and their contents."""
+    names = run(["git", "ls-files", "-z"], root).stdout.split("\0")
+    digest = hashlib.sha256()
+    for name in sorted(n for n in names if n):
+        digest.update(name.encode() + b"\0" + (root / name).read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _copy_install(source: Path, target: Path, git_dir: bool = False) -> None:
+    """Copy what the installer added: every untracked path, and the exclude block in .git."""
+    tracked = {n.split("/")[0] for n in run(["git", "ls-files", "-z"], source).stdout.split("\0") if n} if git_dir else set()
+    for entry in source.iterdir():
+        if entry.name == ".git" or entry.name in tracked:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.copytree(entry, target / entry.name, symlinks=True)
+        else:
+            shutil.copy2(entry, target / entry.name, follow_symlinks=False)
+    (target / ".git" / "info").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source / ".git" / "info" / "exclude", target / ".git" / "info" / "exclude")
 
 
 def softory(root: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:

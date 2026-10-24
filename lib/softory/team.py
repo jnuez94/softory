@@ -177,8 +177,7 @@ def _session_report(project: Project, coord: Coordination) -> dict[str, list[dic
     for session in coord.all_rows("session", "list", "--status", "active"):
         row = {"id": session["id"], "agent": session["agent_id"], "started_at": session["started_at"],
                "last_seen_at": session["last_seen_at"]}
-        seen = datetime.fromisoformat(session["last_seen_at"].replace("Z", "+00:00"))
-        if now - (seen if seen.tzinfo else seen.replace(tzinfo=timezone.utc)) > timedelta(hours=24):
+        if now - watch.parse_time(session["last_seen_at"]) > timedelta(hours=24):
             silent.append(row)
         elif installed and session["started_at"] < installed:
             before_install.append(row)

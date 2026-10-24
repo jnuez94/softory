@@ -30,12 +30,10 @@ Skip test-first only for spikes and pure UI layout. Say so in the task notes.
 
 ## Structure
 
-- **One behavior per test.** The name states it: `test_expired_invite_is_rejected`, or `it("rejects an expired invite")`.
-- **Arrange, Act, Assert**, visibly separated. One Act per test.
-- **Test behavior, not implementation.** Assert on outputs and observable effects, not private calls. A refactor shouldn't break tests.
-- **Mocks only at boundaries you don't own** (network, clock, third-party APIs). Never mock the unit under test or simple value objects.
-- **Builders or factories for test data**, with only the fields the test cares about set explicitly.
-- **No logic in tests:** no loops or conditionals that could hide a failure. Use parameterized tests instead.
+- **One behavior per test,** named for it.
+- **Test behavior, not implementation.** Assert on outputs and observable effects. A refactor shouldn't break tests.
+- **Mock only boundaries you don't own** (network, clock, third-party APIs), never the unit under test.
+- **No logic in tests:** no loops or conditionals that could hide a failure. Use parameterized tests.
 
 ## Determinism
 
@@ -45,7 +43,7 @@ Skip test-first only for spikes and pure UI layout. Say so in the task notes.
 
 ## Coverage
 
-Coverage is a smoke alarm, not a target. Every changed line in logic should be executed by a test. Don't write assertion-free tests to raise the number. For high-stakes logic (money, auth, parsing), consider property-based or mutation testing.
+Every changed line of logic runs in a test. Never add assertion-free tests to raise the number. For money, auth, or parsing, consider property-based or mutation testing.
 
 ## Evidence
 
@@ -58,5 +56,3 @@ Attach test output as evidence (`evidence add --type test`). Keep it short: the 
 - Are failure paths tested, not just the happy path?
 - Is anything mocked that could be real and fast?
 - Is the bug's regression test at the right level?
-
-Sources: Ham Vocke, [The Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html). Kent Beck, *Test-Driven Development: By Example*. [Software Engineering at Google](https://abseil.io/resources/swe-book), chapters 11 to 14.

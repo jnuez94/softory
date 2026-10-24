@@ -63,5 +63,3 @@ Write `docs/security/EPIC-n-threat-model.md` that answers four questions:
 | High | Blocks unless the owner records an accepted risk |
 | Medium | Fix within the epic |
 | Low | Backlog task |
-
-Sources: [OWASP Top 10:2025](https://owasp.org/Top10/2025/). [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/). [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/). [NIST SP 800-218 SSDF](https://csrc.nist.gov/pubs/sp/800/218/final). [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/).

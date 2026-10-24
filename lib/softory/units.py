@@ -16,7 +16,6 @@ from .errors import SoftoryError
 
 UNITS = ("epic", "story", "task", "bug", "review")
 LANES = ("frontend", "backend", "infra")
-REVIEW_TAGS = ("arch", "ui", "security", "auth", "data", "deps")
 ALLOWED_PARENTS = {"epic": (), "story": ("epic",), "task": ("story",), "bug": ("story", "epic"), "review": ()}
 RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from", "stack", "resolution", "superseded-by")
 # Evidence types that mean code was delivered. A review record holds reports, not code.

@@ -17,23 +17,19 @@ EXCLUDE_END = "# softory:end"
 
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return _git(root, *args)
-
-
-def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed program, argument list
         ["git", *args], cwd=root, capture_output=True, text=True, check=False
     )
 
 
 def is_repo(root: Path) -> bool:
-    result = _git(root, "rev-parse", "--show-toplevel")
+    result = git(root, "rev-parse", "--show-toplevel")
     return result.returncode == 0 and Path(result.stdout.strip()).resolve() == root.resolve()
 
 
 def exclude_path(root: Path) -> Path:
     """The exclude file for this checkout. Worktrees share the main repo's."""
-    result = _git(root, "rev-parse", "--git-path", "info/exclude")
+    result = git(root, "rev-parse", "--git-path", "info/exclude")
     if result.returncode != 0:
         raise SoftoryError("Not a git repository: " + str(root), "not_a_repo")
     path = Path(result.stdout.strip())
@@ -42,15 +38,15 @@ def exclude_path(root: Path) -> Path:
 
 def toplevel(path: Path) -> Path | None:
     """The checkout (main or linked worktree) that contains ``path``."""
-    result = _git(path, "rev-parse", "--show-toplevel")
+    result = git(path, "rev-parse", "--show-toplevel")
     return Path(result.stdout.strip()).resolve() if result.returncode == 0 else None
 
 
 def main_checkout(path: Path) -> Path | None:
     """The main working tree of the repository ``path`` belongs to, even from a linked worktree."""
-    result = _git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    result = git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
     if result.returncode != 0:  # git older than 2.31
-        result = _git(path, "rev-parse", "--git-common-dir")
+        result = git(path, "rev-parse", "--git-common-dir")
     if result.returncode != 0:
         return None
     common = Path(result.stdout.strip())
@@ -59,17 +55,17 @@ def main_checkout(path: Path) -> Path | None:
 
 
 def is_tracked(root: Path, relative: str) -> bool:
-    return _git(root, "ls-files", "--error-unmatch", "--", relative).returncode == 0
+    return git(root, "ls-files", "--error-unmatch", "--", relative).returncode == 0
 
 
 def tracked_under(root: Path, relative: str) -> list[str]:
-    result = _git(root, "ls-files", "--", relative)
+    result = git(root, "ls-files", "--", relative)
     return [line for line in result.stdout.splitlines() if line]
 
 
 def status_entries(root: Path) -> set[str]:
     """Every path ``git status`` reports, including untracked files."""
-    result = _git(root, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=no")
+    result = git(root, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=no")
     if result.returncode != 0:
         raise SoftoryError("git status failed: " + result.stderr.strip(), "git_error")
     return {line for line in result.stdout.splitlines() if line}

@@ -56,5 +56,3 @@ For a story or epic in `review`:
 4. Close it with `softory close <ID>`, which runs the gate first.
 
 Don't accept partial work as done. Split the remainder into a new story instead.
-
-Sources: Marty Cagan, [The Four Big Risks](https://svpg.com/four-big-risks/). Bill Wake, [INVEST in Good Stories](https://xp123.com/articles/invest-in-good-stories-and-smart-tasks/). [Gherkin reference](https://cucumber.io/docs/gherkin/reference/). [The Scrum Guide](https://scrumguides.org/scrum-guide.html).

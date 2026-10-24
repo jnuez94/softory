@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.1] - 2026-10-24
+
+Less for every agent to read. Each run loaded 7k to 12k tokens of softory text before touching code, and about a third of it repeated itself. A run now loads 36% to 45% less (Jade 11.5k to 6.3k tokens, Greg 7.4k to 4.2k). No rule changed.
+
+- **The instructions no longer repeat the scaffold's block.** Softory's rules and operating loop already say everything in it that applies to a softory role, so `AGENTS.md` and `CLAUDE.local.md` drop from 8.9 KB to 3.5 KB in a fresh project. A project that commits its own `AGENTS.md` with the block keeps it, as before.
+- **The instructions and the operating loop say each thing once.** The rules are one-line musts; the commands live in the loop.
+- **`softory-token-economy` is gone.** Most of it was advice the harnesses already give. Its four softory-specific lines are now at the end of the instructions. It also told agents to ask a question when criteria are unclear, which unattended runs must never wait on. Reinstalling removes the old skill folders.
+- **Profiles hold identity, boundaries, and lanes; skills hold procedure.** Toby's threat-model, review, and severity sections, Quinn's task and architecture-review checklists, Darwin's handoff and design-review lists, Greg's ready and acceptance-review sections, and the engineers' loop were second copies of their skills or the operating loop. The "Why Claude/Codex" sections and the source lists moved out of what agents load: the reasoning is in [docs/models.md](docs/models.md), and the sources are in [docs/sources.md](docs/sources.md).
+- **Jade loads `softory-design` only on `ui` tasks.**
+- **Shorter skills.** `softory-code-quality` and `softory-testing` keep every rule and the rubric and drop the textbook explanations. `softory-code-review` drops the turnaround section, which a runner doesn't need.
+- **Dead code removed.** `softory silent --notify` (the digest pages silent roles now), an unused constant, unused imports, and a second git wrapper and time parser. The README's cron recipe for `pending` and `silent` is gone, since `softory run` replaces it, and its command table is the ten commands you'll use most, with `--help` for the rest.
+- Greg's roster entry no longer claims a UX copy review the RACI and boundaries don't give him.
+- **Faster tests.** A plain install into the same files is copied from the first one, so the suite takes about 5 minutes instead of 8.6.
+
 ## [0.4.0] - 2026-10-24
 
 Phase 1 of running unattended: the team works without the owner up to a pull request, and asks only for decisions that matter. The owner still merges and deploys.

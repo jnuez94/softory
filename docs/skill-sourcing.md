@@ -22,7 +22,6 @@ Pulled skills go into `.claude/skills/` and `.agents/skills/` next to softory's 
 | `softory-design` | Darwin's flow, states, WCAG 2.2 AA, and handoff spec |
 | `softory-product-spec` | Greg's briefs, stories, criteria, triage, and acceptance |
 | `softory-architecture` | Quinn's ADRs, design docs, lane ownership, and task breakdown |
-| `softory-token-economy` | Read-less and write-less habits, tied to softory's CLI |
 
 ## Pulled from open source
 
@@ -61,9 +60,9 @@ Trail of Bits skills are CC-BY-SA-4.0, a share-alike license. Pulling them into 
 
 ## Token savings: what works
 
-The biggest lever is **reading less**, not talking less. `softory-token-economy` covers both, and these choices keep the always-loaded cost down:
+The biggest lever is **reading less**, not talking less. The instructions end with four lines on it, and these choices keep the always-loaded cost down:
 
-- **Instructions stay small.** Softory's block in `AGENTS.md` is under 6 KB. Role profiles, the RACI, and the workflows load only when an agent needs them. Codex stops reading project docs at 32 KiB.
+- **Instructions stay small.** Softory's block in `AGENTS.md` is under 6 KB, and it doesn't repeat the scaffold's block, which its rules already cover. Role profiles, the RACI, and the workflows load only when an agent needs them. Codex stops reading project docs at 32 KiB.
 - **Skills load on demand.** Only a skill's name and description sit in context until it's used.
 - **The CLI does the filtering.** `softory queue`, `softory tree`, and `softory gate` return just what an agent needs, instead of the agent paging through `task list`, `review list`, and `inbox list`.
 - **Write less code.** Pull [Ponytail](https://github.com/DietrichGebert/ponytail)'s `ponytail` skill for the builders. Fewer lines means fewer tokens to write, review, and read again later. Its author's benchmark (39 Claude Code tasks, 5 runs each) reports 45% fewer tokens, 53% less code, and more risky logic shipped with a test. Those numbers are self-reported, and softory hasn't reproduced them. Pull the skill, not the plugin: the plugin adds session hooks, a status band, and a local board. Without them the skill runs at its default `full` level. Where the two disagree, softory's rules win: every bug fix still gets a test that fails first, and the gate still needs evidence.

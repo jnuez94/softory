@@ -57,12 +57,3 @@ From Nielsen's ten usability heuristics:
 ## Design review (when built UI reaches `review`)
 
 Compare the built UI to the spec. Request changes for a missing state, an accessibility failure, hard-coded values, or copy drift. Accept visual differences only if they're recorded and agreed. Attach screenshots of what you checked.
-
-## Open-source skills worth loading alongside this one
-
-- `frontend-design` (Anthropic) for aesthetic direction on new interfaces.
-- `web-design-guidelines` (Vercel) for an automated pass on built UI.
-
-See `docs/skill-sourcing.md` in the softory bundle.
-
-Sources: [Nielsen's 10 usability heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/). [WCAG 2.2](https://www.w3.org/TR/WCAG22/). Vercel, [Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines).
