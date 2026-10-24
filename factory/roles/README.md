@@ -3,10 +3,10 @@
 | Agent ID | Name | Role | Lane | Recommended harness | Profile |
 | --- | --- | --- | --- | --- | --- |
 | `greg` | Greg | Product Manager | product | Codex | [profile](greg-product-manager.md) |
-| `darwin` | Darwin | UX Designer | design | Claude | [profile](darwin-ux-designer.md) |
+| `darwin` | Darwin | UX Designer | design | Codex | [profile](darwin-ux-designer.md) |
 | `quinn` | Quinn | Principal Engineer | architecture | Claude | [profile](quinn-principal-engineer.md) |
 | `jade` | Jade | Senior Software Engineer | frontend | Claude | [profile](jade-senior-software-engineer.md) |
-| `gold` | Gold | Senior Software Engineer | backend, infra | Claude | [profile](gold-senior-software-engineer.md) |
+| `gold` | Gold | Senior Software Engineer | backend, infra | Codex | [profile](gold-senior-software-engineer.md) |
 | `toby` | Toby | Security Engineer | security | Codex | [profile](toby-security-engineer.md) |
 | `owner` | (you) | Project Owner, human | – | – | [roster.json](roster.json) |
 
@@ -21,7 +21,7 @@ The agent ID is the durable identity. The harness and model are recorded per **s
 .agents/softory/bin/softory start quinn --harness codex   # any harness works
 ```
 
-The recommendations follow one principle: **builders and their reviewers on different models where it matters most.** The engineers build on Claude. Toby reviews security on Codex, and Greg accepts stories on Codex, so the two gates that decide "safe" and "done" get an independent model.
+The recommendations follow two principles: **builders and their reviewers on different models**, and **the strongest model only where it pays**. Quinn and Jade run on Claude Opus 5.5, the benchmark leader. Gold, Greg, Darwin, and Toby run on Codex with GPT-6.1 Sol, which costs about an eighth as much per task. Jade and Gold review each other, so every peer review is cross-model. [docs/models.md](../../docs/models.md) has the benchmarks and prices behind this, and the charter's `models` setting overrides it.
 
 ## Where the boundaries live
 

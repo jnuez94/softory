@@ -19,7 +19,8 @@ from typing import Any
 # record exists, has evidence, is in review, is closed by the right person,
 # its blockers are done, and the rules haven't been edited.
 WAIVABLE_PREFIXES = ("review:",)
-WAIVABLE_CHECKS = ("no_open_rejections", "findings_tracked", "verdicts_recorded", "independent")
+WAIVABLE_CHECKS = ("no_open_rejections", "findings_tracked", "verdicts_recorded", "independent", "verified",
+                   "lane_paths")
 
 
 def today() -> str:

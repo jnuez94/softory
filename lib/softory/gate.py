@@ -161,12 +161,14 @@ def evaluate(
     children: list[dict[str, Any]],
     actor: str | None = None,
     related: dict[str, dict[str, Any]] | None = None,
+    extra: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run every gate check. ``dependency_status`` maps task ID to status.
 
     ``related`` is only needed for a review record: ``tasks`` maps each ID from
     ``related_ids`` to its summary (None if it doesn't exist), and ``reviews``
-    maps each reviewed task to its reviews, oldest first.
+    maps each reviewed task to its reviews, oldest first. ``extra`` holds checks
+    computed outside (verify.py: tests at the commit, lane paths).
     """
     checks: list[dict[str, Any]] = []
     unit, spec = spec_for(task, gates)
@@ -219,6 +221,7 @@ def evaluate(
         blocking = sorted(r for r, review in latest.items() if review.get("decision") not in accepting)
         checks.append(_check("no_open_rejections", not blocking, "latest review requests changes from: " + ", ".join(blocking) if blocking else "no reviewer is requesting changes"))
 
+    checks += extra or []
     if actor is not None:
         allowed = closers(task, gates)
         checks.append(_check("closer", actor in allowed, f"{actor} may close" if actor in allowed else f"only {', '.join(sorted(allowed)) or 'the assignee'} may close"))

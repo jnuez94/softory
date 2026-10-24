@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0] - 2026-10-24
+
+Phase 1 of running unattended: the team works without the owner up to a pull request, and asks only for decisions that matter. The owner still merges and deploys.
+
+- **Charter.** `factory/governance/charter.json` holds the defaults: vision, epic limits, budget, task caps, test command, lane paths, paging, harness commands, and a model per role. The owner overrides any of them once with `softory charter approve <file>` at a terminal; the overrides live in the hashed `local.json` and are recorded as a decision. `softory charter show` prints what is in force.
+- **Runner.** `softory run` is one tick for launchd or cron. It starts a role only when `pending` says it has work, it's under today's budget, and it isn't paused or already running, and it pages what is due. `softory run-role` runs the harness with a time limit and logs each run to `.agents/softory/run/runs.jsonl`, which the budget counts. The prompt is a few lines naming what is waiting. `softory schedule` writes the launchd job.
+- **Budget, caps, and a kill switch.** Daily runs and minutes per role, and minutes per run. A task with `escalate_model_after` rounds of requested changes runs on the role's stronger model; at `review_rounds` it drops out of `pending` and goes to the owner. `softory pause` (anyone) and `softory resume` (owner, at a terminal); `pending` honours a pause too. `softory usage` shows today's use.
+- **Tests and lanes in the gate.** `softory verify <ID>` runs the charter's `verify.command` at the unit's newest commit in a throwaway worktree and keeps the result in softory's own ledger. With a command set, a task or bug needs a pass there (`verified`); an evidence row an agent writes doesn't count. With lane paths set, `lane_paths` fails a diff outside the lane unless the task is tagged `cross-lane` and Quinn accepted it. Both checks are off until the charter sets them, and both are waivable by the owner.
+- **Digest and paging.** `softory digest` lists what needs the owner: proposals, escalations to the owner, capped tasks, unread messages, silent and paused roles, and budget warnings. A unit closed without the gate, or a role over budget, pages at once (once a day each, outside quiet hours); the rest goes in one daily digest, to the owner's inbox and through `paging.command`.
+- **Permissions per role.** Claude Code roles run with a generated settings file: edits only in their lane's paths or their docs folder, the coordination and git commands they need, and never softory's or the database's files.
+- **Builders hear about requested changes.** `pending` now wakes a builder whose task in review got a "changes requested", instead of waiting for a message.
+- **Models from benchmarks.** Quinn and Jade default to Claude Opus 5.5; Greg, Darwin, Gold, and Toby to Codex with GPT-6.1 Sol, which scored 58.2% on Terminal-Bench 4.0 against Opus 5.5's 64.8% at about an eighth of the cost. Codex roles escalate to Opus 5.5. [docs/models.md](docs/models.md) has the sources.
+- **`softory setup`** checks the owner's one-time steps and says what is left.
+
 ## [0.3.1] - 2026-10-24
 
 Moves to scaffold **1.4.1**, the schema-1 maintenance release that fixed fifteen of softory's gaps. The schema is unchanged, so Vault Radar's database needs no migration. [docs/gaps.md](docs/gaps.md) lists what 1.4.1 fixed and what softory now uses.

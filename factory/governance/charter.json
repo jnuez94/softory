@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "description": "Defaults for unattended runs. The owner overrides any of them once with `softory charter approve <file>` at a terminal; the result lives in local.json. Agents read it with `softory charter show` and never change it.",
+  "vision": "",
+  "epics": {
+    "description": "Epics inside these limits start without the owner's go/no-go. Greg raises an escalation to the owner for anything bigger.",
+    "max_stories": 5,
+    "needs_owner_tags": ["auth", "data", "paid"]
+  },
+  "budget": {
+    "runs_per_role_per_day": 48,
+    "minutes_per_role_per_day": 240,
+    "minutes_per_run": 45,
+    "warn_at": 0.8
+  },
+  "task_caps": {
+    "review_rounds": 3,
+    "escalate_model_after": 2
+  },
+  "verify": {
+    "command": "",
+    "timeout_minutes": 20,
+    "share": []
+  },
+  "lanes": {
+    "frontend": [],
+    "backend": [],
+    "infra": []
+  },
+  "shared_paths": ["docs/**", "*.md"],
+  "permissions": {
+    "description": "Claude Code runs each role with a settings file built from these and its lane paths. Commands are prefixes.",
+    "allow_bash": [],
+    "deny_bash": ["git push --force", "git push -f", "git reset --hard", "rm -rf"]
+  },
+  "git": {"base": "main"},
+  "merge": {"by": "owner"},
+  "deploy": {"targets": [], "production": "owner"},
+  "paging": {
+    "command": "",
+    "digest_hour": 8,
+    "quiet_hours": [22, 8]
+  },
+  "run": {
+    "roles": ["greg", "darwin", "quinn", "jade", "gold", "toby"],
+    "harnesses": {
+      "claude": ["claude", "-p", "{prompt}", "--model", "{model}", "--settings", "{settings}"],
+      "codex": ["codex", "exec", "--model", "{model}", "--sandbox", "workspace-write", "{prompt}"]
+    }
+  },
+  "models": {
+    "description": "Per role: the default harness and model, and the one used once a task has had escalate_model_after rounds of requested changes. Chosen from public benchmarks and prices on 2026-10-24; see docs/models.md.",
+    "greg": {"harness": "codex", "model": "gpt-6.1-sol", "escalate": {"harness": "claude", "model": "claude-opus-5-5"}},
+    "darwin": {"harness": "codex", "model": "gpt-6.1-sol", "escalate": {"harness": "claude", "model": "claude-opus-5-5"}},
+    "quinn": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null},
+    "jade": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null},
+    "gold": {"harness": "codex", "model": "gpt-6.1-sol", "escalate": {"harness": "claude", "model": "claude-opus-5-5"}},
+    "toby": {"harness": "codex", "model": "gpt-6.1-sol", "escalate": {"harness": "claude", "model": "claude-opus-5-5"}}
+  }
+}

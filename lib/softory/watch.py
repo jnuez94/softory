@@ -10,9 +10,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from . import charter as charters
 from . import grants
 from .coordination import Coordination
 from .project import Project
+from .runstate import is_paused
+from .gate import latest_reviews
 from .work import Board, actor_of, queue
 
 
@@ -39,9 +42,12 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
                for t in board.tasks}
 
     def changed(ids: list[str]) -> list[str]:
-        return [i for i in ids if since is None or touched.get(i, "") > since]
+        return [i for i in ids if (since is None or touched.get(i, "") > since) and i not in capped]
 
     work = queue(project, coord, agent, board)
+    rounds = review_rounds(board)
+    caps = charters.load(project)["task_caps"]
+    capped = {i for i, n in rounds.items() if n >= caps["review_rounds"]}
     reasons = []
     inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
     unread = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
@@ -49,7 +55,11 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         reasons.append({"why": "unread messages", "count": len(unread)})
     if work["ready_to_close"]:
         reasons.append({"why": "ready to close", "ids": [t["id"] for t in work["ready_to_close"]]})
+    accepting = set(board.gates["accepting_decisions"])
+    sent_back = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
+                 and any(r.get("decision") not in accepting for r in latest_reviews({"reviews": board.reviews.get(t["id"], [])}).values())]
     waiting = {
+        "changes requested": sent_back,
         "reviews waiting": [t["id"] for t in work["reviews_waiting"]],
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"],
@@ -57,12 +67,30 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
-    everything = [i for ids in waiting.values() for i in ids]
+    everything = [i for ids in waiting.values() for i in ids if i not in capped]
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
-    return {"agent": agent, "pending": bool(reasons) and not running, "since": since,
-            "running": running, "reasons": reasons}
+    hold = is_paused(project, agent)
+    ids = {i for r in reasons for i in r.get("ids", [])}
+    escalate = sorted(i for i in ids if rounds.get(i, 0) >= caps["escalate_model_after"])
+    result = {"agent": agent, "pending": bool(reasons) and not running and not hold, "since": since,
+              "running": running, "reasons": reasons}
+    if hold:
+        result["paused"] = hold
+    if escalate:
+        result["escalate"] = escalate
+    held = sorted(capped & {i for ids in waiting.values() for i in ids})
+    if held:
+        result["capped"] = held
+    return result
+
+
+def review_rounds(board: Board) -> dict[str, int]:
+    """How many reviews asked for changes on each task: a task past the charter's cap waits for the owner."""
+    accepting = set(board.gates["accepting_decisions"])
+    return {task_id: n for task_id, rows in board.reviews.items()
+            if (n := sum(1 for r in rows if r.get("decision") not in accepting))}
 
 
 def silent(project: Project, coord: Coordination, hours: float = 12.0, notify: bool = False,

@@ -7,8 +7,8 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
+from . import charter, lifecycle, verify
 from . import gate as gate_rules
-from . import lifecycle
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -212,7 +212,14 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
     }
     children = coord.all_tasks("--tag", f"parent:{task_id}")
     return gate_rules.evaluate(task, gates, dependency_status, children,
-                               actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates))
+                               actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
+                               objective_checks(project, task, gates))
+
+
+def objective_checks(project: Project, task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
+    """The charter's checks on the code itself: tests passed at the commit, and the diff stays in its lane."""
+    unit, _ = gate_rules.spec_for(task, gates)
+    return verify.checks(project, charter.load(project), task, unit, set(gates["accepting_decisions"]))
 
 
 def related_live(coord: Coordination, task: dict[str, Any], gates: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -309,7 +316,8 @@ class Board:
         task = self.show(task_id)
         statuses = {dep["depends_on_task_id"]: self.by_id.get(dep["depends_on_task_id"], {}).get("status", "")
                     for dep in task.get("dependencies") or []}
-        return gate_rules.evaluate(task, self.gates, statuses, self.children.get(task_id, []), actor, self.related(task))
+        return gate_rules.evaluate(task, self.gates, statuses, self.children.get(task_id, []), actor,
+                                   self.related(task), objective_checks(self.project, task, self.gates))
 
 
 def queue(project: Project, coord: Coordination, agent: str | None, board: Board | None = None) -> dict[str, Any]:

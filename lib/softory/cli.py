@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, external, feedback, lifecycle, messages, ops, owner, team, watch, work, worktree
+from . import __version__, external, feedback, lifecycle, messages, ops, owner, team, unattended, watch, work, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -190,6 +190,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("names", nargs="*")
     p.add_argument("--recommended", action="store_true", help="Add every recommended skill")
 
+    unattended.add_parsers(sub)
+
     p = sub.add_parser("uninstall", help="Remove softory (keeps .coordination unless --purge)")
     p.add_argument("--purge", action="store_true", help="Also delete the coordination database")
     return parser
@@ -233,6 +235,8 @@ def _dispatch(args: argparse.Namespace) -> int:
 
     project = Project.find()
     coord = Coordination(project.coordination_bin, project.root)
+    if args.command in unattended.COMMANDS:
+        return unattended.dispatch(args, project, coord)
     if args.command == "start":
         print(work.start(project, coord, args.role, args.harness, args.model), end="")
     elif args.command == "new":

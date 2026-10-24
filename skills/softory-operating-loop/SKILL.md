@@ -13,6 +13,8 @@ description: How a softory role starts, picks up, does, hands off, and closes wo
 eval "$($S start <role> --harness <claude|codex> --model <model>)"   # exports COORDINATION_SESSION and SOFTORY_ROLE
 ```
 
+Running unattended (the runner started you)? The prompt already lists what is waiting, so skip the full orientation and go straight to that unit.
+
 Then orient yourself in one pass. Don't page through everything:
 
 ```sh
@@ -52,8 +54,9 @@ One claim at a time. If a `blocks` dependency isn't done, don't claim. Message t
 ## 5. Hand off for review
 
 ```sh
-$C evidence add --task TASK-7 --uri <commit|PR|path> --type commit --actor $SOFTORY_ROLE
+$C evidence add --task TASK-7 --uri <commit hash> --type commit --actor $SOFTORY_ROLE
 $C evidence add --task TASK-7 --uri <test-output-path> --type test --actor $SOFTORY_ROLE
+$S verify TASK-7                    # runs the charter's tests at that commit; the gate needs it to pass
 $C task release TASK-7 --to review --actor $SOFTORY_ROLE --if-revision <rev>
 $S reviewers TASK-7                 # who must review, from the unit and tags
 $C message send ... --recipient <each reviewer> --task TASK-7 --body "Ready for review: <one line>"
