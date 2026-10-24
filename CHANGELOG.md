@@ -10,7 +10,7 @@ Less for every agent to read. Each run loaded 7k to 12k tokens of softory text b
 - **Profiles hold identity, boundaries, and lanes; skills hold procedure.** Toby's threat-model, review, and severity sections, Quinn's task and architecture-review checklists, Darwin's handoff and design-review lists, Greg's ready and acceptance-review sections, and the engineers' loop were second copies of their skills or the operating loop. The "Why Claude/Codex" sections and the source lists moved out of what agents load: the reasoning is in [docs/models.md](docs/models.md), and the sources are in [docs/sources.md](docs/sources.md).
 - **Jade loads `softory-design` only on `ui` tasks.**
 - **Shorter skills.** `softory-code-quality` and `softory-testing` keep every rule and the rubric and drop the textbook explanations. `softory-code-review` drops the turnaround section, which a runner doesn't need.
-- **Dead code removed.** `softory silent --notify` (the digest pages silent roles now), an unused constant, unused imports, and a second git wrapper and time parser. The README's cron recipe for `pending` and `silent` is gone, since `softory run` replaces it, and its command table is the ten commands you'll use most, with `--help` for the rest.
+- **Dead code removed.** `softory silent --notify` (the digest pages silent roles now), an unused constant, unused imports, and a second git wrapper and time parser. The README's cron recipe for `pending` and `silent` is gone, since `softory run` replaces it.
 - Greg's roster entry no longer claims a UX copy review the RACI and boundaries don't give him.
 - **Faster tests.** A plain install into the same files is copied from the first one, so the suite takes about 5 minutes instead of 8.6.
 

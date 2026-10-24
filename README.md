@@ -65,24 +65,45 @@ You are Jade. Pick up your next task.
 You are Toby. Review whatever is waiting for security review.
 ```
 
-Each role starts a session, which records the harness and model, and works through the coordination CLI. The commands you'll use most:
+Each role starts a session, which records the harness and model, and works through the coordination CLI. The commands they use, which you can use too:
 
 | Command | Does |
 | --- | --- |
-| `softory tree [ID]` / `softory queue` | The epic > story > task hierarchy; a role's claimed, closable, review, and assigned work |
-| `softory new epic\|story\|task\|bug\|review ...` | Creates a unit with the right tags, assignee, and parent link |
-| `softory gate <ID>` / `softory close <ID>` | Whether a unit may close, with a reason for every check; close it only if it passes |
-| `softory triage` | Finished work nobody closed, older review runs to adopt, stale sessions, and silent roles |
-| `softory proposals` / `softory approve <ID> \| --all` | What agents asked you for (stand-ins, waivers, review adoptions); apply them at a terminal |
-| `softory standin add <agent> --for <roles> [--task IDs] [--until date]` | Lets an existing agent act for softory roles (owner only, at a terminal) |
-| `softory charter show` / `charter approve <file>` | The settings unattended runs follow; approve yours once, at a terminal |
-| `softory digest` / `usage` / `pause` / `resume` | What needs you; today's runs against the budget; stop and start unattended runs |
-| `softory tracker [--port N] [--open]` | The web console on 127.0.0.1 |
-| `softory doctor` | Checks the installation and that nothing leaks into git |
+| `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
+| `softory end [--session ID]` | Ends the session, so its claims don't go stale |
+| `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
+| `softory new bug --from <ID> --title ... [--blocks-source]` | Files a follow-up from a review: same story and lane, linked back to the source. The source waits for it only with `--blocks-source` |
+| `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
+| `softory drop <ID> --reason ... [--superseded-by ID]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision |
+| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate |
+| `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
+| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, and your assigned work |
+| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. The runner uses it each tick |
+| `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
+| `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
+| `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
+| `softory reviewers <ID>` | Who must review it, and where each review stands |
+| `softory gate <ID>` | Whether it may close, with a reason for every check |
+| `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
+| `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` asks the owner to mark an older review run as a record, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
+| `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
+| `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID> \| --all` | Agents ask (review adoptions ask too); the owner approves at a terminal. A waiver lets one review check pass on one task |
+| `softory ruling --title ... --decision ... --where ...` | Records a decision the owner made, under the owner's name, marked with who recorded it and where the owner said it |
+| `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
+| `softory triage` | Lists finished work nobody closed, older review runs to adopt, sessions to end or restart, and silent roles |
+| `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
+| `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
+| `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
+| `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
+| `softory charter show` / `charter approve <file>` | The settings unattended runs follow; the owner approves them once, at a terminal |
+| `softory setup` | The owner's one-time checklist, with each step checked |
+| `softory run [--dry-run]` / `run-role <role>` | One runner tick: starts each role that has work, inside the budget |
+| `softory pause [--role r]` / `resume [--role r]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal) |
+| `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate |
+| `softory digest [--send]` / `usage` / `schedule` | What needs the owner; today's runs against the budget; the launchd job and cron line |
+| `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
-`softory --help` lists every command, and `softory <command> --help` its options.
-
-The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
+`softory <command> --help` gives each command's options. The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
 
 ### Running unattended
 
