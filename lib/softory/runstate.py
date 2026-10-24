@@ -79,7 +79,13 @@ def runs_today(project: Project, role: str) -> list[dict[str, Any]]:
 def budget(project: Project, charter: dict[str, Any], role: str) -> dict[str, Any]:
     """Today's use against the charter's caps, as fractions of each."""
     rows = runs_today(project, role)
-    limits = charter["budget"]
+    limits = limits_for(charter, role)
     used = {"runs": len(rows), "minutes": round(sum(r.get("minutes", 0) for r in rows), 1)}
     share = max(used["runs"] / limits["runs_per_role_per_day"], used["minutes"] / limits["minutes_per_role_per_day"])
     return {**used, "share": round(share, 2), "over": share >= 1, "warn": share >= limits["warn_at"]}
+
+
+def limits_for(charter: dict[str, Any], role: str) -> dict[str, Any]:
+    """The budget caps for one role: the defaults, with that role's overrides on top."""
+    base = {k: v for k, v in charter["budget"].items() if k not in ("roles", "description")}
+    return {**base, **((charter["budget"].get("roles") or {}).get(role) or {})}

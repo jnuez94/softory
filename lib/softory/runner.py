@@ -21,7 +21,7 @@ from typing import Any
 
 from . import charter as charters
 from . import digest, perms, watch
-from .runstate import budget, now, is_paused, state_dir
+from .runstate import budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -94,7 +94,7 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
     pid_file = state_dir(project) / f"{role}.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
     started = now()
-    limit = float(charter["budget"]["minutes_per_run"]) * 60
+    limit = float(limits_for(charter, role)["minutes_per_run"]) * 60
     try:
         child = subprocess.Popen(command, cwd=project.root, env=_clean_env(), start_new_session=True)  # noqa: S603
         try:

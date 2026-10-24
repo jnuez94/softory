@@ -17,7 +17,7 @@ This matches the 2026-10-21 split (Claude for Darwin, Quinn, Jade, and Gold; Cod
 
 ## What it costs, and the cheaper option
 
-On Terminal-Bench 4.0 the full run cost $4.7k with Opus 5.5 (8.0B tokens), $3.3k with GPT-6 Astra (1.5B), and $0.6k with GPT-6.1 Sol (1.5B). Astra's list price is higher than Opus's ($10 / $50 against $4 / $20 per million tokens), but it used about a fifth of the tokens, so per task it is cheaper. The runner's `pending` check, budgets, and review caps keep idle and stuck roles from spending.
+On Terminal-Bench 4.0 the full run cost $4.7k with Opus 5.5 (8.0B tokens), $3.3k with GPT-6 Astra (1.5B), and $0.6k with GPT-6.1 Sol (1.5B). Astra's list price is higher than Opus's ($10 / $50 against $4 / $20 per million tokens), but it used about a fifth of the tokens, so per task it is cheaper. The runner's `pending` check, budgets, and review caps keep idle and stuck roles from spending. The budget is in runs and minutes, so moving from Sol to Opus 5.5 or Astra raises the cost of each minute, not the number of minutes. That's why the defaults are 24 runs and 120 minutes a day per role (60 for Greg, Darwin, and Toby), down from the 48 and 240 first proposed.
 
 If the budget is tight, the best trade is Gold and Greg on `gpt-6.1-sol` with `escalate` set to `claude-opus-5-5` (Gold) or `gpt-6-astra` (Greg). Sol scores the same as Astra on Terminal-Bench 4.0 at a fifth of the cost, and the escalation moves a task to the stronger model after two rounds of requested changes. Keep Toby, Darwin, and Quinn on the defaults; those are the specialist calls.
 

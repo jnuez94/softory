@@ -39,6 +39,13 @@ class CharterUnitTest(unittest.TestCase):
         self.assertEqual(merged["budget"]["runs_per_role_per_day"], DEFAULTS["budget"]["runs_per_role_per_day"])
         self.assertEqual(charters.unknown_keys(DEFAULTS, {"budgte": 1, "lanes": {"mobile": []}}), ["budgte"])
 
+    def test_budget_overrides_per_role(self) -> None:
+        from softory.runstate import limits_for
+        self.assertEqual(limits_for(DEFAULTS, "greg")["minutes_per_run"], 15)
+        self.assertEqual(limits_for(DEFAULTS, "jade")["minutes_per_run"], 30)
+        self.assertEqual(limits_for(DEFAULTS, "greg")["runs_per_role_per_day"], 24)
+        self.assertEqual(charters.unknown_keys(DEFAULTS, {"budget": {"roles": {"quinn": {"minutes_per_run": 60}}}}), [])
+
     def test_escalation_switches_model(self) -> None:
         self.assertEqual(charters.model_for(DEFAULTS, "toby", False), {"harness": "codex", "model": "gpt-6-astra"})
         self.assertEqual(charters.model_for(DEFAULTS, "jade", True)["model"], "claude-opus-5-5")  # no escalation set

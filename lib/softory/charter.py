@@ -16,6 +16,7 @@ from .coordination import Coordination
 from .errors import SoftoryError
 from .owner import _now, record_decision
 from .project import Project
+from .runstate import limits_for
 
 
 def defaults(project: Project) -> dict[str, Any]:
@@ -43,7 +44,7 @@ def unknown_keys(base: Any, overrides: Any, prefix: str = "") -> list[str]:
     """Override keys the defaults don't have. Lane names and model roles may be added."""
     if not isinstance(overrides, dict) or not isinstance(base, dict):
         return []
-    open_maps = {"lanes", "models", "run.harnesses"}
+    open_maps = {"lanes", "models", "run.harnesses", "budget.roles"}
     found = []
     for key, value in overrides.items():
         path = f"{prefix}{key}"
@@ -97,9 +98,10 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
         for pick in (choice, choice.get("escalate")):
             if pick and pick.get("harness") not in charter["run"]["harnesses"]:
                 problems.append(f"models.{role} uses harness {pick.get('harness')!r}, which run.harnesses doesn't define")
-    budget = charter["budget"]
-    if min(budget["runs_per_role_per_day"], budget["minutes_per_role_per_day"], budget["minutes_per_run"]) <= 0:
-        problems.append("budget values must be positive")
+    for role in ["", *(charter["budget"].get("roles") or {})]:
+        limits = limits_for(charter, role)
+        if min(limits["runs_per_role_per_day"], limits["minutes_per_role_per_day"], limits["minutes_per_run"]) <= 0:
+            problems.append(f"budget values must be positive{' for ' + role if role else ''}")
     return problems
 
 
