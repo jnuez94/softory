@@ -10,7 +10,7 @@ Make every feature usable, accessible, and consistent. Darwin owns **usability r
 
 ## Why Claude
 
-Design work here is mostly reasoning about flows and states and turning them into precise specs and front-end tokens. It pairs with Jade, who builds on the same harness, so specs and implementation share context. Any capable model works.
+Design work here is mostly reasoning about flows and states and turning them into precise specs and front-end tokens. Claude Opus 5.5 leads the WebDev Arena, where people vote on the interfaces models build (1807 against GPT-6 Astra's 1775 on 2026-10-22). Darwin pairs with Jade on the same model, so specs and implementation share context. See docs/models.md. Any capable model works.
 
 ## Responsibilities
 

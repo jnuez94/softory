@@ -19,7 +19,7 @@ On top of them, softory adds the team, the rules, and the craft.
 | **Skills** | Nine skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, architecture, and token economy. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
 | **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, and the right role is closing. |
 
-Model-agnostic: any role runs on any harness. The defaults recommend **Claude** for Darwin, Quinn, Jade, and Gold, and **Codex** for Greg and Toby, so acceptance and security review use a different model from the one that wrote the code.
+Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, and Gold (agent coding and web design), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
 
 ## Requirements
 
@@ -95,11 +95,38 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
 | `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
+| `softory charter show` / `charter approve <file>` | The settings unattended runs follow; the owner approves them once, at a terminal |
+| `softory setup` | The owner's one-time checklist, with each step checked |
+| `softory run [--dry-run]` / `run-role <role>` | One runner tick: starts each role that has work, inside the budget |
+| `softory pause [--role r]` / `resume [--role r]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal) |
+| `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate |
+| `softory digest [--send]` / `usage` / `schedule` | What needs the owner; today's runs against the budget; the launchd job and cron line |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
 The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
 
-### Running roles on a schedule
+### Running unattended
+
+Softory 0.4.0 runs the team without you up to a pull request. You merge and deploy. Set it up once:
+
+1. Run `softory setup`. It lists each step and checks the ones it can.
+2. Write the settings you want to change to a file, starting from `softory charter show`: your `vision`, `verify.command` (your test command), `lanes` paths, `paging.command`, and the `budget`. Approve it in a terminal with `softory charter approve <file>`.
+3. Protect your base branch on GitHub and require CI.
+4. Load the runner: `softory schedule` writes a launchd job (and prints a cron line) that runs `softory run` every five minutes.
+
+Each tick starts a role only when it has work, is under today's budget, and isn't paused or already running. The budget counts runs and minutes, not dollars, so it holds whatever a model costs: by default 24 runs and 120 minutes a day per role, 30 minutes a run, and tighter for the reviewing roles (Greg 15 minutes a run and 60 a day, Darwin and Toby 20 and 60). `budget.roles` overrides any cap for one role. At 80% you see it in the digest; at 100% the role stops until tomorrow and you're paged. Optional dollar caps sit beside them: `usd_per_run` (Claude Code stops itself there) and `usd_per_role_per_day`, counted from the cost each run reports; both are off at 0.
+
+Each run is shaped to waste as little as possible:
+
+- **Reviewers wake for tested work, in batches.** With `verify.command` set, a reviewer isn't woken for a unit until `softory verify` passed at its commit; the builder is woken to run or fix the tests instead. A reviewer then wakes once `review_batch.min` reviews wait (default 2) or the oldest has waited `review_batch.max_wait_minutes` (default 60), and clears all of them in one run. Keep the tick at five minutes: a tick with nothing to do calls no model.
+- **The prompt carries the work.** It lists what is waiting and, for up to five units, the title, acceptance criteria, the changes reviewers asked for, and the files the commit touched, so the agent doesn't spend its first turns looking them up. The rules come first and stay the same between runs, so the provider's prompt cache reuses them.
+- **Effort fits the job.** A run that only has reviews, closes, or messages is a review run (`effort.review`, default medium); anything else is a build run (`effort.build`, default high). `models.<role>.effort` overrides either for one role.
+- **Real tokens and cost.** Claude Code runs with `--output-format json` and Codex with `--json`; softory reads their usage report and logs input, cached, and output tokens and dollars per run (Codex's dollars are estimated from the charter's `prices`). `softory usage` shows today's totals per role.
+ Claude Code roles get a settings file that allows edits only in their lane's paths; Codex runs in its workspace-write sandbox. Either way, the gate's `lane_paths` check fails a diff outside the lane, and `verified` needs `softory verify` to have passed at the commit.
+
+A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops and goes to your digest. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
+
+### Running roles on your own schedule
 
 A role on a timer usually wakes to nothing. In the Vault Radar pilot, 165 of Greg's 188 five-minute runs read the inbox and stopped. Put `softory pending` in front of the run so an idle role costs no model call:
 

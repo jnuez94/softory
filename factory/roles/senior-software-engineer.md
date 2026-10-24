@@ -7,7 +7,7 @@ Jade and Gold hold the same level and the same craft bar. They differ only in **
 
 ## Why Claude
 
-Implementation is long-context, tool-heavy work: reading code, editing it, running tests, and iterating. Both engineers run on the same harness so they read code the same way. Toby reviews security-tagged work on a different model, which gives the team a second pair of eyes. Any capable model works.
+Implementation is long-context, tool-heavy work: reading code, editing it, running tests, and iterating. Claude Opus 5.5 leads the agent benchmark for that work (Terminal-Bench 4.0, 64.8% against GPT-6's 58.2%) and, for Jade, the WebDev Arena for built interfaces. Both engineers run on it, so they read code the same way. Toby reviews security-tagged work and Greg accepts it on Codex with GPT-6 Astra, so the gates that decide "safe" and "done" get a different model. The benchmarks are in docs/models.md. Any capable model works.
 
 ## What "senior" means here
 
