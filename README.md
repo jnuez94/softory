@@ -129,6 +129,20 @@ git -C softory pull
 
 Sessions started before an upgrade keep the old rules until they restart; `softory triage` lists them.
 
+The installer replaces the coordination CLI too when softory pins a newer scaffold, so upgrade between runs:
+
+1. Pause scheduled roles (launchd, cron, or Codex automations) and let running sessions finish or end them.
+2. Run the installer. When it upgrades the scaffold it backs the database up first and prints the path as `scaffold_backup`.
+3. Check `.agents/softory/bin/softory doctor`, then resume the schedules.
+
+If something looks wrong afterwards, restore the backup with no sessions active:
+
+```sh
+.agents/agentic-project-scaffold-lite/bin/coordination restore --input <scaffold_backup> --actor owner --force
+```
+
+Scaffold 1.4.0 and 1.4.1 share schema version 1, so either CLI can restore it.
+
 ### Who changes the rules
 
 The rules are softory's, not the project's. The installer makes `gates.json`, the role files, softory's code, and `local.json` read-only and records their hashes. If any of them changes, the gate fails every unit (`config_intact`) and `softory doctor` names the file, until the file is restored or you reinstall. A change to the rules for every project is a softory release.

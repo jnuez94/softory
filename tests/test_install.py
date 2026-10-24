@@ -88,6 +88,26 @@ class TrackedInstructionsTest(unittest.TestCase):
         self.assertIn("Use tabs.", override)
         self.assertIn("Softory software factory", override)
 
+    def test_codex_gets_the_installed_scaffold_block(self) -> None:
+        """A tracked AGENTS.md with 1.4.0's scaffold block: Codex's copy gets the installed block,
+        the tracked file is untouched, and doctor says how to update it."""
+        old = ("# Team rules\n\n<!-- agentic-project-scaffold-lite:start -->\nMark the inbox read "
+               "(`inbox mark-read --cursor HEAD`).\n<!-- agentic-project-scaffold-lite:end -->\n\nUse tabs.\n")
+        holder, root = git_project({"AGENTS.md": old, "README.md": "x\n"})
+        self.addCleanup(holder.cleanup)
+        install(root)
+        override = (root / "AGENTS.override.md").read_text()
+        self.assertNotIn("--cursor HEAD", override)
+        self.assertIn("`head` number from that same `inbox list` result", override)
+        self.assertIn("Use tabs.", override)
+        self.assertEqual((root / "AGENTS.md").read_text(), old)
+        report = json.loads(softory(root, "doctor").stdout)
+        self.assertTrue(report["pass"], report)
+        self.assertTrue(any("--cursor HEAD" in w and "scaffold-block.md" in w for w in report["warnings"]), report["warnings"])
+        softory(root, "sync")
+        self.assertNotIn("--cursor HEAD", (root / "AGENTS.override.md").read_text())
+        self.assertEqual(git_status(root), "")
+
     def test_claude_local_reimports_agents_md(self) -> None:
         self.assertIn("@AGENTS.md", (self.root / "CLAUDE.local.md").read_text())
 
@@ -157,7 +177,8 @@ class ScaffoldUpgradeTest(unittest.TestCase):
         run(["git", "add", ".gitignore", "AGENTS.md"], root)
         run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "scaffold"], root)
         old = coord(root, "version")["data"]["cli_version"]
-        coord(root, "agent", "add", "--id", "dev", "--name", "Dev", "--role", "builder", "--actor-type", "ai")
+        coord(root, "agent", "add", "--id", "owner", "--name", "Owner", "--role", "owner", "--actor-type", "human")
+        coord(root, "agent", "add", "--id", "dev", "--name", "Dev", "--role", "builder", "--actor-type", "ai", "--actor", "owner")
         coord(root, "task", "create", "--id", "OLD-1", "--title", "Made before the upgrade", "--actor", "dev")
 
         result = install(root)
@@ -166,6 +187,9 @@ class ScaffoldUpgradeTest(unittest.TestCase):
         self.assertIn(f"pre-scaffold-{PINNED}-", result["scaffold_backup"])
         self.assertEqual(coord(root, "version")["data"]["cli_version"], PINNED)
         self.assertEqual(coord(root, "task", "show", "OLD-1")["data"]["title"], "Made before the upgrade")
+        audited = coord(root, "audit", "list", "--action", "backup")["data"]
+        self.assertEqual([row["actor"] for row in audited], ["owner"])
+        self.assertNotIn("--cursor HEAD", (root / "AGENTS.override.md").read_text())  # 1.4.0's block, replaced
         self.assertEqual(git_status(root), "")
 
 

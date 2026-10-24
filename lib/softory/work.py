@@ -251,7 +251,7 @@ def close(project: Project, coord: Coordination, task_id: str, actor: str | None
     report = gate(project, coord, task_id, actor)
     if not report["pass"]:
         return {"closed": False, "gate": report}
-    lifecycle.move_to_done(coord, task_id, actor, "closed through softory gate")
+    lifecycle.move_to_done(coord, task_id, actor, lifecycle.CLOSE_NOTE)
     return {"closed": True, "id": task_id, "gate": report}
 
 

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import gate as gate_rules
-from . import watch, work
+from . import lifecycle, watch, work
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -138,14 +138,25 @@ def triage(project: Project, coord: Coordination) -> dict[str, Any]:
         "ready_to_close": ready,
         "accepted_but_open": accepted_but_open,
         "review_runs": review_runs,
+        "closed_outside_softory": _closed_outside_softory(project, coord),
         "sessions": _session_report(project, coord),
         "silent_roles": watch.silent(project, coord)["silent"],
         "next": ("Run softory gate on each ready task. For the others, check the code: close finished work, drop "
                  "work nobody will build (softory drop), or say what is left. Each review run's reviewer runs its "
                  "adopt command (it finds what the run reviewed from its informs links, or add --for), then "
                  "softory close <ID>. End silent sessions; restart sessions older than the install; tell the owner "
-                 "about silent roles."),
+                 "about silent roles and anything closed outside softory."),
     }
+
+
+def _closed_outside_softory(project: Project, coord: Coordination) -> list[dict[str, Any]]:
+    """Units done since softory was installed without softory's close or drop note: someone ran
+    ``task status done`` directly, which the scaffold allows and the gate never saw."""
+    manifest = project.manifest()
+    since = manifest.get("first_installed_at") or manifest.get("installed_at") or ""
+    return [{"id": t["id"], "title": t["title"], "updated_at": t["updated_at"], "notes": t.get("notes") or ""}
+            for t in coord.all_tasks("--status", "done")
+            if t.get("updated_at", "") >= since and not lifecycle.closed_by_softory(t)]
 
 
 REVIEW_RUN_TAGS = ("review", "code-review", "independent-review", "security-review")

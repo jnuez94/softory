@@ -418,3 +418,16 @@ class ReviewOrderTest(unittest.TestCase):
         self.coord.binary.write_text(script)
         self.coord.task("TASK-1")
         self.assertEqual(probe.read_text(), "")
+
+
+class ScaffoldBlockTest(unittest.TestCase):
+    def test_refresh_swaps_only_the_scaffold_block(self) -> None:
+        from softory import instructions
+
+        start, end = instructions.SCAFFOLD_START, instructions.SCAFFOLD_END
+        text = f"# Rules\n\n{start}\nold --cursor HEAD\n{end}\n\nUse tabs.\n"
+        current = f"{start}\nnew head number\n{end}\n"
+        self.assertEqual(instructions.refresh_scaffold_block(text, current),
+                         f"# Rules\n\n{start}\nnew head number\n{end}\n\nUse tabs.\n")
+        self.assertEqual(instructions.refresh_scaffold_block("# Rules\n", current), "# Rules\n")
+        self.assertEqual(instructions.refresh_scaffold_block(text, None), text)

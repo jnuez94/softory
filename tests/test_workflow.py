@@ -223,6 +223,17 @@ class WorkflowTest(unittest.TestCase):
                                      "--lane", "backend", "--actor", "quinn").stdout)
         self.assertIn("already accepted", adopted["warning"])
 
+    def test_triage_flags_work_closed_outside_softory(self) -> None:
+        self.build("TASK-1", "jade")
+        self.review("TASK-1", "gold", "accepted", 1)
+        softory(self.root, "close", "TASK-1", "--actor", "jade")
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", "Quick fix", "--actor", "quinn")
+        self.build("TASK-2", "gold")
+        coord(self.root, "task", "status", "TASK-2", "done", "--actor", "gold", "--if-revision", revision(self.root, "TASK-2"),
+              "--note", "done, trust me")  # the scaffold allows this; softory's gate never ran
+        flagged = json.loads(softory(self.root, "triage").stdout)["closed_outside_softory"]
+        self.assertEqual([(t["id"], t["notes"]) for t in flagged], [("TASK-2", "done, trust me")])
+
     def test_feedback_is_recorded_locally_and_hidden(self) -> None:
         recorded = json.loads(softory(self.root, "feedback", "The gate output is long", "--task", "TASK-1",
                                       env={"SOFTORY_ROLE": "jade"}).stdout)

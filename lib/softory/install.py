@@ -48,7 +48,8 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
 
     with tempfile.TemporaryDirectory(prefix="softory-src-") as scratch:
         scaffold_src, tracker_src = fetch_sources(deps, Path(scratch), options)
-        backup = _backup_before_upgrade(target, scaffold_found, deps["scaffold"]["version"])
+        owner = json.loads((source / "factory" / "roles" / "roster.json").read_text(encoding="utf-8"))["owner"]["id"]
+        backup = _backup_before_upgrade(target, scaffold_found, deps["scaffold"]["version"], owner)
         _install_scaffold(scaffold_src, target)
         bundle = target / BUNDLE_DIR
         _copy_bundle(source, bundle)
@@ -60,8 +61,9 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
     softory_text = (source / "factory" / "INSTRUCTIONS.md").read_text(encoding="utf-8")
     base = softory_text if _project_has_scaffold_block(target, actions) else scaffold_block + "\n" + softory_text
     body = instructions.compose(base, Project(target).stand_ins())
-    instructions.write(target, actions, body)
+    instructions.write(target, actions, body, scaffold_block)
     (bundle / "generated").mkdir(exist_ok=True)
+    (bundle / "generated" / instructions.SCAFFOLD_BLOCK_FILE).write_text(scaffold_block, encoding="utf-8")
     (bundle / "generated" / "base.md").write_text(base, encoding="utf-8")
     (bundle / "generated" / "instructions.md").write_text(body, encoding="utf-8")
 
@@ -72,6 +74,9 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
     manifest = {
         "softory_version": __version__,
         "installed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        # Triage flags work closed outside softory since this moment, so it survives upgrades.
+        "first_installed_at": previous.get("first_installed_at") or previous.get("installed_at")
+        or datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "scaffold": deps["scaffold"],
         "tracker": deps["tracker"],
         "skills": skills,
@@ -136,17 +141,20 @@ def _existing_scaffold(target: Path, pinned: str) -> str | None:
     return version
 
 
-def _backup_before_upgrade(target: Path, found: str | None, pinned: str) -> str | None:
+def _backup_before_upgrade(target: Path, found: str | None, pinned: str, owner: str) -> str | None:
     """Back up the database with the project's current CLI before replacing that CLI,
-    as the scaffold's upgrade guide asks. Same version or a fresh project: no backup."""
+    as the scaffold's upgrade guide asks. Same version or a fresh project: no backup.
+    The copy is audited under the owner, who runs the installer, once the owner is registered."""
     if not found or version_tuple(found) >= version_tuple(pinned) or not (target / ".coordination" / "config.yml").is_file():
         return None
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     folder = target / ".coordination" / "backups"
     folder.mkdir(parents=True, exist_ok=True)
     output = folder / f"pre-scaffold-{pinned}-{stamp}.sqlite3"
+    coord = Coordination(target / COORDINATION_BIN, target)
+    actor = ["--actor", owner] if coord.agent_exists(owner) else []
     try:
-        Coordination(target / COORDINATION_BIN, target).run("backup", "--output", str(output))
+        coord.run("backup", "--output", str(output), *actor)
     except SoftoryError as error:
         raise SoftoryError(f"Couldn't back up the database before upgrading scaffold {found} to {pinned}: "
                            f"{error.message}. The scaffold was left as it was.", "backup_failed") from error
