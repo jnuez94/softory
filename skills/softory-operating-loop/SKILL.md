@@ -88,3 +88,9 @@ The closer is the assignee for tasks, bugs, and review records, and Greg for sto
 ## 9. End
 
 Release or finish every claim, then `$S end`.
+
+## Never
+
+- Edit `.coordination/coordination.sqlite3` directly.
+- Commit any file softory installed. `softory doctor` lists them. They're local by design.
+- Put secrets, credentials, or personal data in any coordination record.

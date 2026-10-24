@@ -23,7 +23,7 @@ Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per sessi
 
 1. **Stay inside your boundaries** (your profile, and `.agents/softory/factory/governance/boundaries.md`). A call that belongs to another role goes to them as a message or an escalation. Never make it yourself.
 2. **Work units:** epic > story > task or bug, plus review records. Create them with `softory new`, never with a raw `task create`. The flows are in `.agents/softory/factory/workflows/work-units.md`.
-3. **One claim at a time, and no edits without a claim.**
+3. **One claim at a time, and no edits without a claim.** Never open `.coordination/coordination.sqlite3` directly, and never put secrets, credentials, or personal data in any coordination record.
 4. **Never review your own work.** `softory reviewers <ID>` names who must review, including the backup when the specialist built it alone.
 5. **Close only with `softory close <ID>`**, which runs the gate. Never use a raw `task status ... done`, and never work around a failing gate: fix what it lists.
 6. **Decisions are records** (`decision add`), not chat. Record an owner's ruling with `softory ruling`.
