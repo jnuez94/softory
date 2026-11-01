@@ -56,8 +56,12 @@ def unknown_keys(base: Any, overrides: Any, prefix: str = "") -> list[str]:
     return found
 
 
-def approve(project: Project, coord: Coordination, path: Path, confirm: Any) -> dict[str, Any]:
-    """Replace the owner's overrides with the file's, after a typed yes at a terminal, and record a decision."""
+def approve(project: Project, coord: Coordination, path: Path, confirm: Any, layer: bool = False) -> dict[str, Any]:
+    """Replace the owner's overrides with the file's, after a typed yes at a terminal, and record a decision.
+
+    With ``layer`` the file's settings go on top of the current overrides instead of replacing them, so
+    several small changes don't each need a full file. The prompt shows only what changes.
+    """
     try:
         overrides = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -65,6 +69,9 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any) -> 
     if not isinstance(overrides, dict):
         raise SoftoryError("The charter file must hold one JSON object", "invalid_arguments")
     overrides.pop("approved", None)
+    current = project.local().get("charter", {}).get("settings", {})
+    if layer:
+        overrides = merge(current, overrides)
     bad = unknown_keys(defaults(project), overrides)
     if bad:
         raise SoftoryError(f"Unknown charter settings: {', '.join(bad)}. `softory charter show` lists them.",
@@ -73,7 +80,10 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any) -> 
     problems = validate(project, merged)
     if problems:
         raise SoftoryError("; ".join(problems), "invalid_arguments")
-    confirm("Charter for unattended runs:\n" + json.dumps(overrides, indent=2, sort_keys=True))
+    changes = diff(merge(defaults(project), current), merged)
+    if not changes:
+        return {"approved": False, "note": "Nothing changes; the charter in force already says this."}
+    confirm("Charter changes:\n" + "\n".join(changes))
     owner = project.roster()["owner"]["id"]
     decision = record_decision(coord, owner, "charter", "Charter for unattended runs",
                                "The owner approved the charter softory's runner follows.",
@@ -81,7 +91,21 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any) -> 
     settings = project.local()
     settings["charter"] = {"settings": overrides, "approved": {"at": _now(), "decision": decision}}
     project.save_local(settings)
-    return {"approved": True, "decision": decision, "charter": load(project)}
+    return {"approved": True, "decision": decision, "changed": changes, "charter": load(project)}
+
+
+def diff(before: Any, after: Any, prefix: str = "") -> list[str]:
+    """One line per setting that changes, as ``path: old -> new``."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        lines = []
+        for key in sorted(set(before) | set(after)):
+            if key == "description":
+                continue
+            lines += diff(before.get(key), after.get(key), f"{prefix}{key}.")
+        return lines
+    if before == after:
+        return []
+    return [f"{prefix.rstrip('.')}: {json.dumps(before)} -> {json.dumps(after)}"]
 
 
 def validate(project: Project, charter: dict[str, Any]) -> list[str]:

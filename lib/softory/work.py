@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from . import charter, lifecycle, verify
+from . import charter, lifecycle, verify, verifyenv
 from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -36,6 +36,10 @@ def actor_of(explicit: str | None) -> str:
 def start(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
     """Start an execution session for a role and return shell exports."""
     role = project.role(role_id)
+    if not model or not harness:  # usage and reviews compare models, so a session always names one
+        pick = (charter.load(project).get("models") or {}).get(role_id) or {}
+        harness = harness or pick.get("harness")
+        model = model or (pick.get("model") if (pick.get("harness") or harness) == harness else "") or ""
     harness = harness or role.get("recommended_harness") or "unspecified"
     if not coord.agent_exists(role_id):
         raise SoftoryError(f"Agent {role_id!r} is not registered. Re-run the softory installer.", "not_found")
@@ -262,6 +266,20 @@ def close(project: Project, coord: Coordination, task_id: str, actor: str | None
     return {"closed": True, "id": task_id, "gate": report}
 
 
+def close_ready(project: Project, coord: Coordination, actor: str | None) -> dict[str, Any]:
+    """Close, one by one through the gate, every unit ``actor`` may close that passes now.
+
+    For clearing a backlog of finished work in one go, such as older tasks whose reviews accepted them.
+    """
+    actor = actor_of(actor)
+    found = ready_to_close(Board(project, coord), actor)
+    closed, held = [], []
+    for row in found:
+        result = close(project, coord, row["id"], actor)
+        (closed if result["closed"] else held).append(row["id"])
+    return {"closed": closed, "closed_count": len(closed), "held": held}
+
+
 def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, Any]:
     """Who must review the unit, and where each requirement stands."""
     gates = project.gates()
@@ -352,7 +370,7 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
                     to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
                 break
     return {"agent": agent, "claimed": claimed, "ready_to_close": ready_to_close(board, agent),
-            "reviews_waiting": to_review, "assigned": assigned}
+            "reviews_waiting": to_review, "assigned": assigned, "verify_queue": verifyenv.waiting(project)}
 
 
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:

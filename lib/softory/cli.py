@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, external, feedback, lifecycle, messages, ops, owner, team, unattended, watch, work, worktree
+from . import __version__, external, feedback, lifecycle, messages, ops, owner, records, team, unattended, watch, work, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -148,7 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--actor", help="Who intends to close it (default: $SOFTORY_ROLE)")
 
     p = sub.add_parser("close", help="Run the gate and move the unit to done only if it passes")
-    p.add_argument("id")
+    p.add_argument("id", nargs="?", help="Leave out with --ready")
+    p.add_argument("--ready", action="store_true", help="Close every unit you may close that passes its gate now")
     p.add_argument("--stack", action="store_true", help="Close the unit's whole stack together, or none of it")
     p.add_argument("--actor", help="Who is closing it (default: $SOFTORY_ROLE)")
 
@@ -189,6 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--recommended", action="store_true", help="Add every recommended skill")
 
     unattended.add_parsers(sub)
+    records.add_parsers(sub)
 
     p = sub.add_parser("uninstall", help="Remove softory (keeps .coordination unless --purge)")
     p.add_argument("--purge", action="store_true", help="Also delete the coordination database")
@@ -235,6 +237,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     coord = Coordination(project.coordination_bin, project.root)
     if args.command in unattended.COMMANDS:
         return unattended.dispatch(args, project, coord)
+    if args.command in records.COMMANDS:
+        return records.dispatch(args, project, coord)
     if args.command == "start":
         print(work.start(project, coord, args.role, args.harness, args.model), end="")
     elif args.command == "new":
@@ -296,7 +300,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(result), end="")
         return 0 if result["pass"] else 3
     elif args.command == "close":
-        result = work.close(project, coord, args.id, args.actor, args.stack)
+        if args.ready == bool(args.id):
+            raise SoftoryError("Name one unit, or pass --ready to close everything ready", "invalid_arguments")
+        result = work.close_ready(project, coord, args.actor) if args.ready else work.close(
+            project, coord, args.id, args.actor, args.stack)
         print(ops.dumps(result), end="")
         return 0 if result["closed"] else 3
     elif args.command == "reviewers":

@@ -19,7 +19,7 @@ from typing import Any
 
 from . import charter as charters
 from . import digest, perms, runprompt, usage, watch
-from .runstate import budget, is_paused, limits_for, now, state_dir
+from .runstate import allowed_tasks, budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -30,11 +30,13 @@ from .project import Project
 def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[str, Any]:
     charter = charters.load(project)
     report: dict[str, Any] = {"at": now().isoformat(timespec="seconds"), "started": [], "skipped": {}}
+    if not dry_run:  # doctor reads this to tell a loaded scheduler from one that never fires
+        (state_dir(project) / "last-tick.json").write_text(json.dumps({"at": report["at"]}) + "\n", encoding="utf-8")
     if not dry_run:
         report["paged"] = digest.page_due(project, coord, charter)
     for role in charter["run"]["roles"]:
         why = is_paused(project, role)
-        if why:
+        if why and not allowed_tasks(project, role):
             report["skipped"][role] = f"paused: {why}"
             continue
         if running(project, role):
@@ -143,6 +145,22 @@ def harness_command(project: Project, charter: dict[str, Any], role: str, pick: 
             continue
         command.append(filled)
     return command
+
+
+def scheduler_state(project: Project) -> dict[str, Any]:
+    """Whether a launchd job or cron line runs the runner for this project, and when it last ticked."""
+    label = f"dev.softory.{project.root.name.lower()}"
+    launchd = None
+    if sys.platform == "darwin":
+        launchd = subprocess.run(["launchctl", "list", label], capture_output=True, check=False).returncode == 0
+    listed = subprocess.run(["crontab", "-l"], capture_output=True, text=True, check=False)
+    cron = listed.returncode == 0 and any(str(project.root) in line and " run" in line
+                                          for line in listed.stdout.splitlines() if not line.lstrip().startswith("#"))
+    try:
+        last = json.loads((state_dir(project) / "last-tick.json").read_text(encoding="utf-8")).get("at")
+    except (OSError, json.JSONDecodeError):
+        last = None
+    return {"label": label, "launchd_loaded": launchd, "cron": cron, "loaded": bool(launchd or cron), "last_tick": last}
 
 
 def schedule(project: Project, minutes: int = 5) -> dict[str, Any]:

@@ -6,6 +6,7 @@ for free.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,8 +14,9 @@ from . import charter as charters
 from . import grants, verify
 from .coordination import Coordination
 from .project import Project
-from .runstate import is_paused
+from .runstate import allowed_tasks, is_paused
 from .gate import latest_reviews
+from .gate import spec_for as gate_spec
 from .work import Board, actor_of, queue
 
 
@@ -44,9 +46,9 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         return [i for i in ids if (since is None or touched.get(i, "") > since) and i not in capped]
 
     work = queue(project, coord, agent, board)
-    rounds = review_rounds(board)
     charter = charters.load(project)
     caps = charter["task_caps"]
+    rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
     capped = {i for i, n in rounds.items() if n >= caps["review_rounds"]}
     reasons = []
     inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
@@ -62,7 +64,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
              for t in board.tasks if t["status"] == "review"} if charter["verify"]["command"] else {}
     # A reviewer waits until softory saw the tests pass; the builder is woken to run or fix them instead.
     untested = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
-                and tests.get(t["id"]) in ("not run", "failed") and t["id"] not in sent_back]
+                and tests.get(t["id"]) in ("not run", "failed", "setup failed") and t["id"] not in sent_back]
     reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")]
     batching = _batch_hold(charter, reviews, touched, now)
     waiting = {
@@ -80,12 +82,19 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
     hold = is_paused(project, agent)
+    scope = allowed_tasks(project, agent) if hold else set()
+    if scope:  # the owner let this role work on a few tasks while the pause holds
+        reasons = [{**r, "ids": [i for i in r["ids"] if i in scope]} for r in reasons if "ids" in r]
+        reasons = [r for r in reasons if r["ids"]]  # messages and other work wait for the full resume
+        hold = None
     ids = {i for r in reasons for i in r.get("ids", [])}
     escalate = sorted(i for i in ids if rounds.get(i, 0) >= caps["escalate_model_after"])
     result = {"agent": agent, "pending": bool(reasons) and not running and not hold, "since": since,
               "running": running, "reasons": reasons}
     if hold:
         result["paused"] = hold
+    if scope:
+        result["scoped_to"] = sorted(scope)
     if escalate:
         result["escalate"] = escalate
     if batching:
@@ -110,11 +119,30 @@ def _batch_hold(charter: dict[str, Any], reviews: list[str], touched: dict[str, 
     return {"ids": reviews, "until": f"{least} reviews or {wait:g} min ({waited:.0f} so far)"}
 
 
-def review_rounds(board: Board) -> dict[str, int]:
-    """How many reviews asked for changes on each task: a task past the charter's cap waits for the owner."""
+def review_rounds(board: Board, free_evidence_rounds: int = 1) -> dict[str, int]:
+    """How many reviews asked for changes on each unit: one past the charter's cap waits for the owner.
+
+    A review record's verdicts are its output, so records never count. A request whose every item is
+    labelled ``evidence:`` (the work is right, the proof is missing) is free, up to
+    ``free_evidence_rounds`` per unit, so a missing screenshot doesn't send a task to the owner.
+    """
     accepting = set(board.gates["accepting_decisions"])
-    return {task_id: n for task_id, rows in board.reviews.items()
-            if (n := sum(1 for r in rows if r.get("decision") not in accepting))}
+    counts = {}
+    for task_id, rows in board.reviews.items():
+        task = board.by_id.get(task_id)
+        if task is not None and gate_spec(task, board.gates)[1].get("record"):
+            continue
+        asked = [r for r in rows if r.get("decision") not in accepting]
+        free = min(free_evidence_rounds, sum(1 for r in asked if evidence_only(r)))
+        if len(asked) - free:
+            counts[task_id] = len(asked) - free
+    return counts
+
+
+def evidence_only(review: dict[str, Any]) -> bool:
+    """True when every requested change is labelled ``evidence:``."""
+    items = [i.strip(" -*\t") for i in re.split(r"[\n;]+", str(review.get("required_changes") or "")) if i.strip(" -*\t")]
+    return bool(items) and all(i.lower().startswith("evidence:") for i in items)
 
 
 def silent(project: Project, coord: Coordination, hours: float = 12.0) -> dict[str, Any]:

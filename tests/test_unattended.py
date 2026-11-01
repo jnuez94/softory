@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from tests.helpers import REPO, coord, git_project, install, needs_sources, revision, run, softory
+from tests.helpers import REPO, in_terminal, coord, git_project, install, needs_sources, revision, run, softory
 
 sys.path.insert(0, str(REPO / "lib"))
 from softory import charter as charters  # noqa: E402
@@ -24,7 +24,7 @@ def at_terminal(root: Path, *args: str) -> dict:
     """Run softory in a terminal, typing yes; the JSON result follows the prompt."""
     command = shlex.join([str(root / ".agents/softory/bin/softory"), *args])
     env = {k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION", "SOFTORY_ROLE")}
-    result = subprocess.run(["script", "-qec", command, "/dev/null"], input="yes\n", cwd=root, env=env,
+    result = subprocess.run(in_terminal(command), input="yes\n", cwd=root, env=env,
                             capture_output=True, text=True, check=False)
     output = result.stdout.replace("\r", "").split("Type yes to approve: ")[-1]
     return json.loads(output[output.index("{"):])
@@ -170,6 +170,71 @@ class UnattendedTest(unittest.TestCase):
         self.assertEqual(failing(report), {"verified", "lane_paths"})
         lane = next(c for c in report["checks"] if c["check"] == "lane_paths")
         self.assertIn("api/secret.py", lane["detail"])
+
+    def test_a_setup_failure_is_not_a_test_failure_and_keeps_its_artifacts(self) -> None:
+        self.approve({"verify": {"command": "true", "setup": "mkdir -p out && echo t > out/trace.txt && false",
+                                 "keep": ["out/*.txt"]}, "git": {"base": "HEAD~1"}})
+        sha = self.commit("web/list.js", "x\n")
+        self.build("TASK-1", "jade", sha)
+        result = json.loads(softory(self.root, "verify", "TASK-1", "--actor", "jade", check=False).stdout)
+        self.assertEqual((result["passed"], result["stage"]), (False, "setup"))
+        self.assertEqual(result["kept"], ["out/trace.txt"])
+        detail = next(c for c in gate(self.root, "TASK-1", "jade")["checks"] if c["check"] == "verified")["detail"]
+        self.assertIn("setup failed", detail)
+        self.assertEqual(json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["verify_queue"], [])
+
+    def test_commit_and_supersede_keep_the_right_commit(self) -> None:
+        base = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        sha = self.commit("web/list.js", "x\n")
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        recorded = json.loads(softory(self.root, "commit", "TASK-1", sha[:8], "--base", base[:8], "--actor", "jade").stdout)
+        self.assertEqual(recorded["uri"], f"commit:{sha};base={base}")
+        coord(self.root, "evidence", "add", "--task", "TASK-1", "--uri", f"commit:{base}", "--type", "commit",
+              "--actor", "jade")
+        rows = coord(self.root, "task", "show", "TASK-1")["data"]["evidence"]
+        wrong = str(rows[-1]["id"])
+        refused = softory(self.root, "supersede", "TASK-1", wrong, "--reason", "x", "--actor", "gold", check=False)
+        self.assertIn("not_allowed", refused.stderr)
+        done = json.loads(softory(self.root, "supersede", "TASK-1", wrong, "--reason", "base, not head",
+                                  "--actor", "jade").stdout)
+        self.assertTrue(coord(self.root, "decision", "show", done["decision"])["ok"])
+        sys.path.insert(0, str(REPO / "lib"))
+        from softory import verify as verify_module  # noqa: PLC0415
+        shown = coord(self.root, "task", "show", "TASK-1")["data"]
+        self.assertEqual(verify_module.commit_of(self.root, shown), sha)
+
+    def test_escalate_refuses_text_the_owner_cannot_read(self) -> None:
+        refused = softory(self.root, "escalate", "--issue", "BUG60 had contain9 rounds", "--ask", "approve",
+                          "--actor", "quinn", check=False)
+        self.assertIn("invalid_arguments", refused.stderr)
+        made = json.loads(softory(self.root, "escalate", "--issue", "TASK-1 had 3 rounds of requested changes.",
+                                  "--ask", "Allow one more round on TASK-1?", "--tasks", "TASK-1",
+                                  "--actor", "quinn").stdout)
+        self.assertEqual(made["owner"], "owner")
+        found = json.loads(softory(self.root, "digest").stdout)
+        self.assertTrue(any("Allow one more round on TASK-1?" in row["text"] for row in found["digest"]))
+
+    def test_a_scoped_resume_lets_one_task_through_a_pause(self) -> None:
+        softory(self.root, "pause", "--reason", "stop everything")
+        self.assertEqual(json.loads(softory(self.root, "run", "--dry-run").stdout)["started"], [])
+        at_terminal(self.root, "resume", "--task", "TASK-1", "--roles", "jade")
+        plan = json.loads(softory(self.root, "run", "--dry-run").stdout)
+        self.assertEqual(plan["started"], ["jade"])
+        wanted = json.loads(softory(self.root, "pending", "jade", check=False).stdout)
+        self.assertEqual(wanted["scoped_to"], ["TASK-1"])
+        at_terminal(self.root, "resume")
+        self.assertNotIn("allow", json.loads((self.root / ".agents/softory/run/paused.json").read_text()))
+
+    def test_charter_approve_merge_layers_on_what_is_approved(self) -> None:
+        self.approve({"verify": {"command": "true"}})
+        path = self.root / ".git" / "more.json"
+        path.write_text(json.dumps({"task_caps": {"review_rounds": 4}}))
+        merged = at_terminal(self.root, "charter", "approve", "--merge", str(path))
+        self.assertEqual(merged["changed"], ["task_caps.review_rounds: 3 -> 4"])
+        self.assertEqual((merged["charter"]["verify"]["command"], merged["charter"]["task_caps"]["review_rounds"]),
+                         ("true", 4))
 
     def test_runner_starts_only_roles_with_work_and_respects_pause(self) -> None:
         plan = json.loads(softory(self.root, "run", "--dry-run").stdout)

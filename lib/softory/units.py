@@ -15,12 +15,26 @@ from typing import Any
 from .errors import SoftoryError
 
 UNITS = ("epic", "story", "task", "bug", "review")
-LANES = ("frontend", "backend", "infra")
+LANES = ("frontend", "backend", "infra", "design")
 ALLOWED_PARENTS = {"epic": (), "story": ("epic",), "task": ("story",), "bug": ("story", "epic"), "review": ()}
 RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from", "stack", "resolution", "superseded-by")
 # Evidence types that mean code was delivered. A review record holds reports, not code.
 CODE_EVIDENCE = ("commit", "pr", "pull_request", "merge")
 _TASK_ID = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Za-z0-9._]+)+$")
+_SUPERSEDES = re.compile(r"^softory-supersedes:(\d+)\b")
+
+
+def live_evidence(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Evidence rows that no later ``softory-supersedes:<id>`` row retracts, and not those markers themselves."""
+    rows = rows or []
+    gone = {m.group(1) for row in rows if (m := _SUPERSEDES.match(str(row.get("uri", ""))))}
+    return [row for row in rows if str(row.get("id")) not in gone and not _SUPERSEDES.match(str(row.get("uri", "")))]
+
+
+def code_evidence_types(task: dict[str, Any]) -> list[str]:
+    """The code-delivery evidence types still standing on a task."""
+    return sorted({str(e.get("evidence_type")) for e in live_evidence(task.get("evidence"))
+                   if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
 
 
 def tags_of(task: dict[str, Any]) -> list[str]:

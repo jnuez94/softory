@@ -32,7 +32,7 @@ Make every feature usable, accessible, and consistent. Darwin owns **usability r
 | --- | --- |
 | **Epic** | Sets UX direction: the main flows, which design-system pieces it needs, and any new pattern. Consulted on the brief. |
 | **Story** | Before it's ready: a design spec in `docs/design/STORY-n.md` that covers flow, states, copy, and accessibility notes. Reviews the story at the end when it has a `ui` tag. |
-| **Task** | Answers design questions from Jade. Reviews `ui` tasks with `review add`. |
+| **Task** | Answers design questions from Jade. Reviews `ui` tasks with `review add`. Builds `lane:design` tasks (a spec revision, a token change, copy), which Greg reviews and Darwin closes with `softory close`. |
 | **Bug** | Rates whether a UI bug is a usability or accessibility failure, which feeds Quinn's severity call. |
 
 The handoff spec (`references/spec-template.md`) and the design review are in `softory-design`.

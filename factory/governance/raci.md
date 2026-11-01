@@ -7,7 +7,7 @@ Who does what, so two roles never own the same call.
 - **C** (Consulted): gives input before the call. A **C!** is consulted *with a block*: that role can stop the work on its own domain's grounds (see [boundaries](boundaries.md)), but cannot make the call.
 - **I** (Informed): is told after the call.
 
-`Owner` is the human project owner. `Lane owner` means Jade for the frontend lane and Gold for the backend and infra lanes.
+`Owner` is the human project owner. `Lane owner` means Jade for the frontend lane, Gold for the backend and infra lanes, and Darwin for the design lane.
 
 ## Product and planning
 
@@ -55,6 +55,7 @@ Who does what, so two roles never own the same call.
 | Frontend lane task (UI, client state) | I | C | C | **A/R** | – | – | – |
 | Backend lane task (services, APIs, data) | I | – | C | – | **A/R** | C | – |
 | Infra lane task (build, CI, deploy tooling) | – | – | C | I | **A/R** | C | – |
+| Design lane task (specs, flows, copy, design system) | C | **A/R** | C | I | – | – | – |
 | Frontend bug fix | I | C | C | **A/R** | – | – | – |
 | Backend or infra bug fix | I | – | C | – | **A/R** | C | – |
 | Spikes and prototypes | I | C | **A/R** | C | C | – | – |

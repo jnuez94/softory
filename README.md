@@ -69,22 +69,25 @@ Each role starts a session, which records the harness and model, and works throu
 
 | Command | Does |
 | --- | --- |
-| `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"` |
+| `softory start <role> [--harness codex] [--model m]` | Starts a session. Use it with `eval "$(...)"`. Without `--harness` or `--model`, the charter's choice for the role is recorded |
 | `softory end [--session ID]` | Ends the session, so its claims don't go stale |
-| `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link |
+| `softory new epic\|story\|task\|bug --title ... [--parent ID] [--lane ...] [--tags ...]` | Creates a unit with the right tags, assignee, and parent link. Lanes: `frontend`, `backend`, `infra`, and `design` (Darwin builds, Greg reviews) |
 | `softory new bug --from <ID> --title ... [--blocks-source]` | Files a follow-up from a review: same story and lane, linked back to the source. The source waits for it only with `--blocks-source` |
 | `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
 | `softory drop <ID> --reason ... [--superseded-by ID]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision |
 | `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
-| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, and your assigned work |
+| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, your assigned work, and the verify queue |
 | `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. The runner uses it each tick |
 | `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
 | `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
 | `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
-| `softory close <ID>` | Runs the gate, then moves it to done only if it passes |
+| `softory close <ID>` / `close --ready` | Runs the gate, then moves it to done only if it passes. `--ready` closes every unit you may close that passes now |
+| `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one |
+| `softory supersede <ID> <evidence> --reason ...` | Retracts a wrong evidence row (its adder, Quinn, or the owner). The row and its audit stay; the gate and `verify` read past it |
+| `softory escalate --issue ... --ask "...?" [--tasks IDs] [--owner who]` | Raises an escalation, to the owner by default. Refuses text the owner can't read at a glance: more than one question, too long, or words fused with numbers |
 | `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` asks the owner to mark an older review run as a record, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
 | `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
 | `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID> \| --all` | Agents ask (review adoptions ask too); the owner approves at a terminal. A waiver lets one review check pass on one task |
@@ -95,12 +98,12 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory coord <args>` | Runs the coordination CLI against the main checkout's database, from any worktree |
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
 | `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
-| `softory charter show` / `charter approve <file>` | The settings unattended runs follow; the owner approves them once, at a terminal |
+| `softory charter show` / `charter approve <file> [--merge]` | The settings unattended runs follow; the owner approves them at a terminal, seeing only what changes. `--merge` adds to the approved settings instead of replacing them |
 | `softory setup` | The owner's one-time checklist, with each step checked |
 | `softory run [--dry-run]` / `run-role <role>` | One runner tick: starts each role that has work, inside the budget |
-| `softory pause [--role r]` / `resume [--role r]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal) |
-| `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate |
-| `softory digest [--send]` / `usage` / `schedule` | What needs the owner; today's runs against the budget; the launchd job and cron line |
+| `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task |
+| `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
+| `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
 `softory <command> --help` gives each command's options. The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
@@ -112,7 +115,7 @@ Softory 0.4.0 runs the team without you up to a pull request. You merge and depl
 1. Run `softory setup`. It lists each step and checks the ones it can.
 2. Write the settings you want to change to a file, starting from `softory charter show`: your `vision`, `verify.command` (your test command), `lanes` paths, `paging.command`, and the `budget`. Approve it in a terminal with `softory charter approve <file>`.
 3. Protect your base branch on GitHub and require CI.
-4. Load the runner: `softory schedule` writes a launchd job (and prints a cron line) that runs `softory run` every five minutes.
+4. Load the runner: `softory schedule` writes a launchd job (and prints a cron line) that runs `softory run` every five minutes. Turn off any other scheduler for the project first, such as an app's scheduled check-ins, or roles run twice and the budget can't see half of them. `softory doctor` warns while no scheduler is loaded or the runner has stopped ticking.
 
 Each tick starts a role only when it has work, is under today's budget, and isn't paused or already running. The budget counts runs and minutes, not dollars, so it holds whatever a model costs: by default 24 runs and 120 minutes a day per role, 30 minutes a run, and tighter for the reviewing roles (Greg 15 minutes a run and 60 a day, Darwin and Toby 20 and 60). `budget.roles` overrides any cap for one role. At 80% you see it in the digest; at 100% the role stops until tomorrow and you're paged. Optional dollar caps sit beside them: `usd_per_run` (Claude Code stops itself there) and `usd_per_role_per_day`, counted from the cost each run reports; both are off at 0.
 
@@ -124,7 +127,7 @@ Each run is shaped to waste as little as possible:
 - **Real tokens and cost.** Claude Code runs with `--output-format json` and Codex with `--json`; softory reads their usage report and logs input, cached, and output tokens and dollars per run (Codex's dollars are estimated from the charter's `prices`). `softory usage` shows today's totals per role.
  Claude Code roles get a settings file that allows edits only in their lane's paths; Codex runs in its workspace-write sandbox. Either way, the gate's `lane_paths` check fails a diff outside the lane, and `verified` needs `softory verify` to have passed at the commit.
 
-A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops and goes to your digest. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
+A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops and goes to your digest. Review records never count, and the first request whose every item is labelled `evidence:` is free (`free_evidence_rounds`). The digest also flags an open unit whose record changed `waste.revision` times (default 30) without closing, a sign a role is looping on its own tooling. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
 
 ### Upgrading
 

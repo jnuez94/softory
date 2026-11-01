@@ -2,6 +2,7 @@
   "schema": 1,
   "description": "Defaults for unattended runs. The owner overrides any of them once with `softory charter approve <file>` at a terminal; the result lives in local.json. Agents read it with `softory charter show` and never change it.",
   "vision": "",
+  "owner_aliases": [],
   "epics": {
     "description": "Epics inside these limits start without the owner's go/no-go. Greg raises an escalation to the owner for anything bigger.",
     "max_stories": 5,
@@ -22,8 +23,14 @@
     }
   },
   "task_caps": {
+    "description": "A unit with review_rounds requests for changes stops and goes to the owner. Review records never count, and up to free_evidence_rounds requests whose every item is labelled evidence: are free.",
     "review_rounds": 3,
-    "escalate_model_after": 2
+    "escalate_model_after": 2,
+    "free_evidence_rounds": 1
+  },
+  "waste": {
+    "description": "The digest flags an open unit whose record changed this many times without closing (claims, status moves, retags), a sign a role is looping on tooling instead of the work. 0 turns it off.",
+    "revision": 30
   },
   "review_batch": {
     "description": "Wake a reviewer once this many reviews wait, or once the oldest has waited this long, so one run clears several. Reviews also wait until softory verify passes at the commit.",
@@ -31,14 +38,19 @@
     "max_wait_minutes": 60
   },
   "verify": {
+    "description": "softory verify runs command at the unit's commit, one at a time per project. setup, when set, runs first and its failure is a setup failure, not a test failure. share lists folders from the main checkout to bring in, cloned copy-on-write (share_mode clone) so an installer can't delete them; link is the 0.4 behaviour. keep lists globs copied out of the tree when a run fails.",
     "command": "",
+    "setup": "",
     "timeout_minutes": 20,
-    "share": []
+    "share": [],
+    "share_mode": "clone",
+    "keep": []
   },
   "lanes": {
     "frontend": [],
     "backend": [],
-    "infra": []
+    "infra": [],
+    "design": []
   },
   "shared_paths": ["docs/**", "*.md"],
   "permissions": {

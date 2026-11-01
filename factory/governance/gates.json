@@ -28,20 +28,26 @@
       "id_prefix": "TASK",
       "closer": ["assignee"],
       "dropper": ["quinn", "greg", "owner"],
-      "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold"},
+      "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold", "design": "darwin"},
       "required_reviews": [
         {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
       ],
+      "required_reviews_by_lane": {
+        "design": [{"reviewers": ["greg"], "why": "product review of a design deliverable", "not_self": true}]
+      },
       "children_must_be_done": false
     },
     "bug": {
       "id_prefix": "BUG",
       "closer": ["assignee"],
       "dropper": ["quinn", "greg", "owner"],
-      "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold"},
+      "default_assignee_by_lane": {"frontend": "jade", "backend": "gold", "infra": "gold", "design": "darwin"},
       "required_reviews": [
         {"reviewers": ["jade", "gold"], "why": "peer code review", "not_self": true}
       ],
+      "required_reviews_by_lane": {
+        "design": [{"reviewers": ["greg"], "why": "product review of a design deliverable", "not_self": true}]
+      },
       "children_must_be_done": false
     },
     "review": {
@@ -83,6 +89,7 @@
     "waivers": "The owner may waive one review check (review:*, no_open_rejections, findings_tracked, verdicts_recorded, independent, verified, lane_paths) on one task with softory approve. The gate shows the waiver and its reason. Status, evidence, blockers, children, closer, and config checks cannot be waived.",
     "drop": "softory drop closes a unit nobody will build, as won't do or superseded, with a recorded decision. Only the unit's dropper may, and not while it has open children.",
     "stacks": "softory stack groups work built on top of other work. softory close --stack closes every member together, bottom first, only if each passes the gate when the other members count as done.",
+    "design_lane": "A task or bug with lane:design is a design deliverable Darwin builds: Greg's product review replaces the peer code review, and softory verify does not apply. Tag reviews still apply.",
     "verified": "When the charter sets verify.command, a task or bug needs a passing softory verify at the newest commit in its evidence. softory keeps that result in its own ledger; an evidence row an agent writes doesn't count.",
     "lane_paths": "When the charter sets paths for the task's lane, every file the commit changes since git.base must be in the lane or shared_paths, unless the task is tagged cross-lane and Quinn accepted it.",
     "config": "These rules change only through a softory release. The installer records the hash of this file, softory's code, and local.json, and makes them read-only; the gate fails closed (config_intact) if any of them changes."

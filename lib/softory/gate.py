@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import grants
-from .units import CODE_EVIDENCE, follow_up_ids, tags_of, targets_of, unit_of
+from .units import code_evidence_types, follow_up_ids, lane_of, tags_of, targets_of, unit_of
 
 ANYONE = "*"
 RECORD_STATUSES = ("review", "blocked", "todo")
@@ -62,7 +62,8 @@ def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[s
     if spec.get("record"):
         return record_requirements(task, gates)
     requirements: list[dict[str, Any]] = []
-    for entry in spec.get("required_reviews", []):
+    by_lane = (spec.get("required_reviews_by_lane") or {}).get(lane_of(task) or "")
+    for entry in spec.get("required_reviews", []) if by_lane is None else by_lane:
         requirements.append({**entry, "source": f"unit:{unit}"})
     if spec.get("tag_reviews", True) and not spec.get("record"):
         for tag in tags_of(task):
@@ -250,8 +251,7 @@ def _record_checks(task: dict[str, Any], built_by: set[str], latest: dict[str, d
     targets = targets_of(task)
     checks = []
 
-    code = sorted({str(e.get("evidence_type")) for e in task.get("evidence") or []
-                   if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
+    code = code_evidence_types(task)
     checks.append(_check("record_only", not code,
                          f"has {', '.join(code)} evidence; a review record holds reports, so build code in a task or bug"
                          if code else "holds reports, not code"))
