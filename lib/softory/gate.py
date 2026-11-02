@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import grants
-from .units import code_evidence_types, follow_up_ids, lane_of, tags_of, targets_of, unit_of
+from .units import code_evidence_types, follow_up_ids, lane_of, live_evidence, tags_of, targets_of, unit_of
 
 ANYONE = "*"
 RECORD_STATUSES = ("review", "blocked", "todo")
@@ -188,8 +188,11 @@ def evaluate(
     unit_detail = {None: "no unit:* tag or known ID prefix", "legacy": "no unit tag, so the legacy rule applies"}
     checks.append(_check("unit", unit is not None, unit_detail.get(unit, f"unit is {unit}")))
     checks.append(_status_check(task, record, actor))
-    evidence = int(task.get("evidence_count") or 0)
-    checks.append(_check("evidence", evidence > 0, f"{evidence} evidence row(s)"))
+    rows = task.get("evidence") or []
+    withdrawn = len(rows) - len(live_evidence(rows))  # retracted rows and the markers that retract them
+    evidence = int(task.get("evidence_count") or len(rows)) - withdrawn
+    checks.append(_check("evidence", evidence > 0, f"{evidence} evidence row(s)"
+                         + (f", not counting {withdrawn} superseded or retraction row(s)" if withdrawn else "")))
 
     open_deps = [
         dep["depends_on_task_id"]

@@ -224,8 +224,25 @@ class UnattendedTest(unittest.TestCase):
         self.assertEqual(plan["started"], ["jade"])
         wanted = json.loads(softory(self.root, "pending", "jade", check=False).stdout)
         self.assertEqual(wanted["scoped_to"], ["TASK-1"])
+        queue = json.loads(softory(self.root, "queue", "--agent", "jade").stdout)
+        self.assertEqual(queue["scoped_to"], ["TASK-1"])
+        softory(self.root, "pause", "--role", "jade", "--reason", "stop again")
+        self.assertEqual(json.loads(softory(self.root, "run", "--dry-run").stdout)["started"], [])  # the new stop wins
+        at_terminal(self.root, "resume", "--task", "TASK-1", "--roles", "jade")
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Other",
+                "--actor", "quinn")
+        outside = softory(self.root, "close", "TASK-2", "--actor", "jade", check=False)
+        self.assertIn("paused", outside.stderr)
         at_terminal(self.root, "resume")
+        at_terminal(self.root, "resume", "--role", "jade")
         self.assertNotIn("allow", json.loads((self.root / ".agents/softory/run/paused.json").read_text()))
+
+    def test_the_owner_can_approve_the_default_charter(self) -> None:
+        approved = self.approve({})
+        self.assertTrue(approved["approved"])
+        self.assertTrue(json.loads(softory(self.root, "charter", "show").stdout)["approved"])
+        again = self.approve({})
+        self.assertFalse(again["approved"])  # once approved, an unchanged file changes nothing
 
     def test_charter_approve_merge_layers_on_what_is_approved(self) -> None:
         self.approve({"verify": {"command": "true"}})

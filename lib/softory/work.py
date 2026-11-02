@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from . import charter, lifecycle, verify, verifyenv
+from . import charter, lifecycle, runstate, verify, verifyenv
 from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -257,6 +257,10 @@ def close(project: Project, coord: Coordination, task_id: str, actor: str | None
     whole stack together, or none of it.
     """
     actor = actor_of(actor)
+    scope = runstate.scope_for(project, actor)
+    if scope is not None and task_id not in scope:
+        raise SoftoryError(f"{actor} is paused and may work only on {', '.join(sorted(scope))}; "
+                           f"{task_id} waits for the owner's resume", "paused")
     if stack:
         return lifecycle.close_stack(project, coord, task_id, actor)
     report = gate(project, coord, task_id, actor)
@@ -273,6 +277,8 @@ def close_ready(project: Project, coord: Coordination, actor: str | None) -> dic
     """
     actor = actor_of(actor)
     found = ready_to_close(Board(project, coord), actor)
+    scope = runstate.scope_for(project, actor)
+    found = [row for row in found if scope is None or row["id"] in scope]
     closed, held = [], []
     for row in found:
         result = close(project, coord, row["id"], actor)
@@ -369,8 +375,18 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
                 if latest.get(agent, {}).get("decision") not in gates["accepting_decisions"]:
                     to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
                 break
-    return {"agent": agent, "claimed": claimed, "ready_to_close": ready_to_close(board, agent),
-            "reviews_waiting": to_review, "assigned": assigned, "verify_queue": verifyenv.waiting(project)}
+    ready = ready_to_close(board, agent)
+    scope = runstate.scope_for(project, agent)
+    if scope is not None:  # paused, with the owner's leave to work on these tasks only
+        claimed = [i for i in claimed if i in scope]
+        ready = [r for r in ready if r["id"] in scope]
+        to_review = [r for r in to_review if r["id"] in scope]
+        assigned = [a for a in assigned if a["id"] in scope]
+    result = {"agent": agent, "claimed": claimed, "ready_to_close": ready, "reviews_waiting": to_review,
+              "assigned": assigned, "verify_queue": verifyenv.waiting(project)}
+    if scope is not None:
+        result["scoped_to"] = sorted(scope)
+    return result
 
 
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:

@@ -152,8 +152,14 @@ def scheduler_state(project: Project) -> dict[str, Any]:
     label = f"dev.softory.{project.root.name.lower()}"
     launchd = None
     if sys.platform == "darwin":
-        launchd = subprocess.run(["launchctl", "list", label], capture_output=True, check=False).returncode == 0
-    listed = subprocess.run(["crontab", "-l"], capture_output=True, text=True, check=False)
+        try:
+            launchd = subprocess.run(["launchctl", "list", label], capture_output=True, check=False).returncode == 0
+        except OSError:
+            launchd = False
+    try:
+        listed = subprocess.run(["crontab", "-l"], capture_output=True, text=True, check=False)
+    except OSError:  # no cron on this machine: not loaded, not an error
+        listed = subprocess.CompletedProcess(["crontab"], 1, "", "")
     cron = listed.returncode == 0 and any(str(project.root) in line and " run" in line
                                           for line in listed.stdout.splitlines() if not line.lstrip().startswith("#"))
     try:

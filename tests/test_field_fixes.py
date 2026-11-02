@@ -13,7 +13,7 @@ from tests.helpers import REPO
 
 sys.path.insert(0, str(REPO / "lib"))
 
-from softory import charter, digest, gate, records, team, units, verify, verifyenv, watch  # noqa: E402
+from softory import charter, digest, gate, perms, records, runner, team, units, verify, verifyenv, watch  # noqa: E402
 
 GATES = json.loads((REPO / "factory/governance/gates.json").read_text())
 
@@ -142,6 +142,47 @@ class VerifyEnvTest(unittest.TestCase):
         kept = verifyenv.keep_artifacts(place / "tree", ["results/**/*.zip"], place / "kept")
         self.assertEqual(kept, ["results/trace/t.zip"])
         self.assertTrue((place / "kept" / "results" / "trace" / "t.zip").is_file())
+
+
+DEFAULT_CHARTER = json.loads((REPO / "factory/governance/charter.json").read_text())
+
+
+class ReviewFollowUpTest(unittest.TestCase):
+    """The six findings on the 0.4.2 pull request."""
+
+    def test_withdrawn_evidence_does_not_satisfy_the_evidence_check(self) -> None:
+        record = {"id": "REVIEW-1", "status": "review", "tags": "unit:review,for:TASK-1", "assignees": ["avery"],
+                  "evidence_count": 2, "dependencies": [], "reviews": [],
+                  "evidence": [{"id": 1, "evidence_type": "report", "uri": "files/r.md"},
+                               {"id": 2, "evidence_type": "note", "uri": "softory-supersedes:1:SOFTORY-DEC-X"}]}
+        check = next(c for c in gate.evaluate(record, GATES, {}, [], "avery")["checks"] if c["check"] == "evidence")
+        self.assertFalse(check["pass"])
+        self.assertIn("not counting 2", check["detail"])
+
+    def test_darwin_may_edit_the_design_lane_paths(self) -> None:
+        self.assertEqual(perms.role_paths(DEFAULT_CHARTER, "darwin"), ["docs/design/**"])
+        wider = charter.merge(DEFAULT_CHARTER, {"lanes": {"design": ["design/**"]}})
+        self.assertEqual(perms.role_paths(wider, "darwin"), ["docs/design/**", "design/**"])
+        self.assertNotIn("darwin", perms.unscoped(DEFAULT_CHARTER))
+
+    def test_a_machine_without_cron_reports_no_scheduler(self) -> None:
+        real = runner.subprocess.run
+
+        def missing(command, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+            if command[0] in ("crontab", "launchctl"):
+                raise FileNotFoundError(command[0])
+            return real(command, *args, **kwargs)
+
+        class Fake:
+            root = Path(tempfile.mkdtemp())
+            bundle = root
+
+        runner.subprocess.run = missing
+        try:
+            state = runner.scheduler_state(Fake())
+        finally:
+            runner.subprocess.run = real
+        self.assertEqual((state["cron"], state["loaded"]), (False, False))
 
 
 if __name__ == "__main__":

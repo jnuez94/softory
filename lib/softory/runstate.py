@@ -48,6 +48,13 @@ def pause(project: Project, role: str | None, reason: str, actor: str) -> dict[s
     """Anyone may stop the runner; it fails safe."""
     state = paused(project)
     state[role or "all"] = f"{reason} ({actor}, {now().isoformat(timespec='seconds')})"
+    # A new stop beats any earlier scoped resume it covers: pausing everyone revokes every grant, pausing one
+    # role revokes the grants that name it (or every role). The owner grants again after this pause if needed.
+    grants = [g for g in state.get("allow") or [] if role and role not in g.get("roles", []) and "*" not in g.get("roles", [])]
+    if grants:
+        state["allow"] = grants
+    else:
+        state.pop("allow", None)
     (state_dir(project) / "paused.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     return {"paused": state}
 
@@ -75,6 +82,16 @@ def resume(project: Project, role: str | None, confirm: Any, task: str | None = 
         state.pop("allow", None)  # nothing paused, so the scoped resumes have done their job
     (state_dir(project) / "paused.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     return {"paused": state}
+
+
+def scope_for(project: Project, role: str) -> set[str] | None:
+    """The only tasks ``role`` may touch while a pause holds with a scoped resume, or None when unrestricted.
+
+    A pause with no scoped resume doesn't restrict commands: it only stops the runner from starting the role.
+    """
+    if not is_paused(project, role):
+        return None
+    return allowed_tasks(project, role) or None
 
 
 # ---- budget -----------------------------------------------------------------------------------

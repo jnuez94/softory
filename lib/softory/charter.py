@@ -81,9 +81,10 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any, lay
     if problems:
         raise SoftoryError("; ".join(problems), "invalid_arguments")
     changes = diff(merge(defaults(project), current), merged)
-    if not changes:
+    already = project.local().get("charter", {}).get("approved")
+    if not changes and already:
         return {"approved": False, "note": "Nothing changes; the charter in force already says this."}
-    confirm("Charter changes:\n" + "\n".join(changes))
+    confirm("Charter changes:\n" + "\n".join(changes) if changes else "Approve the default charter, unchanged?")
     owner = project.roster()["owner"]["id"]
     decision = record_decision(coord, owner, "charter", "Charter for unattended runs",
                                "The owner approved the charter softory's runner follows.",
