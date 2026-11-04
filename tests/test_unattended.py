@@ -187,6 +187,31 @@ class UnattendedTest(unittest.TestCase):
         self.assertTrue(lane["pass"], lane["detail"])
         self.assertIn("1 changed file", lane["detail"])
 
+    def test_lane_check_counts_files_a_merge_changes(self) -> None:
+        base = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"], "backend": ["api/**"]},
+                      "git": {"base": base}})
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", "API",
+                "--actor", "quinn")
+        branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], self.root).stdout.strip()
+        run(["git", "checkout", "-qb", "api-work"], self.root)
+        below = self.commit("api/list.py", "x\n")
+        self.build("TASK-2", "gold", below, review=False)
+        softory(self.root, "verify", "TASK-2", "--actor", "gold")
+        run(["git", "checkout", "-q", branch], self.root)
+        self.commit("web/list.js", "x\n")
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "--no-commit", "api-work"], self.root)
+        (self.root / "api/extra.py").write_text("slipped in while merging\n")
+        run(["git", "add", "-A"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "merge"], self.root)
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.build("TASK-1", "jade", sha)
+        softory(self.root, "verify", "TASK-1", "--actor", "jade")
+        lane = next(c for c in gate(self.root, "TASK-1", "jade")["checks"] if c["check"] == "lane_paths")
+        self.assertFalse(lane["pass"])
+        self.assertIn("api/extra.py", lane["detail"])
+        self.assertNotIn("api/list.py", lane["detail"])  # carried over from TASK-2, not this unit's change
+
     def test_quinns_backup_accepts_cross_lane_work_quinn_built(self) -> None:
         self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": "HEAD~1"}})
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Wide",

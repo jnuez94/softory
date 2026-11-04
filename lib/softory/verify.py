@@ -181,7 +181,9 @@ def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None =
         return None
     mine = set(listed.stdout.split())
     below = [f"^{c}" for c in dict.fromkeys(inherited or []) if c in mine and c != sha]
-    found = git(root, "log", "--name-only", "--format=", sha, f"^{base}", *below, "--")
+    # --cc adds what a merge commit itself changed (a conflict resolution, or an edit made while merging),
+    # which plain log leaves out; files a merge only carries over from a parent stay with that parent.
+    found = git(root, "log", "--cc", "--name-only", "--format=", sha, f"^{base}", *below, "--")
     if found.returncode != 0:
         return None
     return sorted({line for line in found.stdout.splitlines() if line})

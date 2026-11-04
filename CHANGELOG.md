@@ -4,7 +4,7 @@
 
 From the Tablet pilot (1 to 4 November) and one note from remittance. Five of Tablet's 23 owner decisions were lane-check waivers for files a task never touched.
 
-- **The lane check reads the unit's own commits.** `lane_paths` used to diff everything since `git.base`, so a task built on unmerged work answered for every file below it (TASK-34: 166 inherited paths; TASK-45, a docs-only task: 84). It now counts only commits since `git.base` that no other unit's verified commit already holds. The runner's prompt lists the same files, so it's shorter too.
+- **The lane check reads the unit's own commits.** `lane_paths` used to diff everything since `git.base`, so a task built on unmerged work answered for every file below it (TASK-34: 166 inherited paths; TASK-45, a docs-only task: 84). It now counts only commits since `git.base` that no other unit's verified commit already holds, plus whatever a merge commit itself changed (a conflict resolution or an edit made while merging). The runner's prompt lists the same files, so it's shorter too.
 - **Quinn's own cross-lane work doesn't wait for the owner.** When Quinn built a `cross-lane` unit, the arch backup (Jade or Gold) accepts the cross-lane part, as for an `arch` review.
 - **The runner is the only dispatcher.** `softory setup --load-schedule` loads the launchd job after the owner types yes. Sessions started outside the runner are logged, and `softory doctor` warns about them: every Tablet session came from app check-ins while the runner was never loaded.
 - **Darwin can start before the breakdown.** `softory new story ... --design` also files the story's `lane:design` task for Darwin, so UX work happens in the repo instead of waiting for Quinn (from remittance).
