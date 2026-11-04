@@ -237,6 +237,30 @@ class UnattendedTest(unittest.TestCase):
         at_terminal(self.root, "resume", "--role", "jade")
         self.assertNotIn("allow", json.loads((self.root / ".agents/softory/run/paused.json").read_text()))
 
+    def test_a_scoped_retry_is_not_hidden_by_an_unrelated_message(self) -> None:
+        softory(self.root, "pause", "--reason", "stop everything")
+        at_terminal(self.root, "resume", "--task", "TASK-1", "--roles", "jade")
+
+        def pending(*extra: str) -> dict:  # TASK-1 unchanged since --since, so only the retry can schedule it
+            return json.loads(softory(self.root, "pending", "jade", "--since", "2999-01-01T00:00:00+00:00",
+                                      *extra, check=False).stdout)
+
+        alone = pending()
+        self.assertTrue(alone["pending"])
+        coord(self.root, "message", "send", "--id", "MSG-UNRELATED", "--sender", "greg", "--recipient", "jade",
+              "--body", "About something else")
+        with_message = pending()
+        self.assertTrue(with_message["pending"])
+        self.assertEqual(with_message["reasons"], alone["reasons"])
+        self.assertFalse(pending("--retry-hours", "0")["pending"])
+        for n in range(3):
+            coord(self.root, "review", "add", "--id", f"REV-CAP-{n}", "--task", "TASK-1", "--reviewer", "gold",
+                  "--artifact", "x", "--scope", "t", "--decision", "changes_requested", "--required-changes",
+                  "blocking: fix it")
+        capped = pending()
+        self.assertFalse(capped["pending"])
+        self.assertEqual(capped["capped"], ["TASK-1"])
+
     def test_the_owner_can_approve_the_default_charter(self) -> None:
         approved = self.approve({})
         self.assertTrue(approved["approved"])

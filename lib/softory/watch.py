@@ -51,12 +51,17 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
     capped = {i for i, n in rounds.items() if n >= caps["review_rounds"]}
     reasons = []
+    hold = is_paused(project, agent)
+    # The owner let this role work on a few tasks while the pause holds. Scope every list before anything
+    # decides whether to run, so messages and other work wait for the full resume without hiding the retry.
+    scope = allowed_tasks(project, agent) if hold else set()
+    in_scope = (lambda ids: [i for i in ids if i in scope]) if scope else (lambda ids: ids)
     inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
     unread = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
-    if unread:
+    if unread and not scope:
         reasons.append({"why": "unread messages", "count": len(unread)})
-    if work["ready_to_close"]:
-        reasons.append({"why": "ready to close", "ids": [t["id"] for t in work["ready_to_close"]]})
+    if in_scope([t["id"] for t in work["ready_to_close"]]):
+        reasons.append({"why": "ready to close", "ids": in_scope([t["id"] for t in work["ready_to_close"]])})
     accepting = set(board.gates["accepting_decisions"])
     sent_back = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
                  and any(r.get("decision") not in accepting for r in latest_reviews({"reviews": board.reviews.get(t["id"], [])}).values())]
@@ -67,13 +72,13 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
                 and tests.get(t["id"]) in ("not run", "failed", "setup failed") and t["id"] not in sent_back]
     reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")]
     batching = _batch_hold(charter, reviews, touched, now)
-    waiting = {
+    waiting = {why: in_scope(ids) for why, ids in {
         "changes requested": sent_back,
         "tests not passed at the commit (run softory verify, fix if it fails)": untested,
         "reviews waiting": [] if batching else reviews,
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"],
-    }
+    }.items()}
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
@@ -81,11 +86,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
-    hold = is_paused(project, agent)
-    scope = allowed_tasks(project, agent) if hold else set()
-    if scope:  # the owner let this role work on a few tasks while the pause holds
-        reasons = [{**r, "ids": [i for i in r["ids"] if i in scope]} for r in reasons if "ids" in r]
-        reasons = [r for r in reasons if r["ids"]]  # messages and other work wait for the full resume
+    if scope:
         hold = None
     ids = {i for r in reasons for i in r.get("ids", [])}
     escalate = sorted(i for i in ids if rounds.get(i, 0) >= caps["escalate_model_after"])
