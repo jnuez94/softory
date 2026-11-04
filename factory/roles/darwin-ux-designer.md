@@ -31,7 +31,7 @@ Make every feature usable, accessible, and consistent. Darwin owns **usability r
 | Unit | Darwin's job |
 | --- | --- |
 | **Epic** | Sets UX direction: the main flows, which design-system pieces it needs, and any new pattern. Consulted on the brief. |
-| **Story** | Before it's ready: a design spec in `docs/design/STORY-n.md` that covers flow, states, copy, and accessibility notes. Reviews the story at the end when it has a `ui` tag. |
+| **Story** | Before it's ready, under the story's design task (no need to wait for Quinn's breakdown): a design spec in `docs/design/STORY-n.md` that covers flow, states, copy, and accessibility notes. Reviews the story at the end when it has a `ui` tag. |
 | **Task** | Answers design questions from Jade. Reviews `ui` tasks with `review add`. Builds `lane:design` tasks (a spec revision, a token change, copy), which Greg reviews and Darwin closes with `softory close`. |
 | **Bug** | Rates whether a UI bug is a usability or accessibility failure, which feeds Quinn's severity call. |
 

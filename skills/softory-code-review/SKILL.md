@@ -36,7 +36,7 @@ Use `evidence:` when the work is right but the proof is missing or stale, such a
 
 ## Re-reviews
 
-A second or later pass on the same unit checks two things only: whether each blocking item from your last pass is fixed, and the diff since that pass. Don't reopen what you already accepted. Anything new you notice outside that diff is not blocking: file it as a follow-up with `softory new bug --from <ID>` (or a task) and name it in `--follow-up-tasks`. A new blocking item is allowed only when the new diff causes it.
+A second or later pass on the same unit checks two things only: whether each blocking item from your last pass is fixed, and the diff since that pass. Don't reopen what you already accepted. Anything new you notice outside that diff is not blocking: file it as a follow-up with `softory new bug --type functional|visual --from <ID>` (or a task) and name it in `--follow-up-tasks`. A new blocking item is allowed only when the new diff causes it.
 
 ## Recording the outcome
 

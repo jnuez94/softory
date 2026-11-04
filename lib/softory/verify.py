@@ -4,8 +4,10 @@
 worktree at the task's latest commit and records the result in a local
 ledger. With a command set, the gate's ``verified`` check needs a passing
 ledger entry for that commit, so "tests pass" is something softory saw,
-not something an agent wrote. ``lane_paths`` fails when the commit's diff
-touches paths outside the task's lane, unless Quinn accepted it as cross-lane.
+not something an agent wrote. ``lane_paths`` fails when the unit's own
+commits touch paths outside its lane, unless Quinn (or, when Quinn built it,
+Quinn's named backup) accepted it as cross-lane. Commits another unit's
+verified commit already holds are inherited, not the unit's own.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Any
 from . import verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
+from .gate import builders, with_stand_ins
 from .gitlocal import git
 from .project import Project
 from .units import CODE_EVIDENCE, lane_of, live_evidence, tags_of, unit_of
@@ -166,12 +169,28 @@ def _text(value: Any) -> str:
     return value or ""
 
 
-def changed_files(root: Path, base: str, sha: str) -> list[str] | None:
-    """Files the commit changes since it left ``base``, or None if git can't tell."""
-    found = git(root, "diff", "--name-only", f"{base}...{sha}")
+def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None = None) -> list[str] | None:
+    """Files the unit's own commits change: those reachable from ``sha`` but not from ``base``
+    or from any ``inherited`` commit (another unit's work it was built on). None if git can't tell.
+
+    A unit built on a branch that isn't merged yet would otherwise answer for every file
+    the units below it changed (Tablet's TASK-34 failed on 166 paths it never touched).
+    """
+    listed = git(root, "rev-list", sha, f"^{base}")
+    if listed.returncode != 0:
+        return None
+    mine = set(listed.stdout.split())
+    below = [f"^{c}" for c in dict.fromkeys(inherited or []) if c in mine and c != sha]
+    found = git(root, "log", "--name-only", "--format=", sha, f"^{base}", *below, "--")
     if found.returncode != 0:
         return None
-    return [line for line in found.stdout.splitlines() if line]
+    return sorted({line for line in found.stdout.splitlines() if line})
+
+
+def unit_files(project: Project, charter: dict[str, Any], task_id: str, sha: str) -> list[str] | None:
+    """The files a unit's own commits change, reading past work other units verified."""
+    others = [c for c, entry in ledger(project).items() if entry.get("task") != task_id]
+    return changed_files(project.root, charter["git"]["base"], sha, others)
 
 
 def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any], gates: dict[str, Any]) -> str:
@@ -192,7 +211,7 @@ def needs_tests(task: dict[str, Any], gates: dict[str, Any]) -> bool:
 
 
 def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit: str | None,
-           accepting: set[str]) -> list[dict[str, Any]]:
+           gates: dict[str, Any]) -> list[dict[str, Any]]:
     """The gate's objective checks for a code unit. None apply until the charter configures them."""
     if unit not in CODE_UNITS:
         return []
@@ -212,28 +231,40 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
             how = "setup failed" if entry.get("setup_failed") else ("passed" if entry["passed"] else "failed")
             result.append(_check("verified", entry["passed"], f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
     if globs:
-        result.append(_lane_check(project, charter, task, sha, globs, accepting))
+        result.append(_lane_check(project, charter, task, sha, globs, gates))
     return result
 
 
 def _lane_check(project: Project, charter: dict[str, Any], task: dict[str, Any], sha: str | None,
-                globs: list[str], accepting: set[str]) -> dict[str, Any]:
+                globs: list[str], gates: dict[str, Any]) -> dict[str, Any]:
     if not sha:
         return _check("lane_paths", False, "no commit evidence to compare with the lane")
-    files = changed_files(project.root, charter["git"]["base"], sha)
+    files = unit_files(project, charter, task["id"], sha)
     if files is None:
         return _check("lane_paths", False, f"git can't diff {sha[:12]} against {charter['git']['base']}")
     allowed = [*globs, *(charter.get("shared_paths") or [])]
     outside = [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
     if not outside:
         return _check("lane_paths", True, f"{len(files)} changed file(s), all in lane:{lane_of(task)}")
-    quinn = any((r.get("reviewer_id") or r.get("reviewer")) == "quinn" and r.get("decision") in accepting
-                for r in task.get("reviews") or [])
-    if "cross-lane" in tags_of(task) and quinn:
-        return _check("lane_paths", True, f"cross-lane, accepted by quinn: {', '.join(outside[:5])}")
-    return _check("lane_paths", False, f"outside lane:{lane_of(task)}: {', '.join(outside[:5])}"
-                  + (f" and {len(outside) - 5} more" if len(outside) > 5 else "")
-                  + ". Split the task, or tag it cross-lane and get Quinn's accepted review")
+    who = cross_lane_approvers(task, gates)
+    accepting = set(gates["accepting_decisions"])
+    accepted = sorted({(r.get("reviewer_id") or r.get("reviewer")) for r in task.get("reviews") or []
+                       if (r.get("reviewer_id") or r.get("reviewer")) in who and r.get("decision") in accepting})
+    listed = ", ".join(outside[:5]) + (f" and {len(outside) - 5} more" if len(outside) > 5 else "")
+    if "cross-lane" in tags_of(task) and accepted:
+        return _check("lane_paths", True, f"cross-lane, accepted by {', '.join(accepted)}: {listed}")
+    return _check("lane_paths", False, f"outside lane:{lane_of(task)}: {listed}. Split the task, or tag it "
+                  f"cross-lane and get an accepted review from {' or '.join(who) or 'quinn'}")
+
+
+def cross_lane_approvers(task: dict[str, Any], gates: dict[str, Any]) -> list[str]:
+    """Quinn accepts cross-lane work. When Quinn built it, Quinn's named backup for architecture does,
+    as for an ``arch`` review, so Quinn's own work never waits on the owner."""
+    built_by = builders(task)
+    named = ["quinn"]
+    if "quinn" in built_by:
+        named = list((gates.get("tag_reviews") or {}).get("arch", {}).get("if_builder") or ["jade", "gold"])
+    return [who for who in with_stand_ins(named, gates, task.get("id")) if who not in built_by]
 
 
 def _check(name: str, passed: bool, detail: str) -> dict[str, Any]:

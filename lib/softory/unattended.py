@@ -25,7 +25,9 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--merge", action="store_true", help="Add the file's settings to the ones already approved instead "
                    "of replacing them")
 
-    sub.add_parser("setup", help="The owner's one-time checklist for unattended runs, checked")
+    p = sub.add_parser("setup", help="The owner's one-time checklist for unattended runs, checked")
+    p.add_argument("--load-schedule", action="store_true", help="Load the runner's launchd job (owner, at a "
+                   "terminal), so the runner is the only thing that starts roles")
     p = sub.add_parser("run", help="One runner tick: start each role that has work, inside the budget")
     p.add_argument("--dry-run", action="store_true", help="Say who would start; start nothing and page nobody")
     p = sub.add_parser("run-role", help="Run one role once now (the runner calls this)")
@@ -60,7 +62,8 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
         else:
             result = charters.approve(project, coord, Path(args.file), confirm_at_terminal, args.merge)
     elif command == "setup":
-        result = setup.checklist(project)
+        result = (setup.load_schedule(project, confirm_at_terminal) if args.load_schedule
+                  else setup.checklist(project))
     elif command == "run":
         result = runner.tick(project, coord, args.dry_run)
     elif command == "run-role":

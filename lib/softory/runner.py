@@ -19,7 +19,7 @@ from typing import Any
 
 from . import charter as charters
 from . import digest, perms, runprompt, usage, watch
-from .runstate import allowed_tasks, budget, is_paused, limits_for, now, state_dir
+from .runstate import RUNNER_ENV, allowed_tasks, budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -103,7 +103,8 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
     out_path = logs / f"{role}-{started.strftime('%Y%m%dT%H%M%SZ')}.out"
     try:
         with out_path.open("w", encoding="utf-8") as out:
-            child = subprocess.Popen(command, cwd=project.root, env=_clean_env(), start_new_session=True,  # noqa: S603
+            env = {**_clean_env(), RUNNER_ENV: "1"}  # sessions it starts aren't logged as manual
+            child = subprocess.Popen(command, cwd=project.root, env=env, start_new_session=True,  # noqa: S603
                                      stdout=out, stdin=subprocess.DEVNULL)
             try:
                 code = child.wait(timeout=float(limits["minutes_per_run"]) * 60)

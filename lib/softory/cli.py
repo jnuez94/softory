@@ -11,7 +11,7 @@ from . import __version__, external, feedback, lifecycle, messages, ops, owner, 
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
-from .units import LANES
+from .units import FINDING_TYPES, FOUND_STAGES, LANES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--description", help="Default: the unit's template")
     p.add_argument("--description-file", help="Read the description from a file")
     p.add_argument("--acceptance", help="Acceptance criteria")
+    p.add_argument("--type", choices=FINDING_TYPES, help="A bug's kind: functional, or visual (renders wrong)")
+    p.add_argument("--found-at", choices=FOUND_STAGES, help="Where a bug was found (default with --from: review)")
+    p.add_argument("--design", action="store_true", help="With a story: also file its design task for Darwin, so "
+                   "UX work can start before the breakdown")
     p.add_argument("--actor", help="Acting role (default: $SOFTORY_ROLE)")
 
     p = sub.add_parser("tree", help="Show the epic > story > task hierarchy")
@@ -137,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id")
     p.add_argument("--reason", required=True)
     p.add_argument("--superseded-by", metavar="ID", help="The unit that replaces it")
+    p.add_argument("--withdrawn", action="store_true", help="A bug that turned out not to be a defect")
     p.add_argument("--actor", help="Who drops it (default: $SOFTORY_ROLE)")
 
     p = sub.add_parser("stack", help="Group work built on top of other work, bottom first, to close together")
@@ -291,7 +296,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor)
         print(ops.dumps(result), end="")
     elif args.command == "drop":
-        result = lifecycle.drop(project, coord, args.id, args.reason, args.superseded_by, work.actor_of(args.actor))
+        result = lifecycle.drop(project, coord, args.id, args.reason, args.superseded_by, work.actor_of(args.actor),
+                                args.withdrawn)
         print(ops.dumps(result), end="")
     elif args.command == "stack":
         print(ops.dumps(lifecycle.stack(project, coord, args.ids, work.actor_of(args.actor))), end="")

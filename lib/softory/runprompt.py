@@ -73,7 +73,7 @@ def _unit(project: Project, charter: dict[str, Any], board: Board, task_id: str)
         parts.append(f"  Changes asked: {' | '.join(asked)}")
     sha = verify.commit_of(project.root, task)
     if sha:
-        files = verify.changed_files(project.root, charter["git"]["base"], sha) or []
+        files = verify.unit_files(project, charter, task_id, sha) or []
         more = f" (+{len(files) - MAX_FILES} more)" if len(files) > MAX_FILES else ""
         parts.append(f"  Commit {sha[:12]}" + (f", changes: {', '.join(files[:MAX_FILES])}{more}" if files else ""))
     return "\n".join(parts)

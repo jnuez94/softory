@@ -79,18 +79,25 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
 def _scheduler_warnings(project: Project) -> list[str]:
     """A charter approved for unattended runs, with no runner firing, means roles only start by hand."""
     from . import charter as charters  # noqa: PLC0415 - keep doctor's import light
-    from . import runner, watch  # noqa: PLC0415
+    from . import runner, runstate, watch  # noqa: PLC0415
 
     if not charters.load(project).get("approved"):
         return []
     state = runner.scheduler_state(project)
-    if not state["loaded"]:
-        return [f"No scheduler runs softory for this project: load the launchd job ({state['label']}) with "
-                "softory setup's last step. Until then roles start only when someone starts them."]
+    warnings = []
     last = state["last_tick"]
-    if last is None or (watch.parse_time(last) < datetime.now(timezone.utc) - timedelta(minutes=30)):
-        return [f"The scheduler is loaded but the runner last ticked at {last or 'never'}; check run/runner.log."]
-    return []
+    if not state["loaded"]:
+        warnings.append(f"No scheduler runs softory for this project: load the launchd job ({state['label']}) with "
+                        "softory setup --load-schedule. Until then roles start only when someone starts them.")
+    elif last is None or (watch.parse_time(last) < datetime.now(timezone.utc) - timedelta(minutes=30)):
+        warnings.append(f"The scheduler is loaded but the runner last ticked at {last or 'never'}; check run/runner.log.")
+    manual = runstate.manual_starts(project)
+    if manual:
+        roles = sorted({row["role"] for row in manual})
+        warnings.append(f"{len(manual)} session(s) in the last day started outside the runner ({', '.join(roles)}). "
+                        "Turn off other schedulers for this project, such as an app's scheduled check-ins, so the "
+                        "runner's budgets, caps, and run log see every run.")
+    return warnings
 
 
 def _installed_scaffold_block(project: Project) -> str | None:

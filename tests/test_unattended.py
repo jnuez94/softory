@@ -171,6 +171,42 @@ class UnattendedTest(unittest.TestCase):
         lane = next(c for c in report["checks"] if c["check"] == "lane_paths")
         self.assertIn("api/secret.py", lane["detail"])
 
+    def test_lane_check_reads_past_work_other_units_built_below(self) -> None:
+        base = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"], "backend": ["api/**"]},
+                      "git": {"base": base}})
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", "API",
+                "--actor", "quinn")
+        below = self.commit("api/list.py", "x\n")
+        self.build("TASK-2", "gold", below, review=False)
+        softory(self.root, "verify", "TASK-2", "--actor", "gold")
+        sha = self.commit("web/list.js", "x\n")
+        self.build("TASK-1", "jade", sha)
+        softory(self.root, "verify", "TASK-1", "--actor", "jade")
+        lane = next(c for c in gate(self.root, "TASK-1", "jade")["checks"] if c["check"] == "lane_paths")
+        self.assertTrue(lane["pass"], lane["detail"])
+        self.assertIn("1 changed file", lane["detail"])
+
+    def test_quinns_backup_accepts_cross_lane_work_quinn_built(self) -> None:
+        self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": "HEAD~1"}})
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Wide",
+                "--tags", "cross-lane", "--assignee", "quinn", "--actor", "quinn")
+        sha = self.commit("api/shared.py", "x\n")
+        self.build("TASK-2", "quinn", sha)  # gold accepts
+        softory(self.root, "verify", "TASK-2", "--actor", "quinn")
+        lane = next(c for c in gate(self.root, "TASK-2", "quinn")["checks"] if c["check"] == "lane_paths")
+        self.assertTrue(lane["pass"], lane["detail"])
+        self.assertIn("accepted by gold", lane["detail"])
+
+    def test_doctor_warns_when_sessions_start_outside_the_runner(self) -> None:
+        self.approve({"verify": {"command": "true"}})
+        start(self.root, "jade")
+        warnings = json.loads(softory(self.root, "doctor", check=False).stdout)["warnings"]
+        self.assertTrue(any("outside the runner (jade)" in w for w in warnings), warnings)
+        run([str(self.root / ".agents/softory/bin/softory"), "start", "gold"], self.root, {"SOFTORY_RUNNER": "1"})
+        rows = (self.root / ".agents/softory/run/manual-starts.jsonl").read_text().splitlines()
+        self.assertEqual([json.loads(r)["role"] for r in rows], ["jade"])
+
     def test_a_setup_failure_is_not_a_test_failure_and_keeps_its_artifacts(self) -> None:
         self.approve({"verify": {"command": "true", "setup": "mkdir -p out && echo t > out/trace.txt && false",
                                  "keep": ["out/*.txt"]}, "git": {"base": "HEAD~1"}})
