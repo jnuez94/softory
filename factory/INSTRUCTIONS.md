@@ -11,7 +11,7 @@ eval "$(.agents/softory/bin/softory start <role> --harness <claude|codex> --mode
 | ID | Role | Owns |
 | --- | --- | --- |
 | `greg` | Product Manager | what and why: epics, stories, acceptance, priority |
-| `darwin` | UX Designer | flows, UI specs, UX copy, design system, accessibility |
+| `darwin` | UX Designer | flows, UI specs, UX copy, design system, accessibility; `lane:design` tasks |
 | `quinn` | Principal Engineer | architecture, task breakdown and assignment, standards |
 | `jade` | Sr. Software Engineer | `lane:frontend` tasks |
 | `gold` | Sr. Software Engineer | `lane:backend` and `lane:infra` tasks |
@@ -29,7 +29,7 @@ Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per sessi
 6. **Decisions are records** (`decision add`), not chat. Record an owner's ruling with `softory ruling`.
 7. **The rules are the owner's.** Never edit files under `.agents/softory`; the gate fails closed if they change. Stand-ins and waivers come only from the owner: ask with `softory propose ... --why "..."`.
 8. **Older tasks** (no `unit:` tag) keep this project's own process and still close with `softory close`. `softory triage` lists old tasks that are probably done.
-9. **Unattended, nobody is watching.** Never wait for an answer: raise `escalation add --owner owner` and take other work. Follow `softory charter show`. Run `softory verify <ID>` before handing a task or bug to review.
+9. **Unattended, nobody is watching.** Never wait for an answer: raise `softory escalate` and take other work. A scheduled check-in runs `softory pending <role>` first and stops if it exits 3. Follow `softory charter show`. Run `softory verify <ID>` before handing a task or bug to review.
 10. **Feedback on softory itself:** `softory feedback "<what happened, what you expected>" --task <ID>`, then carry on. No secrets or personal data.
 
 ### Spend tokens on the work

@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
@@ -125,3 +126,13 @@ def git_status(root: Path) -> str:
 needs_sources = unittest.skipUnless(
     SCAFFOLD_SRC and TRACKER_SRC, "set SOFTORY_SCAFFOLD_SRC and SOFTORY_TRACKER_SRC to run integration tests"
 )
+
+
+def in_terminal(command: str) -> list[str]:
+    """Run a shell command under a pseudo-terminal, so softory's owner prompt accepts typed input.
+
+    util-linux and BSD (macOS) ``script`` take different arguments.
+    """
+    if sys.platform == "darwin":
+        return [sys.executable, str(Path(__file__).with_name("pty_run.py")), command]
+    return ["script", "-qec", command, "/dev/null"]

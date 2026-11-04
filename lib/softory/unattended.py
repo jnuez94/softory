@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import charter as charters
-from . import digest, ops, runner, runstate, setup, verify
+from . import digest, ops, runner, runstate, setup, teamstats, verify
 from .coordination import Coordination
 from .owner import confirm_at_terminal
 from .project import Project
@@ -22,6 +22,8 @@ def add_parsers(sub: Any) -> None:
     charter.add_parser("show")
     p = charter.add_parser("approve")
     p.add_argument("file", help="A JSON file of the settings you change; everything else keeps its default")
+    p.add_argument("--merge", action="store_true", help="Add the file's settings to the ones already approved instead "
+                   "of replacing them")
 
     sub.add_parser("setup", help="The owner's one-time checklist for unattended runs, checked")
     p = sub.add_parser("run", help="One runner tick: start each role that has work, inside the budget")
@@ -32,8 +34,10 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--role")
     p.add_argument("--reason", default="paused")
     p.add_argument("--actor")
-    p = sub.add_parser("resume", help="Start unattended runs again (owner, at a terminal)")
+    p = sub.add_parser("resume", help="Start unattended runs again, or for one task only (owner, at a terminal)")
     p.add_argument("--role")
+    p.add_argument("--task", help="Keep the pause, but let --roles work on this one task")
+    p.add_argument("--roles", help="With --task: the roles that may work on it, comma-separated (default: all)")
     p = sub.add_parser("verify", help="Run the charter's tests at a unit's commit and record the result for the gate")
     p.add_argument("id")
     p.add_argument("--commit", help="Default: the newest commit named in the unit's evidence")
@@ -42,7 +46,10 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--send", action="store_true")
     p = sub.add_parser("schedule", help="Write a launchd job and print a cron line for the runner")
     p.add_argument("--minutes", type=int, default=5)
-    sub.add_parser("usage", help="Today's runs, minutes, tokens, and cost per role against the budget")
+    p = sub.add_parser("usage", help="Today's runs, minutes, tokens, and cost per role against the budget")
+    p.add_argument("--team", action="store_true", help="Instead: sessions and messages per delivered task, and "
+                   "how often each reviewer's requests led to new code")
+    p.add_argument("--days", type=float, default=7, help="With --team: the window (reviews use twice this)")
 
 
 def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) -> int:
@@ -51,7 +58,7 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
         if args.charter_command == "show":
             result: Any = charters.load(project)
         else:
-            result = charters.approve(project, coord, Path(args.file), confirm_at_terminal)
+            result = charters.approve(project, coord, Path(args.file), confirm_at_terminal, args.merge)
     elif command == "setup":
         result = setup.checklist(project)
     elif command == "run":
@@ -61,7 +68,8 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
     elif command == "pause":
         result = runstate.pause(project, args.role, args.reason, args.actor or _actor_or_owner(project))
     elif command == "resume":
-        result = runstate.resume(project, args.role, confirm_at_terminal)
+        roles = [r.strip() for r in (args.roles or "").split(",") if r.strip()] or None
+        result = runstate.resume(project, args.role, confirm_at_terminal, args.task, roles)
     elif command == "verify":
         result = verify.run(project, coord, charters.load(project), args.id, actor_of(args.actor), args.commit)
         print(ops.dumps(result), end="")
@@ -73,9 +81,14 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
             result["paged"] = digest.page_due(project, coord, charter, force_digest=True)
     elif command == "schedule":
         result = runner.schedule(project, args.minutes)
+    elif args.team:
+        result = teamstats.team_report(project, coord, args.days)
     else:
         charter = charters.load(project)
-        result = {role: runstate.budget(project, charter, role) for role in charter["run"]["roles"]}
+        today = runstate.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        sessions = teamstats.sessions_by_role(coord, today)
+        result = {role: {**runstate.budget(project, charter, role), "sessions_today": sessions.get(role, 0)}
+                  for role in charter["run"]["roles"]}
     print(ops.dumps(result), end="")
     return 0
 

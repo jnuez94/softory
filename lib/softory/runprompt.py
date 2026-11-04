@@ -36,6 +36,9 @@ def build(project: Project, coord: Coordination, charter: dict[str, Any], role: 
     rule = ("Clear every waiting review in this one run, then close what is ready. Build nothing."
             if job == "review" else
             "Do any waiting reviews and closes first, then finish one unit and stop.")
+    if wanted.get("scoped_to"):
+        rule = (f"The team is paused. The owner let you work on {', '.join(wanted['scoped_to'])} only: review, "
+                f"fix, or close those and nothing else, even if other work is waiting. " + rule.replace("every", "the"))
     stable = (f"You are {name} ({role}) in a softory project, running unattended: nobody is watching. "
               f"Start with: eval \"$(.agents/softory/bin/softory start {role} --harness {pick['harness']} "
               f"--model {pick['model']})\". Follow the softory-operating-loop skill. "

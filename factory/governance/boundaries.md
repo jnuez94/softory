@@ -27,6 +27,7 @@ Every task has exactly one lane tag. The lane decides who builds it and who revi
 | `lane:frontend` | Jade | Gold | UI components, pages, client state, styles, client tests |
 | `lane:backend` | Gold | Jade | Services, APIs, data access, jobs, server tests |
 | `lane:infra` | Gold | Jade | Build, CI, packaging, deploy scripts |
+| `lane:design` | Darwin | Greg (product review) | Design specs, flows, UX copy, design tokens, `docs/design/**`. No code, so `softory verify` doesn't apply |
 
 Quinn records the paths each lane owns for the project in the epic's design doc. A task that must touch two lanes is split into two tasks with a `blocks` dependency between them, unless Quinn records why it cannot be split.
 

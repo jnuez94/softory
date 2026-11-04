@@ -24,7 +24,9 @@ ROLE_DOCS = {
     "quinn": ["docs/adr/**", "docs/**"],
     "toby": ["docs/security/**"],
 }
-ROLE_LANES = {"jade": ["frontend"], "gold": ["backend", "infra"]}
+ROLE_LANES = {"jade": ["frontend"], "gold": ["backend", "infra"], "darwin": ["design"]}
+#: Lanes whose role already has a docs folder: with no paths set, the role keeps just that folder.
+OPTIONAL_LANES = ("design",)
 COMMON_BASH = [
     ".agents/softory/bin/softory", ".agents/agentic-project-scaffold-lite/bin/coordination",
     "eval \"$(.agents/softory/bin/softory start", "git status", "git diff", "git log", "git show", "git add",
@@ -40,6 +42,8 @@ def role_paths(charter: dict[str, Any], role: str) -> list[str] | None:
     for lane in ROLE_LANES.get(role, []):
         globs = lanes.get(lane) or []
         if not globs:
+            if lane in OPTIONAL_LANES:
+                continue
             return None
         paths += globs
     return paths

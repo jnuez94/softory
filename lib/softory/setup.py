@@ -40,7 +40,9 @@ def checklist(project: Project) -> dict[str, Any]:
     step("branch protection", False,
          "Manual: protect the base branch on GitHub and require CI. softory can't check this from here.")
     plan = runner.schedule(project)
-    step("schedule loaded", False, f"Manual, last: {plan['install_launchd']}")
+    state = runner.scheduler_state(project)
+    step("schedule loaded", state["loaded"], f"Last: turn off any other scheduler for this project (such as an "
+         f"app's scheduled check-ins), then run {plan['install_launchd']}")
     open_steps = [s for s in steps if not s["done"]]
     return {"done": len(steps) - len(open_steps), "of": len(steps), "steps": steps, "schedule": plan,
             "next": open_steps[0]["how"] if open_steps else "All set."}

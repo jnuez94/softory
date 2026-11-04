@@ -30,7 +30,13 @@ The goal of review is that the codebase is **better after the change than before
 
 ## Labels
 
-Start each item in `--required-changes` or a PR comment with `blocking:`, `question:`, `suggestion:`, or `nit:`. A blocking item says why and suggests a fix. Never block on a nit.
+Start each item in `--required-changes` or a PR comment with `blocking:`, `evidence:`, `question:`, `suggestion:`, or `nit:`. A blocking item says why and suggests a fix. Never block on a nit.
+
+Use `evidence:` when the work is right but the proof is missing or stale, such as a screenshot, a test run at the current commit, or a trace. A request whose every item is `evidence:` doesn't count toward the review-round cap the first time.
+
+## Re-reviews
+
+A second or later pass on the same unit checks two things only: whether each blocking item from your last pass is fixed, and the diff since that pass. Don't reopen what you already accepted. Anything new you notice outside that diff is not blocking: file it as a follow-up with `softory new bug --from <ID>` (or a task) and name it in `--follow-up-tasks`. A new blocking item is allowed only when the new diff causes it.
 
 ## Recording the outcome
 

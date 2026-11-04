@@ -8,6 +8,8 @@ roles. Stand-ins, the other half of joining a team, are the owner's: owner.py.
 
 from __future__ import annotations
 
+import re
+
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -16,7 +18,7 @@ from . import lifecycle, watch, work
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
-from .units import CODE_EVIDENCE, build_tags, check_parent, tags_of, unit_of
+from .units import build_tags, check_parent, code_evidence_types, tags_of, unit_of
 
 
 def adopt(project: Project, coord: Coordination, task_id: str, unit: str, options: dict[str, Any]) -> dict[str, Any]:
@@ -84,8 +86,7 @@ def _review_targets(project: Project, coord: Coordination, task: dict[str, Any],
     if actor not in reviewers and actor != owner:
         raise SoftoryError(f"Only {', '.join(sorted(reviewers)) or 'its reviewer'} or the owner may mark "
                            f"{task['id']} as a review run", "not_allowed")
-    code = sorted({str(e.get("evidence_type")) for e in task.get("evidence") or []
-                   if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
+    code = code_evidence_types(task)
     if code:
         raise SoftoryError(f"{task['id']} has {', '.join(code)} evidence, so it delivered code; adopt it as a task or bug",
                            "not_a_review")
@@ -132,7 +133,7 @@ def triage(project: Project, coord: Coordination) -> dict[str, Any]:
     review_runs = [
         {"id": t["id"], "status": t["status"], "title": t["title"], "assignees": t.get("assignees") or [],
          "adopt": f"softory adopt {t['id']} --unit review"}
-        for t in open_tasks if unit_of(t, gates) is None and _looks_like_review_run(t)
+        for t in open_tasks if unit_of(t, gates) is None and _looks_like_review_run(t, coord)
     ]
     return {
         "ready_to_close": ready,
@@ -162,11 +163,19 @@ def _closed_outside_softory(project: Project, coord: Coordination) -> list[dict[
 REVIEW_RUN_TAGS = ("review", "code-review", "independent-review", "security-review")
 
 
-def _looks_like_review_run(task: dict[str, Any]) -> bool:
-    """A guess for triage only: tagged or named as a review, and not a fix."""
-    words = task["id"].upper().split("-")
+def _looks_like_review_run(task: dict[str, Any], coord: Coordination | None = None) -> bool:
+    """A guess for triage only, from what the task holds: tagged or named as a review, not a fix, and no code.
+
+    A task named ``...-REVIEW-...`` that delivered a commit is built work, not a review run, so its evidence
+    decides. With ``coord`` the task is read in full when the summary lacks its evidence.
+    """
+    words = set(re.split(r"[^A-Z]+", f"{task['id']} {task.get('title', '')}".upper()))
     tagged = any(tag in REVIEW_RUN_TAGS for tag in tags_of(task))
-    return (tagged or "REVIEW" in words) and "FIX" not in words
+    if not (tagged or "REVIEW" in words) or words & {"FIX", "FIXES", "IMPLEMENT", "BUILD"}:
+        return False
+    if "evidence" not in task and coord is not None:
+        task = coord.task(task["id"])
+    return not code_evidence_types(task)
 
 
 def _session_report(project: Project, coord: Coordination) -> dict[str, list[dict[str, str]]]:

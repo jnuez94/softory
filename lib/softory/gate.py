@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import grants
-from .units import CODE_EVIDENCE, follow_up_ids, tags_of, targets_of, unit_of
+from .units import code_evidence_types, follow_up_ids, lane_of, live_evidence, tags_of, targets_of, unit_of
 
 ANYONE = "*"
 RECORD_STATUSES = ("review", "blocked", "todo")
@@ -62,7 +62,8 @@ def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[s
     if spec.get("record"):
         return record_requirements(task, gates)
     requirements: list[dict[str, Any]] = []
-    for entry in spec.get("required_reviews", []):
+    by_lane = (spec.get("required_reviews_by_lane") or {}).get(lane_of(task) or "")
+    for entry in spec.get("required_reviews", []) if by_lane is None else by_lane:
         requirements.append({**entry, "source": f"unit:{unit}"})
     if spec.get("tag_reviews", True) and not spec.get("record"):
         for tag in tags_of(task):
@@ -187,8 +188,11 @@ def evaluate(
     unit_detail = {None: "no unit:* tag or known ID prefix", "legacy": "no unit tag, so the legacy rule applies"}
     checks.append(_check("unit", unit is not None, unit_detail.get(unit, f"unit is {unit}")))
     checks.append(_status_check(task, record, actor))
-    evidence = int(task.get("evidence_count") or 0)
-    checks.append(_check("evidence", evidence > 0, f"{evidence} evidence row(s)"))
+    rows = task.get("evidence") or []
+    withdrawn = len(rows) - len(live_evidence(rows))  # retracted rows and the markers that retract them
+    evidence = int(task.get("evidence_count") or len(rows)) - withdrawn
+    checks.append(_check("evidence", evidence > 0, f"{evidence} evidence row(s)"
+                         + (f", not counting {withdrawn} superseded or retraction row(s)" if withdrawn else "")))
 
     open_deps = [
         dep["depends_on_task_id"]
@@ -250,8 +254,7 @@ def _record_checks(task: dict[str, Any], built_by: set[str], latest: dict[str, d
     targets = targets_of(task)
     checks = []
 
-    code = sorted({str(e.get("evidence_type")) for e in task.get("evidence") or []
-                   if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
+    code = code_evidence_types(task)
     checks.append(_check("record_only", not code,
                          f"has {', '.join(code)} evidence; a review record holds reports, so build code in a task or bug"
                          if code else "holds reports, not code"))

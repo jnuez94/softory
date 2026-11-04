@@ -21,14 +21,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git
 from .project import Project
-from .units import CODE_EVIDENCE, lane_of, tags_of, unit_of
+from .units import CODE_EVIDENCE, lane_of, live_evidence, tags_of, unit_of
 
 CODE_UNITS = ("task", "bug")
+NO_TEST_LANES = ("design",)
 _SHA = re.compile(r"\b([0-9a-f]{7,40})\b")
+_HEAD = re.compile(r"(?:^commit:|\bhead=)([0-9a-f]{7,40})\b")
 TAIL_LINES = 40
 
 
@@ -44,21 +47,38 @@ def ledger(project: Project) -> dict[str, Any]:
 
 
 def commit_of(root: Path, task: dict[str, Any]) -> str | None:
-    """The full hash of the newest code evidence that names a commit this repository has."""
-    for row in reversed(task.get("evidence") or []):
+    """The full hash of the newest code evidence that names exactly one commit this repository has.
+
+    ``commit:<sha>`` (what ``softory commit`` writes) and ``head=<sha>`` name the commit outright. Free text
+    that names several commits, such as a head and its base, is ambiguous and skipped, so a base commit's
+    passing tests are never credited to the head. Evidence superseded with ``softory supersede`` is skipped.
+    """
+    for row in reversed(live_evidence(task.get("evidence"))):
         if str(row.get("evidence_type", "")).lower() not in CODE_EVIDENCE:
             continue
-        for candidate in reversed(_SHA.findall(str(row.get("uri", "")).lower())):
-            found = git(root, "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}")
-            if found.returncode == 0:
-                return found.stdout.strip()
+        uri = str(row.get("uri", "")).lower()
+        named = _HEAD.findall(uri)
+        candidates = named[-1:] if named else list(dict.fromkeys(_SHA.findall(uri)))
+        found = [full for full in (_resolve(root, c) for c in candidates) if full]
+        if len(set(found)) == 1:
+            return found[0]
     return None
+
+
+def _resolve(root: Path, candidate: str) -> str | None:
+    found = git(root, "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}")
+    return found.stdout.strip() if found.returncode == 0 else None
 
 
 def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id: str, actor: str,
         commit: str | None = None) -> dict[str, Any]:
-    """Run the verify command at the task's commit in a throwaway worktree, and record what happened."""
-    command = charter["verify"]["command"]
+    """Run the verify command at the task's commit in a throwaway worktree, and record what happened.
+
+    One verify runs at a time per project; the rest wait their turn. ``verify.setup``, when set, runs
+    first, and its failure is recorded as a setup failure, not a test failure.
+    """
+    settings = charter["verify"]
+    command = settings["command"]
     if not command:
         raise SoftoryError("The charter sets no verify.command; the owner adds one with softory charter approve",
                            "configuration_error")
@@ -68,46 +88,82 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
         resolved = git(project.root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
         sha = resolved.stdout.strip() if resolved.returncode == 0 else None
     if not sha:
-        raise SoftoryError(f"{task_id} has no commit evidence this repository knows; add one or pass --commit",
-                           "not_found")
+        raise SoftoryError(f"{task_id} has no commit evidence this repository knows; add one with softory commit "
+                           "or pass --commit", "not_found")
+    with verifyenv.turn(project, task_id, actor):
+        outcome = _run_in_tree(project, settings, task_id, sha)
+    passed = outcome["code"] == 0 and outcome["stage"] == "test"
+    entry = {"task": task_id, "passed": passed, "exit": outcome["code"], "command": command, "by": actor,
+             "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
+             "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1)}
+    if outcome["stage"] == "setup":
+        entry["setup_failed"] = True
+    entries = ledger(project)
+    entries[sha] = entry
+    ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
+    ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    verdict = "pass" if passed else ("setup-fail" if outcome["stage"] == "setup" else "fail")
+    coord.run("evidence", "add", "--task", task_id, "--uri", f"softory-verify:{verdict}:{sha}",
+              "--type", "test", "--actor", actor)
+    result = {"task": task_id, "commit": sha, "passed": passed, "exit": outcome["code"], "stage": outcome["stage"],
+              "log": outcome["log"], "tail": "\n".join(outcome["output"].splitlines()[-TAIL_LINES:]),
+              "shared": outcome["shared"]}
+    if outcome["kept"]:
+        result["kept"] = outcome["kept"]
+    return result
+
+
+def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: str) -> dict[str, Any]:
     place = Path(tempfile.mkdtemp(prefix="softory-verify-"))
     tree = place / "tree"
     added = git(project.root, "worktree", "add", "--detach", "--quiet", str(tree), sha)
     if added.returncode != 0:
         shutil.rmtree(place, ignore_errors=True)
         raise SoftoryError(f"git worktree add failed: {added.stderr.strip()[:300]}", "git_error")
+    out_dir = project.bundle / "run" / "verify"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = f"{task_id}-{sha[:12]}"
+    shared, kept = {}, []
+    started = datetime.now(timezone.utc)
     try:
-        for shared in charter["verify"].get("share") or []:
-            source = project.root / shared
-            if source.exists() and not (tree / shared).exists():
-                (tree / shared).parent.mkdir(parents=True, exist_ok=True)
-                (tree / shared).symlink_to(source)
-        started = datetime.now(timezone.utc)
-        try:
-            done = subprocess.run(command, shell=True, cwd=tree, capture_output=True, text=True,  # noqa: S602 - owner's command
-                                  timeout=float(charter["verify"]["timeout_minutes"]) * 60, check=False,
-                                  env={k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)})
-            code, output = done.returncode, done.stdout + done.stderr
-        except subprocess.TimeoutExpired as error:
-            code, output = 124, f"{error.stdout or ''}{error.stderr or ''}\n(timed out)"
+        for path in settings.get("share") or []:
+            source = project.root / path
+            if source.exists() and not (tree / path).exists():
+                shared[path] = verifyenv.share(source, tree / path, settings.get("share_mode") or "clone")
+        stage, code, output = "test", 0, ""
+        timeout = float(settings["timeout_minutes"]) * 60
+        if settings.get("setup"):
+            code, output = _shell(settings["setup"], tree, timeout)
+            stage = "setup" if code != 0 else "test"
+        if stage == "test":
+            code, more = _shell(verifyenv.awake(settings["command"]), tree, timeout)
+            output += more
+        if code != 0:
+            kept = verifyenv.keep_artifacts(tree, list(settings.get("keep") or []), out_dir / name)
     finally:
         git(project.root, "worktree", "remove", "--force", str(tree))
         shutil.rmtree(place, ignore_errors=True)
-    passed = code == 0
-    tail = "\n".join(str(output).splitlines()[-TAIL_LINES:])
-    log = project.bundle / "run" / "verify" / f"{task_id}-{sha[:12]}.log"
-    log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_text(str(output)[-200_000:], encoding="utf-8")
-    entry = {"task": task_id, "passed": passed, "exit": code, "command": command, "by": actor,
-             "at": started.isoformat(timespec="seconds"),
-             "seconds": round((datetime.now(timezone.utc) - started).total_seconds(), 1)}
-    entries = ledger(project)
-    entries[sha] = entry
-    ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
-    ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    coord.run("evidence", "add", "--task", task_id, "--uri", f"softory-verify:{'pass' if passed else 'fail'}:{sha}",
-              "--type", "test", "--actor", actor)
-    return {"task": task_id, "commit": sha, "passed": passed, "exit": code, "log": str(log), "tail": tail}
+    log = out_dir / f"{name}.log"
+    # A failure keeps the whole log for whoever has to fix it; a pass keeps the tail.
+    log.write_text(output if code != 0 else output[-200_000:], encoding="utf-8")
+    return {"stage": stage, "code": code, "output": output, "log": str(log), "shared": shared, "kept": kept,
+            "started": started}
+
+
+def _shell(command: str, cwd: Path, timeout: float) -> tuple[int, str]:
+    env = {k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)}
+    try:
+        done = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True,  # noqa: S602 - owner's command
+                              timeout=timeout, check=False, env=env)
+        return done.returncode, done.stdout + done.stderr
+    except subprocess.TimeoutExpired as error:
+        return 124, f"{_text(error.stdout)}{_text(error.stderr)}\n(timed out)"
+
+
+def _text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
 
 
 def changed_files(root: Path, base: str, sha: str) -> list[str] | None:
@@ -120,12 +176,19 @@ def changed_files(root: Path, base: str, sha: str) -> list[str] | None:
 
 def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any], gates: dict[str, Any]) -> str:
     """'passed', 'failed', or 'not run' at the unit's commit; 'n/a' when the charter has no tests or it isn't code."""
-    if not charter["verify"]["command"] or unit_of(task, gates) not in CODE_UNITS:
+    if not charter["verify"]["command"] or not needs_tests(task, gates):
         return "n/a"
     entry = ledger(project).get(commit_of(project.root, task) or "")
     if not entry:
         return "not run"
+    if entry.get("setup_failed"):
+        return "setup failed"
     return "passed" if entry["passed"] else "failed"
+
+
+def needs_tests(task: dict[str, Any], gates: dict[str, Any]) -> bool:
+    """Code units need softory verify; design deliverables don't."""
+    return unit_of(task, gates) in CODE_UNITS and lane_of(task) not in NO_TEST_LANES
 
 
 def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit: str | None,
@@ -139,16 +202,15 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
     if not command and not globs:
         return []
     sha = commit_of(project.root, task)
-    if command:
+    if command and lane_of(task) not in NO_TEST_LANES:
         entry = ledger(project).get(sha or "")
         if not sha:
             result.append(_check("verified", False, "no commit evidence with a hash this repository has"))
         elif not entry:
             result.append(_check("verified", False, f"tests not run at {sha[:12]}: run softory verify {task['id']}"))
         else:
-            result.append(_check("verified", entry["passed"],
-                                 f"`{entry['command']}` {'passed' if entry['passed'] else 'failed'} at {sha[:12]} "
-                                 f"({entry['at']})"))
+            how = "setup failed" if entry.get("setup_failed") else ("passed" if entry["passed"] else "failed")
+            result.append(_check("verified", entry["passed"], f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
     if globs:
         result.append(_lane_check(project, charter, task, sha, globs, accepting))
     return result

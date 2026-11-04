@@ -47,7 +47,7 @@ Don't claim while a `blocks` dependency is open: message the owner of the blocki
 ## 5. Hand off for review
 
 ```sh
-$C evidence add --task TASK-7 --uri <commit hash> --type commit --actor $SOFTORY_ROLE
+$S commit TASK-7 <commit hash> [--base <hash>]   # full hash, base kept apart, so verify tests the right one
 $C evidence add --task TASK-7 --uri <test-output-path> --type test --actor $SOFTORY_ROLE
 $S verify TASK-7                    # runs the charter's tests at that commit; the gate needs it to pass
 $C task release TASK-7 --to review --actor $SOFTORY_ROLE --if-revision <rev>
@@ -83,7 +83,8 @@ The closer is the assignee for tasks, bugs, and review records, and Greg for sto
 ## 8. Block or escalate
 
 - Waiting on something: `$C task release TASK-7 --to blocked --note "<what and who>" ...`, and message whoever can unblock it.
-- Two roles both claim a call: `$C escalation add` naming both, routed per `governance/boundaries.md#escalation-paths`.
+- Two roles both claim a call, or only the owner can decide: `$S escalate --issue "<plain sentences>" --ask "<one question>?" --tasks TASK-7`, routed per `governance/boundaries.md#escalation-paths` (`--owner quinn` for a call Quinn makes). It refuses text the owner can't read at a glance; rewrite it, don't work around it.
+- Wrong evidence on a unit: `$S supersede TASK-7 <evidence number> --reason "..."`. The row stays in the audit; the gate reads past it.
 
 ## 9. End
 

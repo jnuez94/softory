@@ -48,7 +48,7 @@ Epics and stories don't sit in `in_progress` while children are built. A claim i
 
 1. **Greg** writes the story and its criteria with [templates/story.md](../templates/story.md).
 2. If the story touches UI, **Darwin** writes the design spec in `docs/design/STORY-n.md` and links it as evidence.
-3. **Quinn** breaks it into tasks: `softory new task --parent STORY-n --lane frontend|backend|infra [--tags arch,ui,...]`. Quinn sets `blocks` dependencies between tasks that must happen in order.
+3. **Quinn** breaks it into tasks: `softory new task --parent STORY-n --lane frontend|backend|infra|design [--tags arch,ui,...]`. Quinn sets `blocks` dependencies between tasks that must happen in order.
 4. The tasks run (below).
 5. When every task is done, Greg claims the story, adds evidence, and releases it to `review`. Darwin reviews it if it's tagged `ui`. **Greg** records acceptance.
 6. Greg closes it with `softory close STORY-n`.

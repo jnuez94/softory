@@ -21,6 +21,7 @@ from . import team, watch
 from .coordination import Coordination
 from .project import Project
 from .runstate import budget, paused, state_dir
+from .gate import spec_for as gate_spec
 from .work import Board
 
 
@@ -40,17 +41,25 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     for proposal in owners.proposals(project):
         later.append({"key": f"prop-{proposal['id']}", "text": f"{proposal['id']} ({proposal['kind']}) from "
                       f"{proposal['proposed_by']}: {proposal['why'][:160]}. Run: softory approve {proposal['id']}"})
+    names = owner_names(project, charter)
     for row in coord.all_rows("escalation", "list", "--status", "open"):
-        if row.get("owner") == owner:
+        if str(row.get("owner", "")).strip().lower() in names:
             later.append({"key": f"esc-{row['id']}", "text": f"{row['id']} from {row.get('raised_by')}: "
-                          f"{str(row.get('issue'))[:160]} Asks: {str(row.get('requested_decision'))[:160]}"})
+                          f"{_cut(row.get('issue'), 600)} Asks: {_cut(row.get('requested_decision'), 400)}"})
     board = Board(project, coord)
     cap = charter["task_caps"]["review_rounds"]
-    for task_id, rounds in sorted(watch.review_rounds(board).items()):
+    for task_id, rounds in sorted(watch.review_rounds(board, int(charter['task_caps'].get('free_evidence_rounds', 1))).items()):
         task = board.by_id.get(task_id)
         if task and task["status"] != "done" and rounds >= cap:
             later.append({"key": f"cap-{task_id}", "text": f"{task_id} had {rounds} rounds of requested changes and "
-                          f"stopped: reassign, split, or drop it ({task['title'][:80]})"})
+                          f"stopped: split it, drop it, or allow one more round ({task['title'][:80]})"})
+    churn = int((charter.get("waste") or {}).get("revision", 0) or 0)
+    for task in board.tasks:
+        spec = gate_spec(task, board.gates)[1]
+        if churn and task["status"] != "done" and not spec.get("record") and int(task.get("revision") or 0) >= churn:
+            later.append({"key": f"churn-{task['id']}", "text": f"{task['id']} has changed {task['revision']} times "
+                          f"without closing, mostly claims and status moves: check whether a role is repairing its own "
+                          f"tooling instead of the task ({task['title'][:80]})"})
     unread = coord.run("inbox", "list", "--agent", owner, "--limit", "20")
     unread = unread.get("messages", []) if isinstance(unread, dict) else unread
     if unread:
@@ -59,8 +68,22 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
         later.append({"key": f"silent-{row['agent']}", "text": f"{row['agent']} has had no run since "
                       f"{row['last_seen'] or 'ever'} with work waiting"})
     for who, why in paused(project).items():
+        if who == "allow":
+            continue
         later.append({"key": f"paused-{who}", "text": f"{who} is paused: {why}. Resume with softory resume"})
     return {"urgent": urgent, "digest": later}
+
+
+def owner_names(project: Project, charter: dict[str, Any]) -> set[str]:
+    """Every way records name the owner: the roster ID and name, plus the charter's owner_aliases, any case."""
+    owner = project.roster()["owner"]
+    names = [owner["id"], owner.get("name"), *(charter.get("owner_aliases") or [])]
+    return {str(n).strip().lower() for n in names if n}
+
+
+def _cut(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
 def render(found: dict[str, list[dict[str, Any]]]) -> str:

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.4.2] - 2026-11-01
+
+From the field report on softory in six projects, mostly Vault Radar's 12 to 30 October: about 45 sessions and 66 messages per delivered task, 39% of reviews asking for changes, 31 units stopped at the review cap, and a 22-minute test run that agents booked by message. This release fixes the parts that need nothing new from the scaffold, so the Vault Radar runner trial measures the runner, not these.
+
+- **Review records don't count toward the round cap.** A review run's verdicts are its output, so ten of Vault Radar's 31 stopped units were review records counted next to the task they reviewed. They leave the cap and the digest's stopped list.
+- **Missing evidence costs one free round.** Reviewers label an item `evidence:` when the work is right and the proof is missing. A request whose every item is `evidence:` doesn't count, once per unit (`task_caps.free_evidence_rounds`). Ten of the owner's Vault Radar rulings were "one more bounded cycle", mostly for screenshots.
+- **A stuck unit isn't reassigned.** The digest offers split, drop, or one more round for a unit at the cap. Each role keeps its own work; reassignment stays for the edge cases in `boundaries.md`.
+- **Re-reviews stay scoped.** `softory-code-review` says a later pass checks the last pass's blocking items and the new diff only; anything new outside that diff is a follow-up, not a block.
+- **Verify runs one at a time, in its own queue.** A second `softory verify` waits on a lock and shows in `softory queue`, so roles stop booking the test machine by message (TAKE appeared in 621 Vault Radar messages, RELEASE in 1,765).
+- **Verify can't break the main checkout.** Shared folders are cloned copy-on-write (`verify.share_mode: clone`, the new default) instead of linked, so an `npm ci` in the test tree no longer deletes the main `node_modules`. `link` keeps the 0.4 behaviour.
+- **Verify failures keep what reviewers need.** A failed run keeps its whole log and copies `verify.keep` globs (traces, screenshots) to `run/verify/<ID>-<sha>/`. On macOS the run holds `caffeinate -i`, so the Mac doesn't sleep under it. `verify.setup`, when set, runs first, and its failure is recorded as a setup failure, not a test failure.
+- **Commit evidence names one commit.** `softory commit <ID> <sha> [--base <sha>]` writes `commit:<full hash>;base=<full hash>`. Free text that names several commits is now skipped as ambiguous, so a base commit's passing tests are never credited to the head (BUG-53).
+- **Wrong evidence can be retracted.** `softory supersede <ID> <evidence> --reason ...` records a decision and a marker row; the gate, the review-record check, and `verify` read past the retracted row, and the audit keeps it. Its adder, Quinn, or the owner may do it.
+- **Escalations read at a glance.** `softory escalate` takes `--issue` and one `--ask` question, and refuses text over the limits or with words fused to numbers ("contain9", "runnerusage0"). The digest shows each ask in full instead of cutting it at 160 characters, and counts escalations owned by any of the owner's names (`owner_aliases` in the charter), since Vault Radar's used `owner`, `Josh`, and `josh`.
+- **Scoped resume.** `softory resume --task <ID> --roles a,b` keeps a pause but lets those roles work on that one task, so the owner can restart one piece of work after stopping everything. The run's prompt, `queue`, `close`, and `close --ready` stay inside that task, and any later `pause` covering the role revokes the grant.
+- **Charter approvals show the change.** `charter approve` prompts with one line per setting that changes, does nothing when nothing changes, and `--merge` adds to the approved settings instead of replacing them. Vault Radar's charter was approved seven times in two days.
+- **Sessions name their model.** `softory start` fills the harness and model from the charter when they're left out; 3,240 of Vault Radar's 4,543 sessions had none.
+- **Usage counts every session.** `softory usage` adds `sessions_today` per role, whatever started the session. `softory usage --team [--days N]` reports sessions and messages per delivered task, and for each reviewer how many requests for changes were followed by new code.
+- **The digest flags churn.** An open unit whose record changed `waste.revision` times (default 30) without closing is listed, a sign of a role repairing its own tooling instead of the task (BUG-33 reached 61).
+- **Doctor checks the scheduler.** With a charter approved, `softory doctor` warns when no launchd job or cron line runs softory, or the runner hasn't ticked in 30 minutes; `softory setup` checks the schedule step instead of always calling it manual. Vault Radar's launchd job was written and never loaded. The instructions now tell any scheduled check-in to run `softory pending <role>` first and stop on exit 3.
+- **`close --ready`** closes every unit the actor may close that passes its gate now, for clearing a backlog of finished work.
+- **Triage reads what a task holds.** A task named `...-REVIEW-...` that delivered a commit is built work, not a review run to adopt.
+- **A design lane.** `lane:design` tasks and bugs are Darwin's; Greg's product review replaces peer code review, and `softory verify` doesn't apply.
+- The owner-prompt tests run on macOS too: BSD `script` sent end-of-file before the typed answer, so they use a small pseudo-terminal runner there.
+
+Not in this release: typed handoff records and broadcast recipient clean-up (0.5.0 planning), and moving approvals off the terminal, which waits for 0.5.0's recovery work.
+
 ## [0.4.1] - 2026-10-24
 
 Less for every agent to read. Each run loaded 7k to 12k tokens of softory text before touching code, and about a third of it repeated itself. A run now loads 36% to 45% less (Jade 11.5k to 6.3k tokens, Greg 7.4k to 4.2k). No rule changed.
