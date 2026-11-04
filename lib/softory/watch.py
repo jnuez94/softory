@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import grants, verify
+from . import decide, feasibility, grants, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import allowed_tasks, is_paused
@@ -49,7 +49,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     charter = charters.load(project)
     caps = charter["task_caps"]
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
-    capped = {i for i, n in rounds.items() if n >= caps["review_rounds"]}
+    capped = {i for i, n in rounds.items() if n >= decide.cap_for(project, charter, i)}
+    waits = feasibility.held(board, charter)  # todo tasks whose story hasn't passed its feasibility check
     reasons = []
     hold = is_paused(project, agent)
     # The owner let this role work on a few tasks while the pause holds. Scope every list before anything
@@ -77,8 +78,16 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         "tests not passed at the commit (run softory verify, fix if it fails)": untested,
         "reviews waiting": [] if batching else reviews,
         "claimed work changed": work["claimed"],
-        "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"],
+        "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"
+                                  and t["id"] not in waits],
     }.items()}
+    if agent == "quinn":  # units at the review cap that Quinn may settle, new since the last run
+        stuck = [i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
+                 and decide.quinn_may_settle(project, charter, board.show(i))]
+        stuck = [i for i in in_scope(stuck) if since is None or touched.get(i, "") > since]
+        if stuck:
+            reasons.append({"why": "units at the review cap: settle each with softory settle (retry, split, or drop)",
+                            "ids": stuck})
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})

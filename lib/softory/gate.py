@@ -203,6 +203,15 @@ def evaluate(
     ]
     checks.append(_check("blocks_resolved", not open_deps, "open: " + ", ".join(open_deps) if open_deps else "no open blocking dependencies"))
 
+    reference = gates.get("ui_reference") or {}
+    if unit in ("task", "bug") and set(reference.get("tags") or []) & set(tags_of(task)):
+        kinds = set(reference.get("evidence_types") or [])
+        found = [r for r in live_evidence(rows) if str(r.get("evidence_type", "")).lower() in kinds]
+        checks.append(_check("ui_reference", bool(found),
+                             f"checked against its reference: {found[-1].get('uri')}" if found else
+                             "a ui unit needs one check against its design reference before review: add evidence "
+                             f"of type {' or '.join(sorted(kinds))} (a screenshot beside the reference, or a visual diff)"))
+
     if spec.get("children_must_be_done"):
         undone = [child["id"] for child in children if child.get("status") != "done"]
         checks.append(_check("children_done", not undone, "not done: " + ", ".join(undone) if undone else f"{len(children)} child unit(s) done"))

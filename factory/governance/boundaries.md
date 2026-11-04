@@ -63,5 +63,6 @@ Outside these cases, a role that wants to help files a task or sends a message i
 | Design versus feasibility (Darwin vs Quinn) | Quinn proposes options, Darwin picks one | Greg if scope changes, then Owner |
 | Design versus product (Darwin vs Greg) | Greg decides scope, Darwin decides the design within it | Owner |
 | Two engineers disagree on approach | Quinn decides | Owner only if it changes scope |
+| A unit stops at the review-round cap | Quinn settles it: one more round (once), split, or drop | Owner if Quinn built it or its extra round is spent |
 | A security block is disputed | Toby states the risk and the fix | Owner. A block is never waived silently. |
 | Nobody owns it | Quinn files a task and proposes an owner | Owner |

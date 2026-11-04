@@ -18,11 +18,14 @@ import sys
 from typing import Any
 
 from . import charter as charters
-from . import digest, perms, runprompt, usage, watch
+from . import decide, digest, feasibility, perms, recovery, runprompt, usage, watch
 from .runstate import RUNNER_ENV, allowed_tasks, budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
+
+
+CHECK = "feasibility"  # the pid file of a running feasibility check
 
 
 # ---- one tick ---------------------------------------------------------------------------------
@@ -33,6 +36,8 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
     if not dry_run:  # doctor reads this to tell a loaded scheduler from one that never fires
         (state_dir(project) / "last-tick.json").write_text(json.dumps({"at": report["at"]}) + "\n", encoding="utf-8")
     if not dry_run:
+        report["recovered"] = recovery.sweep(project, coord, charter)
+        report["defaulted"] = decide.apply_due(project, coord, charter)
         report["paged"] = digest.page_due(project, coord, charter)
     for role in charter["run"]["roles"]:
         why = is_paused(project, role)
@@ -53,7 +58,22 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
         if not dry_run:
             spawn(project, role)
         report["started"].append(role)
+    check = _feasibility_due(project, coord, charter)
+    if check:
+        if not dry_run:
+            spawn(project, "quinn", ["run-check", check])
+        report["feasibility"] = check
     return report
+
+
+def _feasibility_due(project: Project, coord: Coordination, charter: dict[str, Any]) -> str | None:
+    """One story to check this tick, when no check is running and Quinn's budget allows it."""
+    if running(project, CHECK) or budget(project, charter, "quinn")["over"]:
+        return None
+    from .work import Board  # noqa: PLC0415 - a full board read only when a check might be due
+
+    due = feasibility.due(Board(project, coord), charter)
+    return due[0] if due else None
 
 
 def running(project: Project, role: str) -> bool:
@@ -67,11 +87,11 @@ def running(project: Project, role: str) -> bool:
         return False
 
 
-def spawn(project: Project, role: str) -> None:
+def spawn(project: Project, role: str, command: list[str] | None = None) -> None:
     logs = state_dir(project) / "logs"
     logs.mkdir(exist_ok=True)
     out = (logs / f"{role}-{now().strftime('%Y%m%dT%H%M%SZ')}.log").open("w", encoding="utf-8")
-    subprocess.Popen([sys.executable, str(project.bundle / "bin" / "softory"), "run-role", role],  # noqa: S603
+    subprocess.Popen([sys.executable, str(project.bundle / "bin" / "softory"), *(command or ["run-role", role])],  # noqa: S603
                      cwd=project.root, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                      start_new_session=True, env=_clean_env())
 
@@ -92,10 +112,26 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
     pick = charters.model_for(charter, role, escalated)
     job = runprompt.job_of(wanted)
     effort = charters.effort_for(charter, role, job)
-    limits = limits_for(charter, role)
     text = runprompt.build(project, coord, charter, role, pick, wanted, job)
+    return _run(project, charter, role, pick, text, job, effort, escalated, [r["why"] for r in wanted["reasons"]])
+
+
+def run_check(project: Project, coord: Coordination, story_id: str) -> dict[str, Any]:
+    """Run the feasibility check on one story: Quinn on the charter's other model, reading only the plan."""
+    charter = charters.load(project)
+    settings = charter["feasibility"]
+    pick = {"harness": settings["harness"], "model": settings["model"]}
+    text = feasibility.prompt(project, coord, charter, story_id)
+    return _run(project, charter, "quinn", pick, text, "feasibility", settings.get("effort") or "high", False,
+                [f"feasibility check of {story_id}"], pid_name=CHECK)
+
+
+def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str], text: str, job: str,
+         effort: str, escalated: bool, reasons: list[str], pid_name: str | None = None) -> dict[str, Any]:
+    """Run the harness once with a time limit, and log the run where the budget counts it."""
+    limits = limits_for(charter, role)
     command = harness_command(project, charter, role, pick, text, effort, limits.get("usd_per_run") or 0)
-    pid_file = state_dir(project) / f"{role}.pid"
+    pid_file = state_dir(project) / f"{pid_name or role}.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
     started = now()
     logs = state_dir(project) / "logs"
@@ -121,7 +157,7 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
     row = {"role": role, "started": started.isoformat(timespec="seconds"), "harness": pick["harness"],
            "model": pick["model"], "escalated": escalated, "job": job, "effort": effort, "exit": code,
            "minutes": round((now() - started).total_seconds() / 60, 2), **spent,
-           "prompt_chars": len(text), "reasons": [r["why"] for r in wanted["reasons"]]}
+           "prompt_chars": len(text), "reasons": reasons}
     with (state_dir(project) / "runs.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(row) + "\n")
     return {"ran": True, **row}

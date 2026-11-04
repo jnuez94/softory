@@ -23,7 +23,12 @@ def checklist(project: Project) -> dict[str, Any]:
     step("charter approved", charter.get("approved"),
          "Write your overrides to a file (start from `softory charter show`), then run "
          "`softory charter approve <file>` in a terminal.")
-    step("vision written", charter.get("vision"), "Set `vision` in the charter: what Greg may plan without asking you.")
+    step("vision written", charter.get("vision"), "Run `softory kickoff`: Greg interviews you once and writes the "
+         "vision, scope, and environment as a charter draft to approve.")
+    environment = {k: v for k, v in (charter.get("environment") or {}).items() if k != "description"}
+    step("environment declared", any(environment.values()) or charter.get("out_of_scope"),
+         "Declare in the charter's `environment` what agents can reach (networks, accounts, devices, an unlocked "
+         "desktop) and list `out_of_scope`, so the feasibility check catches plans that need more.")
     step("tests command", charter["verify"]["command"],
          "Set `verify.command` (for example `npm test` or `pytest -q`), so the gate checks tests at each commit.")
     base = charter["git"]["base"]

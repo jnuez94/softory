@@ -101,9 +101,15 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory tracker [--port N] [--open]` | Runs the web console on 127.0.0.1 |
 | `softory skills list\|add [--recommended]` | Pulls open-source skills at pinned commits |
 | `softory charter show` / `charter approve <file> [--merge]` | The settings unattended runs follow; the owner approves them at a terminal, seeing only what changes. `--merge` adds to the approved settings instead of replacing them |
+| `softory kickoff` | Writes Greg's one-time interview and prints the command that opens it: vision, scope, environment, and accounts, saved as a charter draft you approve |
+| `softory feature "<idea>"` | Files an idea as a story for Greg to shape; the runner wakes him |
 | `softory setup` | The owner's one-time checklist, with each step checked |
 | `softory setup --load-schedule` | Loads the runner's launchd job after you type yes (owner, at a terminal) |
-| `softory run [--dry-run]` / `run-role <role>` | One runner tick: starts each role that has work, inside the budget |
+| `softory run [--dry-run]` / `run-role <role>` / `run-check <STORY>` | One runner tick: frees silent sessions' claims, applies escalation defaults that are due, starts each role that has work inside the budget, and starts one feasibility check when a story needs one |
+| `softory escalate --issue ... --ask "...?" --recommend ... --reversible yes\|no` | Asks the owner one question, with the option the role would take. One that can be undone applies after `decisions.default_after_hours` (24) with no answer |
+| `softory answer <ESC> "<answer>"` | Answers an escalation, or replaces one that defaulted; the role that asked is told (owner, at a terminal) |
+| `softory settle <ID> retry\|split\|drop --reason ... [--into IDs]` | Quinn settles a unit stopped at the review cap: one more round (once per unit), a split, or a drop. The owner settles the rest with `--actor owner` |
+| `softory feasible <STORY> --pass \| --needs "..."` | The feasibility check's verdict. Until a pass, the story's todo tasks wait; needs becomes a provisioning request in your digest |
 | `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task |
 | `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
@@ -113,9 +119,9 @@ Each role starts a session, which records the harness and model, and works throu
 
 ### Running unattended
 
-Softory 0.4.0 runs the team without you up to a pull request. You merge and deploy. Set it up once:
+Softory runs the team without you up to a pull request. You merge and deploy. From 0.5.0, nothing waits on you mid-flight except what can't be undone. Set it up once:
 
-1. Run `softory setup`. It lists each step and checks the ones it can.
+1. Run `softory setup`. It lists each step and checks the ones it can. Start with `softory kickoff`: Greg interviews you once about the vision, what's out of scope, the environment agents can reach, and the accounts the work will need.
 2. Write the settings you want to change to a file, starting from `softory charter show`: your `vision`, `verify.command` (your test command), `lanes` paths, `paging.command`, and the `budget`. Approve it in a terminal with `softory charter approve <file>`.
 3. Protect your base branch on GitHub and require CI.
 4. Load the runner: turn off any other scheduler for the project first, such as an app's scheduled check-ins, then run `softory setup --load-schedule` and type yes. It loads a launchd job that runs `softory run` every five minutes (`softory schedule` prints a cron line for other systems). The runner should be the only thing that starts roles; otherwise roles run twice and the budget can't see half of them. `softory doctor` warns while no scheduler is loaded, when the runner has stopped ticking, and when sessions started outside the runner in the last day.
@@ -130,7 +136,17 @@ Each run is shaped to waste as little as possible:
 - **Real tokens and cost.** Claude Code runs with `--output-format json` and Codex with `--json`; softory reads their usage report and logs input, cached, and output tokens and dollars per run (Codex's dollars are estimated from the charter's `prices`). `softory usage` shows today's totals per role.
  Claude Code roles get a settings file that allows edits only in their lane's paths; Codex runs in its workspace-write sandbox. Either way, the gate's `lane_paths` check fails a unit whose own commits reach outside the lane (work below it that another unit verified doesn't count against it), unless it's tagged `cross-lane` and Quinn accepted it, or Jade or Gold when Quinn built it, and `verified` needs `softory verify` to have passed at the commit.
 
-A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops and goes to your digest. Review records never count, and the first request whose every item is labelled `evidence:` is free (`free_evidence_rounds`). The digest also flags an open unit whose record changed `waste.revision` times (default 30) without closing, a sign a role is looping on its own tooling. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
+A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops, and Quinn settles it: one more round (once per unit), a split, or a drop. You see what he chose in the digest; a unit Quinn built, or one whose extra round is spent, comes to you. Review records never count, and the first request whose every item is labelled `evidence:` is free (`free_evidence_rounds`). The digest also flags an open unit whose record changed `waste.revision` times (default 30) without closing, a sign a role is looping on its own tooling. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
+
+### What doesn't wait for you (0.5.0)
+
+- **Escalations default.** Each one names the option the role would take and whether it can be undone. If it can, the runner applies it after `decisions.default_after_hours` (24) with no answer, as a decision you can still replace with `softory answer`. If it can't, it waits, and the role carries on with work that doesn't depend on it.
+- **Feasibility before work starts.** Once a story has tasks, the runner starts a Quinn run on a different model (`feasibility.harness` and `model`, Codex by default) that reads only the plan, your vision and `out_of_scope`, and the declared `environment`. A pass lets the tasks start. Anything missing (a sign-in, a paid tier, an unlocked desktop) becomes a provisioning request in your digest, and Greg and Quinn re-plan around what's reachable; the check runs again after the change. Softory never enforces the environment; your harness does.
+- **Recovery.** Each tick ends sessions silent for twice the longest run (at least an hour) and puts what they claimed back to todo, so a crash or a sleeping Mac doesn't strand work.
+- **A `ui` unit needs one check against its reference** (evidence of type `reference`, `screenshot`, or `visual`) before it closes, since a green suite can miss a screen that never renders.
+- **Story progress** shows in `softory tree` as done of total, counted from the children.
+
+Not yet: compact typed handoffs, shorter queue output, and tokens per accepted unit wait for a week of runner logs from the pilot. Approvals from chat need a channel softory doesn't have yet; answer at a terminal with `softory answer`.
 
 ### Upgrading
 

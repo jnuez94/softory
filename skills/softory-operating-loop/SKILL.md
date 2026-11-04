@@ -35,7 +35,7 @@ $C task show TASK-7                                          # criteria, tags, r
 $C task claim TASK-7 --agent $SOFTORY_ROLE --if-revision <rev>
 ```
 
-Don't claim while a `blocks` dependency is open: message the owner of the blocking task. Building on a unit that isn't closed yet: `$S stack <bottom-ID> <next-ID> ...`, bottom first.
+Don't claim a todo task that `softory queue` marks as waiting for its story's feasibility check, or while a `blocks` dependency is open: message the owner of the blocking task. Building on a unit that isn't closed yet: `$S stack <bottom-ID> <next-ID> ...`, bottom first.
 
 ## 4. Do the work
 
@@ -50,6 +50,7 @@ Don't claim while a `blocks` dependency is open: message the owner of the blocki
 $S commit TASK-7 <commit hash> [--base <hash>]   # full hash, base kept apart, so verify tests the right one
 $C evidence add --task TASK-7 --uri <test-output-path> --type test --actor $SOFTORY_ROLE
 $S verify TASK-7                    # runs the charter's tests at that commit; the gate needs it to pass
+$C evidence add --task TASK-7 --uri <screenshot or diff> --type reference ...   # ui units: one rendered check against the design
 $C task release TASK-7 --to review --actor $SOFTORY_ROLE --if-revision <rev>
 $S reviewers TASK-7                 # who must review
 $C message send ... --recipient <each reviewer> --task TASK-7 --body "Ready for review: <one line>"
@@ -83,7 +84,9 @@ The closer is the assignee for tasks, bugs, and review records, and Greg for sto
 ## 8. Block or escalate
 
 - Waiting on something: `$C task release TASK-7 --to blocked --note "<what and who>" ...`, and message whoever can unblock it.
-- Two roles both claim a call, or only the owner can decide: `$S escalate --issue "<plain sentences>" --ask "<one question>?" --tasks TASK-7`, routed per `governance/boundaries.md#escalation-paths` (`--owner quinn` for a call Quinn makes). It refuses text the owner can't read at a glance; rewrite it, don't work around it.
+- Two roles both claim a call, or only the owner can decide: `$S escalate --issue "<plain sentences>" --ask "<one question>?" --recommend "<the option you'd take>" --reversible yes|no --tasks TASK-7`. If it can be undone, carry on as if your recommendation applies: it does after the charter's timeout unless the owner answers. If it can't, split off and finish what doesn't depend on it. Route it per `governance/boundaries.md#escalation-paths` (`--owner quinn` for a call Quinn makes). It refuses text the owner can't read at a glance; rewrite it, don't work around it.
+- A plan needs something the charter's `environment` doesn't declare (a sign-in, a paid tier, an unlocked desktop): don't start it. Re-plan around what is reachable (a fake provider, a headless check) and let the feasibility check run again.
+- Quinn, for a unit at the review cap: `$S settle TASK-7 retry|split|drop --reason "..." [--into TASK-9,TASK-10]`. One extra round per unit; never reassign.
 - Wrong evidence on a unit: `$S supersede TASK-7 <evidence number> --reason "..."`. The row stays in the audit; the gate reads past it.
 
 ## 9. End
