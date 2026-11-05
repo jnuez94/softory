@@ -181,7 +181,7 @@ def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None =
         return None
     mine = set(listed.stdout.split())
     below = [f"^{c}" for c in dict.fromkeys(inherited or []) if c in mine and c != sha]
-    plain = git(root, "log", "--no-merges", "--name-only", "--format=", sha, f"^{base}", *below, "--")
+    plain = git(root, "log", "--no-merges", "--no-renames", "--name-only", "--format=", sha, f"^{base}", *below, "--")
     merges = git(root, "rev-list", "--merges", sha, f"^{base}", *below)
     if plain.returncode != 0 or merges.returncode != 0:
         return None
@@ -210,12 +210,15 @@ def merge_changes(root: Path, merge: str) -> set[str] | None:
         tried = git(root, "merge-tree", "--write-tree", "--no-messages", *heads)
         if tried.returncode in (0, 1) and tried.stdout.split():  # 1: conflicts; the tree holds conflict markers
             automatic = tried.stdout.split()[0]
-    # An octopus merge, or a git too old for merge-tree --write-tree: count everything against the first parent.
-    against = automatic or heads[0]
-    found = git(root, "diff", "--name-only", against, merge, "--")
-    if found.returncode != 0:
-        return None
-    return {line for line in found.stdout.splitlines() if line}
+    # An octopus merge, or a git too old for merge-tree --write-tree: no automatic result to compare with,
+    # so count every file that differs from any parent. That can over-count, never miss a dropped change.
+    files: set[str] = set()
+    for against in [automatic] if automatic else heads:
+        found = git(root, "diff", "--no-renames", "--name-only", against, merge, "--")
+        if found.returncode != 0:
+            return None
+        files |= {line for line in found.stdout.splitlines() if line}
+    return files
 
 
 def unit_files(project: Project, charter: dict[str, Any], task_id: str, sha: str) -> list[str] | None:

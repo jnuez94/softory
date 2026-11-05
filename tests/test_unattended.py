@@ -240,6 +240,42 @@ class UnattendedTest(unittest.TestCase):
         self.assertFalse(lane["pass"])
         self.assertIn("api/list.py", lane["detail"])
 
+    def test_lane_check_counts_what_an_octopus_merge_drops(self) -> None:
+        base = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"], "backend": ["api/**"]},
+                      "git": {"base": base}})
+        branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], self.root).stdout.strip()
+        for n, name in ((2, "one"), (3, "two")):
+            softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", name,
+                    "--actor", "quinn")
+            run(["git", "checkout", "-qb", name, base], self.root)
+            sha = self.commit(f"api/{name}.py", "x\n")
+            self.build(f"TASK-{n}", "gold", sha, review=False)
+            softory(self.root, "verify", f"TASK-{n}", "--actor", "gold")
+        run(["git", "checkout", "-q", branch], self.root)
+        self.commit("web/list.js", "x\n")
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "-s", "ours", "-m", "octopus",
+             "one", "two"], self.root)  # three parents, both backend changes dropped
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.build("TASK-1", "jade", sha)
+        softory(self.root, "verify", "TASK-1", "--actor", "jade")
+        lane = next(c for c in gate(self.root, "TASK-1", "jade")["checks"] if c["check"] == "lane_paths")
+        self.assertFalse(lane["pass"], lane["detail"])
+        self.assertIn("api/one.py", lane["detail"])
+        self.assertIn("api/two.py", lane["detail"])
+
+    def test_lane_check_counts_both_sides_of_a_rename(self) -> None:
+        base = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": base}})
+        run(["git", "mv", "api/app.py", "web/app.py"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "move"], self.root)
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.build("TASK-1", "jade", sha)
+        softory(self.root, "verify", "TASK-1", "--actor", "jade")
+        lane = next(c for c in gate(self.root, "TASK-1", "jade")["checks"] if c["check"] == "lane_paths")
+        self.assertFalse(lane["pass"])
+        self.assertIn("api/app.py", lane["detail"])
+
     def test_quinns_backup_accepts_cross_lane_work_quinn_built(self) -> None:
         self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": "HEAD~1"}})
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Wide",
