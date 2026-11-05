@@ -181,12 +181,41 @@ def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None =
         return None
     mine = set(listed.stdout.split())
     below = [f"^{c}" for c in dict.fromkeys(inherited or []) if c in mine and c != sha]
-    # --cc adds what a merge commit itself changed (a conflict resolution, or an edit made while merging),
-    # which plain log leaves out; files a merge only carries over from a parent stay with that parent.
-    found = git(root, "log", "--cc", "--name-only", "--format=", sha, f"^{base}", *below, "--")
+    plain = git(root, "log", "--no-merges", "--name-only", "--format=", sha, f"^{base}", *below, "--")
+    merges = git(root, "rev-list", "--merges", sha, f"^{base}", *below)
+    if plain.returncode != 0 or merges.returncode != 0:
+        return None
+    files = {line for line in plain.stdout.splitlines() if line}
+    for merge in merges.stdout.split():
+        changed = merge_changes(root, merge)
+        if changed is None:
+            return None
+        files |= changed
+    return sorted(files)
+
+
+def merge_changes(root: Path, merge: str) -> set[str] | None:
+    """Files a merge commit changed itself: where its tree differs from git's own automatic merge of its parents.
+
+    That catches a conflict resolution, an edit made while merging, and a merge that keeps one parent's
+    whole file and so drops the other side's change, which ``--cc`` misses because the result equals a parent.
+    Files the automatic merge would have produced anyway stay with the parents that brought them.
+    """
+    parents = git(root, "rev-parse", f"{merge}^@")
+    if parents.returncode != 0:
+        return None
+    heads = parents.stdout.split()
+    automatic = None
+    if len(heads) == 2:
+        tried = git(root, "merge-tree", "--write-tree", "--no-messages", *heads)
+        if tried.returncode in (0, 1) and tried.stdout.split():  # 1: conflicts; the tree holds conflict markers
+            automatic = tried.stdout.split()[0]
+    # An octopus merge, or a git too old for merge-tree --write-tree: count everything against the first parent.
+    against = automatic or heads[0]
+    found = git(root, "diff", "--name-only", against, merge, "--")
     if found.returncode != 0:
         return None
-    return sorted({line for line in found.stdout.splitlines() if line})
+    return {line for line in found.stdout.splitlines() if line}
 
 
 def unit_files(project: Project, charter: dict[str, Any], task_id: str, sha: str) -> list[str] | None:

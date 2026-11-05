@@ -212,6 +212,34 @@ class UnattendedTest(unittest.TestCase):
         self.assertIn("api/extra.py", lane["detail"])
         self.assertNotIn("api/list.py", lane["detail"])  # carried over from TASK-2, not this unit's change
 
+    def test_lane_check_counts_a_merge_that_keeps_one_sides_file(self) -> None:
+        self.commit("api/list.py", "a\nb\nc\nd\ne\n")
+        base = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"], "backend": ["api/**"]},
+                      "git": {"base": base}})
+        for title in ("Top", "Bottom"):
+            softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", title,
+                    "--actor", "quinn")
+        branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], self.root).stdout.strip()
+        run(["git", "checkout", "-qb", "top"], self.root)
+        top = self.commit("api/list.py", "A\nb\nc\nd\ne\n")
+        self.build("TASK-2", "gold", top, review=False)
+        softory(self.root, "verify", "TASK-2", "--actor", "gold")
+        run(["git", "checkout", "-q", branch], self.root)
+        bottom = self.commit("api/list.py", "a\nb\nc\nd\nE\n")
+        self.build("TASK-3", "gold", bottom, review=False)
+        softory(self.root, "verify", "TASK-3", "--actor", "gold")
+        self.commit("web/list.js", "x\n")
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "--no-commit", "top"], self.root)
+        run(["git", "checkout", "HEAD", "--", "api/list.py"], self.root)  # keep our side whole, dropping TASK-2's edit
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "merge"], self.root)
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        self.build("TASK-1", "jade", sha)
+        softory(self.root, "verify", "TASK-1", "--actor", "jade")
+        lane = next(c for c in gate(self.root, "TASK-1", "jade")["checks"] if c["check"] == "lane_paths")
+        self.assertFalse(lane["pass"])
+        self.assertIn("api/list.py", lane["detail"])
+
     def test_quinns_backup_accepts_cross_lane_work_quinn_built(self) -> None:
         self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": "HEAD~1"}})
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Wide",
