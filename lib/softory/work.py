@@ -49,6 +49,7 @@ def start(project: Project, coord: Coordination, role_id: str, harness: str | No
     if model:
         args += ["--model", model]
     coord.run(*args)
+    runstate.note_start(project, role_id, session_id)
     return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
 
 
@@ -83,7 +84,13 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
         raise SoftoryError("--blocks-source needs --from", "invalid_arguments")
     parent_unit = unit_of(coord.task(parent_id), gates) if parent_id else None
     check_parent(unit, parent_unit, parent_id)
-    tags = build_tags(unit, parent_id, lane, _split(options.get("tags")), targets, source_id)
+    if options.get("design") and unit != "story":
+        raise SoftoryError("Only a story takes --design", "invalid_arguments")
+    if unit == "bug" and not options.get("type"):
+        raise SoftoryError("A bug needs --type: functional, or visual (it renders or looks wrong)", "invalid_arguments")
+    found = options.get("found_at") or ("review" if unit == "bug" and source is not None else None)
+    tags = build_tags(unit, parent_id, lane, _split(options.get("tags")), targets, source_id,
+                      options.get("type"), found)
 
     assignee = options.get("assignee") or spec.get("default_assignee")
     if not assignee and lane:
@@ -131,6 +138,13 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             result["blocks"] = source_id
     if unit == "story" and not parent_id:
         result["warning"] = "This story is not under an epic. Add --parent EPIC-n unless it stands alone."
+    if unit == "story" and options.get("design"):
+        # Darwin's UX direction starts now, in the repo, instead of waiting for Quinn's breakdown.
+        design = new_unit(project, coord, "task", {
+            "title": f"Design: {options['title']}", "parent": task_id, "lane": "design", "actor": actor,
+            "priority": options.get("priority"),
+            "acceptance": "Flows, states, and acceptance notes for the story's UI, ready for Quinn's breakdown."})
+        result["design_task"] = design["id"]
     return result
 
 
@@ -223,7 +237,7 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
 def objective_checks(project: Project, task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
     """The charter's checks on the code itself: tests passed at the commit, and the diff stays in its lane."""
     unit, _ = gate_rules.spec_for(task, gates)
-    return verify.checks(project, charter.load(project), task, unit, set(gates["accepting_decisions"]))
+    return verify.checks(project, charter.load(project), task, unit, gates)
 
 
 def related_live(coord: Coordination, task: dict[str, Any], gates: dict[str, Any]) -> dict[str, dict[str, Any]]:

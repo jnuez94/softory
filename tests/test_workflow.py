@@ -311,7 +311,7 @@ class WorkflowTest(unittest.TestCase):
               "--if-revision", revision(self.root, "VR-REVIEW-9"))
         self.review("VR-REVIEW-9", "gold", "changes_requested", 1, follow_ups="BUG-1")
         self.assertEqual(failing(gate(self.root, "VR-REVIEW-9", "gold")), {"findings_tracked"})
-        softory(self.root, "new", "bug", "--from", "TASK-1", "--title", "Fix it", "--actor", "gold")
+        softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--title", "Fix it", "--actor", "gold")
         report = gate(self.root, "VR-REVIEW-9", "gold")
         self.assertTrue(report["pass"], report)  # no second review of the review
         queue = json.loads(softory(self.root, "queue", "--agent", "gold").stdout)
@@ -372,15 +372,15 @@ class WorkflowTest(unittest.TestCase):
 
     def test_follow_up_joins_the_story_without_holding_its_source(self) -> None:
         self.build("TASK-1", "jade")
-        made = json.loads(softory(self.root, "new", "bug", "--from", "TASK-1", "--title", "Focus ring missing",
+        made = json.loads(softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--title", "Focus ring missing",
                                   "--actor", "gold").stdout)
         self.assertEqual((made["id"], made["parent"], made["assignee"], made["follows_up"]), ("BUG-1", "STORY-1", "jade", "TASK-1"))
         self.assertNotIn("blocks", made)
-        self.assertEqual(made["tags"], "unit:bug,parent:STORY-1,lane:frontend,from:TASK-1")
+        self.assertEqual(made["tags"], "unit:bug,parent:STORY-1,lane:frontend,from:TASK-1,finding:functional,found:review")
         self.review("TASK-1", "gold", "accepted", 1)
         self.assertTrue(gate(self.root, "TASK-1", "jade")["pass"])
         self.assertIn("    BUG-1", softory(self.root, "tree").stdout)
-        held = json.loads(softory(self.root, "new", "bug", "--from", "TASK-1", "--blocks-source", "--title", "Must fix first",
+        held = json.loads(softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--blocks-source", "--title", "Must fix first",
                                   "--actor", "gold").stdout)
         self.assertEqual(held["blocks"], "TASK-1")
         self.assertEqual(failing(gate(self.root, "TASK-1", "jade")), {"blocks_resolved"})
@@ -404,8 +404,34 @@ class WorkflowTest(unittest.TestCase):
         story = softory(self.root, "drop", "STORY-1", "--reason", "x", "--actor", "greg", check=False)
         self.assertIn("children_open", story.stderr)
 
+    def test_a_bug_says_what_kind_of_finding_it_is(self) -> None:
+        untyped = softory(self.root, "new", "bug", "--from", "TASK-1", "--title", "x", "--actor", "gold", check=False)
+        self.assertIn("--type", untyped.stderr)
+        made = json.loads(softory(self.root, "new", "bug", "--type", "visual", "--found-at", "acceptance",
+                                  "--parent", "STORY-1", "--lane", "frontend", "--title", "Preview blank",
+                                  "--actor", "greg").stdout)
+        self.assertIn("finding:visual", made["tags"])
+        self.assertIn("found:acceptance", made["tags"])
+        session = start(self.root, "quinn")["COORDINATION_SESSION"]
+        refused = softory(self.root, "drop", "TASK-1", "--reason", "x", "--withdrawn", "--actor", "quinn",
+                          env={"COORDINATION_SESSION": session}, check=False)
+        self.assertIn("Only a bug", refused.stderr)
+        softory(self.root, "drop", made["id"], "--reason", "renders fine on a clean vault", "--withdrawn",
+                "--actor", "quinn", env={"COORDINATION_SESSION": session})
+        tags = coord(self.root, "task", "show", made["id"])["data"]["tags"]
+        self.assertIn("finding:withdrawn", tags)
+        self.assertNotIn("finding:visual", tags)
+
+    def test_a_story_can_open_its_design_task_before_the_breakdown(self) -> None:
+        made = json.loads(softory(self.root, "new", "story", "--parent", "EPIC-1", "--title", "Settings", "--design",
+                                  "--actor", "greg").stdout)
+        design = coord(self.root, "task", "show", made["design_task"])["data"]
+        self.assertEqual(design["assignees"], ["darwin"])
+        self.assertIn(f"parent:{made['id']}", design["tags"])
+        self.assertIn("lane:design", design["tags"])
+
     def test_a_stack_closes_together_or_not_at_all(self) -> None:
-        softory(self.root, "new", "bug", "--from", "TASK-1", "--blocks-source", "--title", "On top", "--actor", "quinn")
+        softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--blocks-source", "--title", "On top", "--actor", "quinn")
         softory(self.root, "stack", "TASK-1", "BUG-1", "--actor", "jade")
         self.build("TASK-1", "jade")
         session = self.build("BUG-1", "jade")["session"]

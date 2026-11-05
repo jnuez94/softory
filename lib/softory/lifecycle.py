@@ -14,7 +14,7 @@ from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
-from .units import stack_of, tags_of, unit_of
+from .units import WITHDRAWN, stack_of, tags_of, unit_of
 
 #: The note every softory close leaves on a task; triage looks for done work without one.
 CLOSE_NOTE = "closed through softory gate"
@@ -61,7 +61,7 @@ def _revision(coord: Coordination, task_id: str) -> str:
 
 
 def drop(project: Project, coord: Coordination, task_id: str, reason: str, superseded_by: str | None,
-         actor: str) -> dict[str, Any]:
+         actor: str, withdrawn: bool = False) -> dict[str, Any]:
     """Close a unit nobody will build, as won't do or superseded, with a recorded decision."""
     gates = project.gates()
     task = coord.task(task_id)
@@ -69,7 +69,9 @@ def drop(project: Project, coord: Coordination, task_id: str, reason: str, super
         raise SoftoryError(f"{task_id} is already done", "invalid_task_state")
     if not reason.strip():
         raise SoftoryError("Say why with --reason", "invalid_arguments")
-    _, spec = gate_rules.spec_for(task, gates)
+    unit, spec = gate_rules.spec_for(task, gates)
+    if withdrawn and unit != "bug":
+        raise SoftoryError("Only a bug is withdrawn; drop other units as won't do or superseded", "invalid_arguments")
     listed = spec.get("dropper", ["owner"])
     allowed = set(gate_rules.with_stand_ins([d for d in listed if d != "assignee"], gates, task_id))
     if "assignee" in listed:
@@ -100,6 +102,8 @@ def drop(project: Project, coord: Coordination, task_id: str, reason: str, super
               "--actor", actor)
     tags = [t for t in tags_of(task) if not t.startswith(("resolution:", "superseded-by:"))]
     tags.append(f"resolution:{kind}")
+    if withdrawn:
+        tags = [t for t in tags if not t.startswith("finding:")] + [f"finding:{WITHDRAWN}"]
     if superseded_by:
         tags.append(f"superseded-by:{superseded_by}")
     update_tags(coord, coord.task(task_id), tags, actor)

@@ -6,6 +6,7 @@ All of it lives in .agents/softory/run/, hidden from git like the rest of softor
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -130,3 +131,44 @@ def limits_for(charter: dict[str, Any], role: str) -> dict[str, Any]:
     """The budget caps for one role: the defaults, with that role's overrides on top."""
     base = {k: v for k, v in charter["budget"].items() if k not in ("roles", "description")}
     return {**base, **((charter["budget"].get("roles") or {}).get(role) or {})}
+
+
+# ---- who dispatched a session ----------------------------------------------------------------
+
+RUNNER_ENV = "SOFTORY_RUNNER"
+
+
+def note_start(project: Project, role: str, session: str) -> None:
+    """Log a session the runner didn't start, so doctor can say another scheduler is still dispatching."""
+    if os.environ.get(RUNNER_ENV) or _runner_holds(project, role):
+        return
+    row = {"at": now().isoformat(timespec="seconds"), "role": role, "session": session}
+    with (state_dir(project) / "manual-starts.jsonl").open("a", encoding="utf-8") as log:
+        log.write(json.dumps(row) + "\n")
+
+
+def _runner_holds(project: Project, role: str) -> bool:
+    """A harness may not pass the runner's environment down, so a live run-role for the role counts too."""
+    try:
+        os.kill(int((state_dir(project) / f"{role}.pid").read_text(encoding="utf-8").strip()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def manual_starts(project: Project, hours: float = 24) -> list[dict[str, Any]]:
+    """Sessions started outside the runner in the last ``hours``."""
+    since = now().timestamp() - hours * 3600
+    rows = []
+    try:
+        lines = (state_dir(project) / "manual-starts.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            if datetime.fromisoformat(row["at"]).timestamp() >= since:
+                rows.append(row)
+        except (ValueError, KeyError, TypeError):
+            continue
+    return rows

@@ -32,7 +32,7 @@ Ship the smallest product increment that proves value to the user and is viable 
 | Unit | Greg's job |
 | --- | --- |
 | **Epic** | Writes the brief with `softory new epic`. Gets owner go/no-go. Consults Darwin, Quinn, and Toby before go. Accepts the epic when every story is done and the success metric has a way to be measured. |
-| **Story** | Writes the story and its criteria. Marks it `ready` only when Darwin has a design (if it has a `ui` tag) and Quinn has broken it into tasks. Accepts or rejects it at the end. |
+| **Story** | Writes the story and its criteria; adds `--design` when it has UI, so Darwin starts at once. Marks it `ready` only when Darwin has a design (if it has a `ui` tag) and Quinn has broken it into tasks. Accepts or rejects it at the end. |
 | **Task** | Is informed. Answers questions about acceptance criteria. Does not edit tasks. |
 | **Bug** | Sets priority on intake. Decides whether a bug blocks the current release. |
 

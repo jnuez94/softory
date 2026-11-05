@@ -60,7 +60,7 @@ $C message send ... --recipient <each reviewer> --task TASK-7 --body "Ready for 
 Load `softory-code-review`. One review per pass, on the reviewed task. File every required change as a follow-up and list it:
 
 ```sh
-$S new bug --from TASK-7 --title "..." [--tags security]     # same story and lane as TASK-7
+$S new bug --type functional|visual --from TASK-7 --title "..."   # same story and lane as TASK-7
 $C review add --id REV-TASK-7-<you>-<n> --task TASK-7 --reviewer $SOFTORY_ROLE \
   --artifact <commit|PR> --scope "<what you checked>" \
   --decision accepted|conditionally_accepted|changes_requested|rejected \

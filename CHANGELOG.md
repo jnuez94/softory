@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.3] - 2026-11-04
+
+From the Tablet pilot (1 to 4 November) and one note from remittance. Five of Tablet's 23 owner decisions were lane-check waivers for files a task never touched.
+
+- **The lane check reads the unit's own commits.** `lane_paths` used to diff everything since `git.base`, so a task built on unmerged work answered for every file below it (TASK-34: 166 inherited paths; TASK-45, a docs-only task: 84). It now counts only commits since `git.base` that no other unit's verified commit already holds, plus whatever a merge commit changed compared with git's own automatic merge of its parents (a conflict resolution, an edit made while merging, or a side's change dropped). The runner's prompt lists the same files, so it's shorter too.
+- **Quinn's own cross-lane work doesn't wait for the owner.** When Quinn built a `cross-lane` unit, the arch backup (Jade or Gold) accepts the cross-lane part, as for an `arch` review.
+- **The runner is the only dispatcher.** `softory setup --load-schedule` loads the launchd job after the owner types yes. Sessions started outside the runner are logged, and `softory doctor` warns about them: every Tablet session came from app check-ins while the runner was never loaded.
+- **Darwin can start before the breakdown.** `softory new story ... --design` also files the story's `lane:design` task for Darwin, so UX work happens in the repo instead of waiting for Quinn (from remittance).
+- **Bugs say what kind of finding they are.** `softory new bug` needs `--type functional|visual` and takes `--found-at`; it defaults to `review` for a follow-up. `softory drop BUG-n --withdrawn` marks a finding that wasn't a defect. Tablet's STORY-12 passed its whole suite while the preview never rendered.
+
 ## [0.4.2] - 2026-11-01
 
 From the field report on softory in six projects, mostly Vault Radar's 12 to 30 October: about 45 sessions and 66 messages per delivered task, 39% of reviews asking for changes, 31 units stopped at the review cap, and a 22-minute test run that agents booked by message. This release fixes the parts that need nothing new from the scaffold, so the Vault Radar runner trial measures the runner, not these.

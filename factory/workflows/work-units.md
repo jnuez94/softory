@@ -47,7 +47,7 @@ Epics and stories don't sit in `in_progress` while children are built. A claim i
 ## Story flow
 
 1. **Greg** writes the story and its criteria with [templates/story.md](../templates/story.md).
-2. If the story touches UI, **Darwin** writes the design spec in `docs/design/STORY-n.md` and links it as evidence.
+2. If the story touches UI, Greg creates it with `--design`, which files a `lane:design` task for **Darwin** right away. Darwin writes the design spec in `docs/design/STORY-n.md` under that task, before Quinn's breakdown.
 3. **Quinn** breaks it into tasks: `softory new task --parent STORY-n --lane frontend|backend|infra|design [--tags arch,ui,...]`. Quinn sets `blocks` dependencies between tasks that must happen in order.
 4. The tasks run (below).
 5. When every task is done, Greg claims the story, adds evidence, and releases it to `review`. Darwin reviews it if it's tagged `ui`. **Greg** records acceptance.
@@ -55,7 +55,7 @@ Epics and stories don't sit in `in_progress` while children are built. A claim i
 
 ## Task flow (function or bug fix)
 
-1. **Quinn** creates and assigns it. A bug can be filed by anyone with `softory new bug`. Greg sets its priority and Quinn sets its lane and assignee.
+1. **Quinn** creates and assigns it. A bug can be filed by anyone with `softory new bug --type functional|visual [--found-at build|verify|review|acceptance|staging|production]`. A bug that turns out not to be a defect is dropped with `softory drop BUG-n --withdrawn --reason ...`. Greg sets its priority and Quinn sets its lane and assignee.
 2. **The builder** (Jade or Gold) starts a session, claims the task, and follows the engineer's loop: plan, test first, build, verify, and add evidence.
 3. The builder moves it to `review` and messages the peer reviewer plus any tag reviewers.
 4. **Reviewers** record `review add --task TASK-n` with a decision. A `changes_requested` review sends it back to `in_progress` when the builder reclaims it.
@@ -67,7 +67,7 @@ A bug fix always includes a test that fails before the fix and passes after it.
 
 ## Follow-ups from a review
 
-A required change found in review becomes its own unit: `softory new bug --from TASK-7 --title "..."`. It inherits the source's story and lane, carries a `from:TASK-7` tag, and links back to the source with an `informs` dependency. The source doesn't wait for it, so a chain of fixes never holds up the work above it. Add `--blocks-source` when the source truly can't close first. List the follow-ups in the review's `--follow-up-tasks`. Don't file follow-ups with plain `task create`: they would miss the story and close under the lighter rule for older tasks.
+A required change found in review becomes its own unit: `softory new bug --type functional|visual --from TASK-7 --title "..."`. It inherits the source's story and lane, carries a `from:TASK-7` tag, and links back to the source with an `informs` dependency. The source doesn't wait for it, so a chain of fixes never holds up the work above it. Add `--blocks-source` when the source truly can't close first. List the follow-ups in the review's `--follow-up-tasks`. Don't file follow-ups with plain `task create`: they would miss the story and close under the lighter rule for older tasks.
 
 ## Review runs
 

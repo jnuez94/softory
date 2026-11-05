@@ -17,7 +17,11 @@ from .errors import SoftoryError
 UNITS = ("epic", "story", "task", "bug", "review")
 LANES = ("frontend", "backend", "infra", "design")
 ALLOWED_PARENTS = {"epic": (), "story": ("epic",), "task": ("story",), "bug": ("story", "epic"), "review": ()}
-RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from", "stack", "resolution", "superseded-by")
+RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from", "stack", "resolution", "superseded-by", "finding", "found")
+# What a bug is, so escaped defects can be counted: visual bugs slip past a green suite that never renders.
+FINDING_TYPES = ("functional", "visual")
+WITHDRAWN = "withdrawn"  # set by softory drop --withdrawn: the finding was not a defect
+FOUND_STAGES = ("build", "verify", "review", "acceptance", "staging", "production")
 # Evidence types that mean code was delivered. A review record holds reports, not code.
 CODE_EVIDENCE = ("commit", "pr", "pull_request", "merge")
 _TASK_ID = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Za-z0-9._]+)+$")
@@ -111,6 +115,7 @@ def next_id(prefix: str, existing_ids: list[str]) -> str:
 def build_tags(
     unit: str, parent: str | None, lane: str | None, extra: list[str],
     targets: list[str] | None = None, source: str | None = None,
+    finding: str | None = None, found: str | None = None,
 ) -> str:
     """Compose the tag string for a new unit, validating lanes and review tags."""
     if unit not in UNITS:
@@ -125,6 +130,12 @@ def build_tags(
         raise SoftoryError("A review needs --for with the task(s) it reviews", "invalid_arguments")
     if unit != "review" and targets:
         raise SoftoryError("Only a review takes --for", "invalid_arguments")
+    if finding and finding not in FINDING_TYPES:
+        raise SoftoryError(f"A bug's --type is one of {', '.join(FINDING_TYPES)}", "invalid_arguments")
+    if unit != "bug" and (finding or found):
+        raise SoftoryError("Only a bug takes --type and --found-at", "invalid_arguments")
+    if found and found not in FOUND_STAGES:
+        raise SoftoryError(f"--found-at is one of {', '.join(FOUND_STAGES)}", "invalid_arguments")
     tags = [f"unit:{unit}"]
     if parent:
         tags.append(f"parent:{parent}")
@@ -133,6 +144,10 @@ def build_tags(
     tags += [f"for:{target}" for target in dict.fromkeys(targets or [])]
     if source:
         tags.append(f"from:{source}")
+    if finding:
+        tags.append(f"finding:{finding}")
+    if found:
+        tags.append(f"found:{found}")
     for tag in extra:
         if tag in tags:
             continue
