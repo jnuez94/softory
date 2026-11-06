@@ -94,3 +94,27 @@ def scan(launcher: Path, tree: Path, files: list[str]) -> dict[str, Any]:
 
 def _broken(count: int, why: str) -> dict[str, Any]:
     return {"passed": False, "scanned": count, "blocking": [], "advisory": 0, "detail": why}
+
+
+def unscanned(why: str) -> dict[str, Any]:
+    """A failed result for a unit softory couldn't scan at all."""
+    return _broken(0, why)
+
+
+def released(board: Any, charter: dict[str, Any]) -> dict[str, str]:
+    """When each todo UI task's story finished its design, for tasks the design no longer holds: a release is
+    news, so the builder wakes on it even if it last looked while the hold was on."""
+    if not settings(charter)["wait_for_design"]:
+        return {}
+    found = {}
+    for task in board.tasks:
+        story = parent_of(task)
+        if task["status"] != "todo" or not story or lane_of(task) == "design":
+            continue
+        if "ui" not in tags_of(task) and lane_of(task) != "frontend":
+            continue
+        designs = [d for d in board.children.get(story, [])
+                   if lane_of(d) == "design" and unit_of(d, board.gates) == "task"]
+        if designs and all(d["status"] == "done" for d in designs):
+            found[task["id"]] = max(str(d.get("updated_at") or "") for d in designs)
+    return found

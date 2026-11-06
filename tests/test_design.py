@@ -65,6 +65,17 @@ class DesignUnitTest(unittest.TestCase):
         self.assertEqual(design.held(Board(board.tasks), CHARTER), {})
         self.assertEqual(design.held(board, {"design": {"wait_for_design": False}}), {})
 
+    def test_a_finished_design_releases_its_build_tasks_as_news(self) -> None:
+        tasks = [
+            unit("STORY-1", "todo", "unit:story"),
+            {**unit("TASK-1", "done", "unit:task,parent:STORY-1,lane:design"), "updated_at": "2026-11-06T10:00:00Z"},
+            unit("TASK-2", "todo", "unit:task,parent:STORY-1,lane:frontend"),
+            unit("TASK-3", "todo", "unit:task,parent:STORY-1,lane:backend"),
+        ]
+        self.assertEqual(design.released(Board(tasks), CHARTER), {"TASK-2": "2026-11-06T10:00:00Z"})
+        tasks[1]["status"] = "review"
+        self.assertEqual(design.released(Board(tasks), CHARTER), {})
+
     def test_the_detector_fails_on_warnings_and_counts_advisories(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             tree = Path(folder)
@@ -155,3 +166,37 @@ class DesignWorkflowTest(unittest.TestCase):
         passed = json.loads(softory(self.root, "verify", self.task, "--actor", "jade", env=env).stdout)
         self.assertTrue(passed["passed"])
         self.assertIn("clean", passed["design"]["detail"])
+
+    def test_another_units_pass_at_the_same_commit_does_not_clear_a_ui_unit(self) -> None:
+        fake_launcher(self.root)
+        other = json.loads(softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend",
+                                   "--title", "Today data", "--actor", "quinn").stdout)["id"]
+        sha = self.commit("web/app.css", "h1 { background: linear-gradient(red, blue) }\n")
+        for task in (self.task, other):
+            coord(self.root, "evidence", "add", "--task", task, "--uri", f"commit:{sha}", "--type", "commit",
+                  "--actor", "jade")
+        softory(self.root, "verify", self.task, "--actor", "jade", check=False)
+        self.assertTrue(json.loads(softory(self.root, "verify", other, "--actor", "jade").stdout)["passed"])
+        self.assertIn("verified", failing(gate(self.root, self.task, "jade")))  # the ui unit's own result stands
+
+    def test_a_pass_from_before_the_detector_does_not_count(self) -> None:
+        sha = self.commit("web/app.css", "h1 { background: linear-gradient(red, blue) }\n")
+        coord(self.root, "evidence", "add", "--task", self.task, "--uri", f"commit:{sha}", "--type", "commit",
+              "--actor", "jade")
+        self.assertTrue(json.loads(softory(self.root, "verify", self.task, "--actor", "jade").stdout)["passed"])
+        fake_launcher(self.root)  # installed after that pass
+        check = next(c for c in gate(self.root, self.task, "jade")["checks"] if c["check"] == "verified")
+        self.assertFalse(check["pass"])
+        self.assertIn("hasn't run", check["detail"])
+
+    def test_an_unknown_diff_fails_instead_of_scanning_nothing(self) -> None:
+        fake_launcher(self.root)
+        path = self.root / ".git" / "charter.json"
+        path.write_text(json.dumps({"verify": {"command": "true"}, "git": {"base": "no-such-branch"}}))
+        at_terminal(self.root, "charter", "approve", str(path))
+        sha = self.commit("web/app.css", "h1 { background: linear-gradient(red, blue) }\n")
+        coord(self.root, "evidence", "add", "--task", self.task, "--uri", f"commit:{sha}", "--type", "commit",
+              "--actor", "jade")
+        failed = json.loads(softory(self.root, "verify", self.task, "--actor", "jade", check=False).stdout)
+        self.assertFalse(failed["passed"])
+        self.assertIn("can't diff", failed["design"]["detail"])

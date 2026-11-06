@@ -93,21 +93,34 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     if not sha:
         raise SoftoryError(f"{task_id} has no commit evidence this repository knows; add one with softory commit "
                            "or pass --commit", "not_found")
-    scan = None
+    scan, found = None, None
     if design.applies(project, charter, task):  # a ui unit's own UI files go through the design detector too
-        scan = {"launcher": design.detector(project),
-                "files": design.ui_files(unit_files(project, charter, task_id, sha) or [])}
+        files = unit_files(project, charter, task_id, sha)
+        if files is None:  # never read "git couldn't diff" as "no UI files changed"
+            found = design.unscanned(f"git can't diff {sha[:12]} against {charter['git']['base']}, so the "
+                                     "unit's UI files are unknown")
+        else:
+            scan = {"launcher": design.detector(project), "files": design.ui_files(files)}
     with verifyenv.turn(project, task_id, actor):
         outcome = _run_in_tree(project, settings, task_id, sha, scan)
-    passed = outcome["code"] == 0 and outcome["stage"] == "test"
-    entry = {"task": task_id, "passed": passed, "exit": outcome["code"], "command": command, "by": actor,
+    tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
+    found = found or outcome.get("design")
+    if found and tests_passed and not found["passed"]:
+        outcome["stage"] = "design"
+    passed = tests_passed and (found is None or found["passed"])
+    entries = ledger(project)
+    previous = entries.get(sha) or {}
+    # The tests are the commit's; a design result is one unit's, so another unit's run at this commit keeps it.
+    entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command, "by": actor,
              "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
-             "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1)}
+             "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
+             "designs": dict(previous.get("designs") or {})}
     if outcome["stage"] == "setup":
         entry["setup_failed"] = True
-    if outcome.get("design"):
-        entry["design"] = outcome["design"]["detail"]
-    entries = ledger(project)
+    if found and tests_passed:
+        entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
+    if not entry["designs"]:
+        del entry["designs"]
     entries[sha] = entry
     ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
     ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -119,8 +132,8 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
               "shared": outcome["shared"]}
     if outcome["kept"]:
         result["kept"] = outcome["kept"]
-    if outcome.get("design"):
-        result["design"] = outcome["design"]
+    if found:
+        result["design"] = found
     return result
 
 
@@ -154,8 +167,6 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
         if stage == "test" and code == 0 and scan:
             found = design.scan(scan["launcher"], tree, scan["files"])
             output += f"\n[softory] design detector: {found['detail']}\n"
-            if not found["passed"]:
-                stage, code = "design", 2
         if code != 0:
             kept = verifyenv.keep_artifacts(tree, list(settings.get("keep") or []), out_dir / name)
     finally:
@@ -251,7 +262,24 @@ def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any],
         return "not run"
     if entry.get("setup_failed"):
         return "setup failed"
-    return "passed" if entry["passed"] else "failed"
+    if not entry["passed"]:
+        return "failed"
+    state = design_state(project, charter, task, entry)
+    if state is None:
+        return "passed"
+    return "not run" if state[0] is None else ("passed" if state[0] else "failed")
+
+
+def design_state(project: Project, charter: dict[str, Any], task: dict[str, Any],
+                 entry: dict[str, Any]) -> tuple[bool | None, str] | None:
+    """For a unit the design detector applies to: (passed, detail), passed None when it never ran for this unit
+    at this commit (an older pass, or a run for another unit). None when the detector doesn't apply."""
+    if not design.applies(project, charter, task):
+        return None
+    result = (entry.get("designs") or {}).get(task["id"])
+    if not result:
+        return None, f"the design detector hasn't run for {task['id']} at this commit: run softory verify {task['id']}"
+    return bool(result["passed"]), result["detail"]
 
 
 def needs_tests(task: dict[str, Any], gates: dict[str, Any]) -> bool:
@@ -278,9 +306,12 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
             result.append(_check("verified", False, f"tests not run at {sha[:12]}: run softory verify {task['id']}"))
         else:
             how = "setup failed" if entry.get("setup_failed") else ("passed" if entry["passed"] else "failed")
-            if entry.get("stage") == "design":
-                how = f"passed, but the design detector didn't: {entry.get('design', '')}"
-            result.append(_check("verified", entry["passed"], f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
+            passed = bool(entry["passed"])
+            state = design_state(project, charter, task, entry) if passed else None
+            if state is not None:
+                passed = bool(state[0])
+                how += f"; design detector: {state[1]}" if state[0] is not None else f", but {state[1]}"
+            result.append(_check("verified", passed, f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
     if globs:
         result.append(_lane_check(project, charter, task, sha, globs, gates))
     return result
