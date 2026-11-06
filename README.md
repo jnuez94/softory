@@ -148,6 +148,12 @@ A task that has had `task_caps.escalate_model_after` rounds of requested changes
 
 Not yet: compact typed handoffs, shorter queue output, and tokens per accepted unit wait for a week of runner logs from the pilot. Approvals from chat need a channel softory doesn't have yet; answer at a terminal with `softory answer`.
 
+### How design works (0.5.1)
+
+Each project keeps two files you approve once: `docs/product/PRODUCT.md` (Greg: who it's for, their jobs, non-goals, the one reserved color) and `docs/design/DESIGN.md` (Darwin: project rules, host tokens, motion, one wording per state, banned patterns). Templates are in `factory/templates/` (installed at `.agents/softory/factory/templates/`). Softory's own [design standard](skills/softory-design/references/standard.md) sits under both: ten ranked principles and four gates.
+
+For a story with UI, Darwin writes the spec under its design task, with the question the screen answers, every state, worst-case data, exact copy, and at most three directions. Greg accepts it. You're asked only when a design adds a new pattern or breaks DESIGN.md. Changes after acceptance go in a new revision, never in place.
+
 ### Upgrading
 
 Pull softory and run the installer again over the project. It keeps the database, your stand-ins, and every agent, and rewrites only softory's own files:
@@ -218,7 +224,7 @@ factory/
   roles/                 profiles and roster.json (what gets registered)
   governance/            raci.md, boundaries.md, gates.json
   workflows/             units of work and their flows
-  templates/             epic, story, and task descriptions
+  templates/             epic, story, and task descriptions; PRODUCT.md and DESIGN.md
 skills/                  softory's eight skills
 lib/softory/             the CLI and installer (Python, standard library only)
 docs/                    models.md, sources.md, skill-sourcing.md, gaps.md

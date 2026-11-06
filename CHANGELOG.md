@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.1] - 2026-11-06
+
+A written design standard, phase 1 of the owner's UI/UX proposal: text only, nothing installed, and nothing new that blocks a close. In Vault Radar, design rounds mostly fixed rules that were never written down, and edge cases turned up as bugs after build.
+
+- **Softory's design standard.** `softory-design/references/standard.md` holds ten ranked principles (the user's job first, priority through more than color, calm motion, worst-case data, copy in the spec, fit the host, WCAG 2.2 AA, honest states, at most three directions, no filler) and four design gates with an owner and pass condition each. It loads only on `ui` and design work.
+- **Project files.** New templates `factory/templates/PRODUCT.md` (Greg, at `docs/product/PRODUCT.md`) and `DESIGN.md` (Darwin, at `docs/design/DESIGN.md`), each approved once by the owner. DESIGN.md adds project rules on top of softory's and can raise the 24 px target floor.
+- **Greg accepts each story's design.** His `lane:design` review is the design acceptance; the owner is asked only for a new pattern or a break from DESIGN.md (the owner's choice, 2026-11-06).
+- **A fuller spec template.** The question the screen answers, up to three directions with one recommended, a stale state, a worst-case data table, and a revision line. An accepted spec changes only through `STORY-n-r2.md`.
+- **Reminders.** `softory new epic` and `softory new story --design` say when PRODUCT.md or DESIGN.md is missing. A reminder, not a block.
+
+Phase 2 (pinned text skills for design and motion) and phase 3 (machine checks in `softory verify` and a design record type) each wait for the owner's OK.
+
 ## [0.5.0] - 2026-11-04
 
 Nothing waits on the owner mid-flight, except what can't be undone. Tablet's team finished 278 of 291 tasks in two days and then stopped, because all that was left waited on the owner.
