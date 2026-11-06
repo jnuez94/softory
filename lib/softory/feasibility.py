@@ -9,13 +9,18 @@ story, its tasks, the charter's vision and out-of-scope list, and the declared `
 A pass lets the story's todo tasks start. Needs becomes a provisioning request in the owner's digest, and
 Greg and Quinn re-plan around what is reachable (fakes, headless checks); any change to the story or its
 tasks after that runs the check again.
+
+A verdict records a hash of the plan it read (titles, acceptance, descriptions of the story and its tasks). A pass
+holds only while the plan still hashes the same, so a new task or a new requirement after a pass is checked again
+before it starts.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -27,15 +32,33 @@ MAX_NEED = 200
 
 
 def latest(story: dict[str, Any]) -> dict[str, Any] | None:
-    """The story's newest feasibility record: {'verdict': 'pass'|'needs', 'needs': [...], 'at': ...}."""
+    """The story's newest feasibility record: {'verdict': 'pass'|'needs', 'needs': [...], 'plan': hash, 'at': ...}."""
     for row in reversed(live_evidence(story.get("evidence"))):
         uri = str(row.get("uri", ""))
         if uri.startswith(MARK):
             body = uri[len(MARK):]
-            verdict, _, rest = body.partition(":")
+            head, _, rest = body.partition(":")
+            verdict, _, plan = head.partition("@")  # records from before plan hashes carry none
             return {"verdict": verdict, "needs": [n for n in rest.split(" | ") if n] if rest else [],
-                    "at": row.get("created_at") or ""}
+                    "plan": plan or None, "at": row.get("created_at") or ""}
     return None
+
+
+def plan_hash(show: Callable[[str], dict[str, Any]], story_id: str, child_ids: list[str]) -> str:
+    """A short fingerprint of what the check reads: the story and every task's title, acceptance, and description.
+
+    Status moves (a claim, a review, a close) don't change it, so work in progress doesn't re-run the check; a new
+    task or changed requirements do.
+    """
+    parts = []
+    for unit_id in [story_id, *sorted(child_ids)]:
+        unit = show(unit_id)
+        parts.append([unit_id, unit.get("title") or "", _acceptance(unit), " ".join(str(unit.get("description") or "").split())])
+    return hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def _current(board: Any, story_id: str) -> str:
+    return plan_hash(board.show, story_id, [t["id"] for t in board.children.get(story_id, [])])
 
 
 def required(charter: dict[str, Any]) -> bool:
@@ -58,12 +81,8 @@ def due(board: Any, charter: dict[str, Any]) -> list[str]:
         if not any(t["status"] == "todo" for t in children):
             continue  # nothing waits to start: no tasks yet, or all already moving
         record = latest(board.show(summary["id"]))
-        if record is None:
-            found.append(summary["id"])
-        elif record["verdict"] == "needs":
-            touched = max([summary["updated_at"], *(t["updated_at"] for t in children)])
-            if touched > record["at"]:
-                found.append(summary["id"])  # re-planned since: check again
+        if record is None or record["plan"] != _current(board, summary["id"]):
+            found.append(summary["id"])  # never checked, or the plan changed since its verdict: check again
     return found
 
 
@@ -79,26 +98,36 @@ def held(board: Any, charter: dict[str, Any]) -> set[str]:
             continue
         if unit_of(board.by_id[story], board.gates) != "story":
             continue
-        if story not in verdicts:
+        if story not in verdicts:  # a pass counts only for the plan it checked
             record = latest(board.show(story))
-            verdicts[story] = bool(record and record["verdict"] == "pass")
+            verdicts[story] = bool(record and record["verdict"] == "pass" and record["plan"] == _current(board, story))
         if not verdicts[story]:
             waiting.add(task["id"])
     return waiting
 
 
+def _plan_of(coord: Coordination, story_id: str) -> str:
+    children = [t["id"] for t in coord.all_tasks("--tag", f"parent:{story_id}")]
+    return plan_hash(coord.task, story_id, children)
+
+
 def record(project: Project, coord: Coordination, story_id: str, passed: bool, needs: list[str],
-           actor: str) -> dict[str, Any]:
-    """Record the check's verdict on the story. Needs tells Greg and Quinn to re-plan around it."""
+           actor: str, plan: str | None = None) -> dict[str, Any]:
+    """Record the check's verdict on the story, for the plan it read. Needs tells Greg and Quinn to re-plan.
+
+    ``plan`` is the hash the check's prompt named; without it the verdict covers the plan as it is now.
+    """
     story = coord.task(story_id)
     if unit_of(story, project.gates()) != "story":
         raise SoftoryError(f"{story_id} is not a story", "invalid_arguments")
     needs = [" ".join(n.split())[:MAX_NEED] for n in needs if n.strip()]
     if passed == bool(needs):
         raise SoftoryError("Give either --pass or one --needs per missing thing", "invalid_arguments")
-    uri = MARK + ("pass" if passed else "needs:" + " | ".join(needs))
+    plan = (plan or "").strip() or _plan_of(coord, story_id)
+    uri = MARK + ("pass" if passed else "needs") + f"@{plan}" + ("" if passed else ":" + " | ".join(needs))
     coord.run("evidence", "add", "--task", story_id, "--uri", uri, "--type", "review", "--actor", actor)
-    result: dict[str, Any] = {"story": story_id, "verdict": "pass" if passed else "needs", "needs": needs}
+    result: dict[str, Any] = {"story": story_id, "verdict": "pass" if passed else "needs", "needs": needs,
+                              "plan": plan}
     if not passed:
         owner = project.roster()["owner"]["id"]
         body = (f"{story_id} can't be built as planned with what the environment declares. Missing: "
@@ -128,6 +157,7 @@ def requests(board: Any) -> list[dict[str, Any]]:
 def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story_id: str) -> str:
     """Everything the check may read, and nothing else: the plan, the scope, and the environment."""
     story = coord.task(story_id)
+    plan_id = _plan_of(coord, story_id)  # the verdict names this, so a change while it runs is checked again
     tasks = [t for t in coord.all_tasks("--tag", f"parent:{story_id}") if t["status"] != "done"]
     environment = {k: v for k, v in (charter.get("environment") or {}).items() if k != "description"}
     plan = [f"{story_id}: {story['title']}", f"Acceptance: {_acceptance(story) or '(none)'}",
@@ -147,8 +177,8 @@ def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story
         "only what the environment declares: networks, accounts, devices, and whether a desktop session is "
         "unlocked. Anything the plan assumes that isn't declared is missing, including sign-ins, paid tiers, "
         "private consoles, and checks that need a person at the machine. Then run exactly one of:\n"
-        f"  .agents/softory/bin/softory feasible {story_id} --pass\n"
-        f"  .agents/softory/bin/softory feasible {story_id} --needs \"<one missing thing>\" [--needs ...]\n"
+        f"  .agents/softory/bin/softory feasible {story_id} --plan {plan_id} --pass\n"
+        f"  .agents/softory/bin/softory feasible {story_id} --plan {plan_id} --needs \"<one missing thing>\" [--needs ...]\n"
         "and softory end.\n\n"
         f"Vision: {charter.get('vision') or '(not set)'}\n"
         f"Out of scope: {json.dumps(charter.get('out_of_scope') or [])}\n"

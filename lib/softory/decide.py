@@ -188,8 +188,13 @@ def settle(project: Project, coord: Coordination, charter: dict[str, Any], task_
         coord.task(unit_id)  # must exist
     result: dict[str, Any] = {"task": task_id, "action": action}
     if action == "retry":
-        with _editing(project, "settled.json") as settled:
+        with _editing(project, "settled.json") as settled:  # check again under the lock: two retries race
             entry = settled.setdefault(task_id, {"extra": 0, "log": []})
+            if actor != owner and entry["extra"] >= QUINN_EXTRA_ROUNDS:
+                raise SoftoryError(f"{task_id} already had its extra round; only the owner may settle it now",
+                                   "not_allowed")
+            if rounds < int(charter["task_caps"]["review_rounds"]) + entry["extra"]:
+                raise SoftoryError(f"{task_id} isn't at its review cap ({rounds} rounds)", "invalid_task_state")
             entry["extra"] += 1
             entry["log"].append({"by": actor, "at": _now().isoformat(timespec="seconds"), "reason": reason})
         result["decision"] = record_decision(coord, actor, "SETTLE", f"One more review round for {task_id}", reason,

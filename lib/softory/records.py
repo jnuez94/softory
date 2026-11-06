@@ -60,6 +60,7 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--pass", dest="passed", action="store_true")
     p.add_argument("--needs", action="append", default=[], help="One thing the plan needs that the environment "
                    "doesn't declare; repeat for more")
+    p.add_argument("--plan", help="The plan hash the check's prompt named")
     p.add_argument("--actor")
     p = sub.add_parser("settle", help="Settle a unit stopped at the review cap: retry, split, or drop (Quinn or owner)")
     p.add_argument("id")
@@ -78,7 +79,7 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
 
         result = decide.answer(project, coord, args.id, args.text, confirm_at_terminal)
     elif args.command == "feasible":
-        result = feasibility.record(project, coord, args.id, args.passed, args.needs, actor)
+        result = feasibility.record(project, coord, args.id, args.passed, args.needs, actor, args.plan)
     elif args.command == "settle":
         into = [i.strip() for i in (args.into or "").split(",") if i.strip()]
         result = decide.settle(project, coord, charters.load(project), args.id, args.action, args.reason, actor, into)

@@ -34,8 +34,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     agent = actor_of(agent)
     sessions = coord.run("session", "list", "--agent", agent, "--order-by", "started_at:desc", "--limit", "20")
     now = datetime.now(timezone.utc)
-    running = [s["id"] for s in sessions if s.get("status") == "active"
-               and now - parse_time(s["last_seen_at"]) < timedelta(minutes=30)]
+    running = _live(sessions, now)
     last_start = max((s["started_at"] for s in sessions if s.get("status") != "active"), default=None)
     since = last_start if since is None else since
     board = Board(project, coord)
@@ -115,6 +114,18 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     if held:
         result["capped"] = held
     return result
+
+
+def _live(sessions: list[dict[str, Any]], now: datetime) -> list[str]:
+    """Sessions active and seen in the last 30 minutes."""
+    return [s["id"] for s in sessions if s.get("status") == "active"
+            and now - parse_time(s["last_seen_at"]) < timedelta(minutes=30)]
+
+
+def active_sessions(coord: Coordination, agent: str) -> list[str]:
+    """The role's live sessions, however they were started (the runner, an app, a terminal)."""
+    sessions = coord.run("session", "list", "--agent", agent, "--status", "active", "--limit", "20")
+    return _live(sessions, datetime.now(timezone.utc))
 
 
 def _batch_hold(charter: dict[str, Any], reviews: list[str], touched: dict[str, str],

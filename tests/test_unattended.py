@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import unittest
 from datetime import datetime
@@ -452,7 +453,10 @@ class UnattendedTest(unittest.TestCase):
         self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
         refused = softory(self.root, "settle", "TASK-1", "retry", "--reason", "x", "--actor", "gold", check=False)
         self.assertIn("not_allowed", refused.stderr)
-        softory(self.root, "settle", "TASK-1", "retry", "--reason", "one fix left, scoped", "--actor", "quinn")
+        with ThreadPoolExecutor(2) as pool:  # two retries at once: the lock lets only one extra round through
+            raced = list(pool.map(lambda _: softory(self.root, "settle", "TASK-1", "retry", "--reason",
+                                                    "one fix left, scoped", "--actor", "quinn", check=False), range(2)))
+        self.assertEqual(sorted(r.returncode == 0 for r in raced), [False, True])
         lifted = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
         self.assertNotIn("capped", lifted)
         coord(self.root, "review", "add", "--id", "REV-TASK-1-4", "--task", "TASK-1", "--reviewer", "gold",

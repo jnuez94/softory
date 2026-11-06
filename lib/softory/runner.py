@@ -76,6 +76,8 @@ def _feasibility_due(project: Project, coord: Coordination, charter: dict[str, A
     scope = allowed_tasks(project, "quinn") if is_paused(project, "quinn") else None
     if scope is not None and not scope:
         return None
+    if watch.active_sessions(coord, "quinn"):  # a Quinn session started outside the runner has no pid file
+        return None
     from .work import Board  # noqa: PLC0415 - a full board read only when a check might be due
 
     due = [s for s in feasibility.due(Board(project, coord), charter) if scope is None or s in scope]

@@ -74,6 +74,11 @@ class AutonomyTest(unittest.TestCase):
         plan = json.loads(softory(self.root, "run", "--dry-run").stdout)
         self.assertIn("jade", plan["started"])
         self.assertNotIn("feasibility", plan)
+        coord(self.root, "task", "update", "TASK-1", "--acceptance", "Signs in with the real provider",  # a new need
+              "--actor", "quinn", "--if-revision", revision(self.root, "TASK-1"))
+        plan = json.loads(softory(self.root, "run", "--dry-run").stdout)
+        self.assertEqual(plan["feasibility"], "STORY-1")  # the pass was for the old plan
+        self.assertNotIn("jade", plan["started"])
 
     def test_a_pause_or_a_running_quinn_holds_the_feasibility_check(self) -> None:
         self.approve({"run": {"roles": []}})
@@ -88,6 +93,9 @@ class AutonomyTest(unittest.TestCase):
         pid = state_dir(Project.find(self.root)) / "quinn.pid"
         pid.write_text(str(os.getpid()))
         self.addCleanup(pid.unlink, missing_ok=True)
+        self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
+        pid.unlink()
+        start(self.root, "quinn")  # a Quinn session from outside the runner has no pid file
         self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
 
     def test_escalation_notes_from_many_roles_all_survive(self) -> None:
@@ -115,7 +123,7 @@ class AutonomyTest(unittest.TestCase):
         self.assertIn("this Mac, locked overnight", prompt)
         self.assertIn("TASK-1 [todo] List", prompt)
         self.assertIn("Acceptance: Works with a fake provider", prompt)
-        self.assertIn("softory feasible STORY-1 --pass", prompt)
+        self.assertRegex(prompt, r"softory feasible STORY-1 --plan [0-9a-f]{12} --pass")
 
     def test_a_ui_unit_needs_a_check_against_its_reference(self) -> None:
         softory(self.root, "feasible", "STORY-1", "--pass", "--actor", "quinn")
