@@ -120,6 +120,25 @@ def _plan_of(coord: Coordination, story_id: str, charter: dict[str, Any]) -> str
     return plan_hash(coord.task, story_id, children, charter)
 
 
+def released(board: Any, charter: dict[str, Any]) -> dict[str, str]:
+    """When each todo task's story passed its check, for tasks that pass releases: their builders wake on it."""
+    if not required(charter):
+        return {}
+    found: dict[str, str] = {}
+    passes: dict[str, str | None] = {}
+    for task in board.tasks:
+        story = parent_of(task)
+        if task["status"] != "todo" or not story or story not in board.by_id:
+            continue
+        if story not in passes:
+            record = latest(board.show(story))
+            ok = record and record["verdict"] == "pass" and record["plan"] == _current(board, story, charter)
+            passes[story] = record["at"] if ok else None
+        if passes[story]:
+            found[task["id"]] = passes[story]
+    return found
+
+
 def record(project: Project, coord: Coordination, story_id: str, passed: bool, needs: list[str],
            actor: str, plan: str | None = None) -> dict[str, Any]:
     """Record the check's verdict on the story, for the plan it read. Needs tells Greg and Quinn to re-plan.
@@ -172,14 +191,14 @@ def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story
     tasks = [t for t in coord.all_tasks("--tag", f"parent:{story_id}") if t["status"] != "done"]
     environment = {k: v for k, v in (charter.get("environment") or {}).items() if k != "description"}
     plan = [f"{story_id}: {story['title']}", f"Acceptance: {_acceptance(story) or '(none)'}",
-            f"Description: {' '.join(str(story.get('description') or '').split())[:1500]}", "Tasks:"]
+            f"Description: {' '.join(str(story.get('description') or '').split())}", "Tasks:"]
     for summary in tasks:  # each task's own requirements: that is where accounts and devices hide
         task = coord.task(summary["id"])
         plan.append(f"- {task['id']} [{task['status']}] {task['title']}")
         for label, text in (("Acceptance", _acceptance(task)), ("Description", task.get("description"))):
             text = " ".join(str(text or "").split())
             if text:
-                plan.append(f"  {label}: {text[:800]}")
+                plan.append(f"  {label}: {text}")  # whole: the pass covers every word the hash does
     return (
         "You are Quinn (quinn) running softory's feasibility check, on a different model from the one that "
         f"planned this work. Start with: eval \"$(.agents/softory/bin/softory start quinn --harness "

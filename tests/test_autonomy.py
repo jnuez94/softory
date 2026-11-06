@@ -102,6 +102,17 @@ class AutonomyTest(unittest.TestCase):
         start(self.root, "quinn")  # a Quinn session from outside the runner has no pid file
         self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
 
+    def test_a_pass_wakes_the_builder_of_work_it_releases(self) -> None:
+        def changed() -> list:
+            since = coord(self.root, "task", "show", "TASK-1")["data"]["updated_at"]  # as if Jade ran after it
+            found = json.loads(softory(self.root, "pending", "jade", "--since", since, check=False).stdout)
+            return [r for r in found["reasons"] if r["why"] == "assigned work changed"]
+
+        self.assertEqual(changed(), [])  # held, and unchanged since
+        time.sleep(1.1)
+        softory(self.root, "feasible", "STORY-1", "--pass", "--actor", "quinn")
+        self.assertEqual(changed()[0]["ids"], ["TASK-1"])
+
     def test_escalation_notes_from_many_roles_all_survive(self) -> None:
         from softory import decide  # noqa: PLC0415
         from softory.project import Project  # noqa: PLC0415
@@ -120,13 +131,15 @@ class AutonomyTest(unittest.TestCase):
                       "run": {"harnesses": {"fake": ["sh", "-c", script, "sh", "{prompt}"]}},
                       "feasibility": {"harness": "fake", "model": "m2"}})
         coord(self.root, "task", "update", "TASK-1", "--acceptance", "Works with a fake provider", "--actor", "quinn",
-              "--if-revision", revision(self.root, "TASK-1"))
+              "--description", "word " * 400 + "Needs an unlocked Mac", "--if-revision", revision(self.root, "TASK-1"))
         ran = json.loads(softory(self.root, "run-check", "STORY-1").stdout)
         self.assertEqual((ran["role"], ran["job"], ran["model"]), ("quinn", "feasibility", "m2"))
         prompt = (self.root / ".git/prompt").read_text()
         self.assertIn("this Mac, locked overnight", prompt)
         self.assertIn("TASK-1 [todo] List", prompt)
         self.assertIn("Acceptance: Works with a fake provider", prompt)
+        self.assertIn("Needs an unlocked Mac", prompt)  # past 2,000 characters: requirements arrive whole
+
         self.assertRegex(prompt, r"softory feasible STORY-1 --plan [0-9a-f]{12} --pass")
 
     def test_a_ui_unit_needs_a_check_against_its_reference(self) -> None:

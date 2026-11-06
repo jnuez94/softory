@@ -40,12 +40,14 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     board = Board(project, coord)
     touched = {t["id"]: max([t["updated_at"], *(r["created_at"] for r in board.reviews.get(t["id"], []))])
                for t in board.tasks}
+    charter = charters.load(project)
+    for task_id, passed in feasibility.released(board, charter).items():  # a pass releases held work: that's news
+        touched[task_id] = max(touched.get(task_id, ""), passed)
 
     def changed(ids: list[str]) -> list[str]:
         return [i for i in ids if (since is None or touched.get(i, "") > since) and i not in capped]
 
     work = queue(project, coord, agent, board)
-    charter = charters.load(project)
     caps = charter["task_caps"]
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
     capped = {i for i, n in rounds.items() if n >= decide.cap_for(project, charter, i)}
