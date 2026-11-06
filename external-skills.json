@@ -22,6 +22,11 @@
       "commit": "09c434ab73ca43761c5d8b0c5d341926c2fba710",
       "license": "MIT"
     },
+    "emilkowalski/skills": {
+      "repository": "https://github.com/emilkowalski/skills",
+      "commit": "c8a79627b59d72d764d6ab6f2c87c09a48169833",
+      "license": "MIT"
+    },
     "vercel-labs/agent-skills": {
       "repository": "https://github.com/vercel-labs/agent-skills",
       "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
@@ -32,7 +37,17 @@
     {"name": "frontend-design", "source": "anthropics/skills", "path": "skills/frontend-design", "roles": ["darwin", "jade"], "recommended": true,
      "why": "Aesthetic direction for new UI so it doesn't look like a template. Complements softory-design, which covers flows, states, and accessibility."},
     {"name": "web-design-guidelines", "source": "vercel-labs/agent-skills", "path": "skills/web-design-guidelines", "roles": ["darwin", "jade"], "recommended": true,
-     "why": "Automated review of built UI against Vercel's Web Interface Guidelines. Fetches the rules at run time, so it needs network access."},
+     "why": "Automated review of built UI against Vercel's Web Interface Guidelines. Fetches the rules at run time, so it needs network access; leave it out where DESIGN.md says the project loads nothing remote."},
+    {"name": "prototype", "source": "emilkowalski/skills", "path": "skills/prototype", "roles": ["darwin"], "recommended": true,
+     "why": "Builds up to three working directions behind a picker. In softory Darwin builds them as one static HTML file under docs/design/ and recommends one (softory-design says how). Manual-only in Claude (disable-model-invocation), so the role reads its SKILL.md."},
+    {"name": "break-ui", "source": "emilkowalski/skills", "path": "skills/break-ui", "roles": ["darwin", "jade"], "recommended": true,
+     "why": "Worst-case data (long, empty, huge, missing, non-Latin) behind a Demo / Worst case toggle, with a fix per break. Darwin writes the fixtures; Jade wires the dev-only toggle and attaches what broke."},
+    {"name": "emil-design-eng", "source": "emilkowalski/skills", "path": "skills/emil-design-eng", "roles": ["jade", "darwin"], "recommended": true,
+     "why": "Polish, component, and motion judgement while building. Large (27 KB), so load it on ui tasks only."},
+    {"name": "review-animations", "source": "emilkowalski/skills", "path": "skills/review-animations", "roles": ["darwin", "jade"], "recommended": true,
+     "why": "A strict review of motion code: easing, duration, origin, reduced motion. Darwin uses it in design review, Jade before asking for one. Manual-only in Claude, so the role reads its SKILL.md."},
+    {"name": "remove-animations", "source": "emilkowalski/skills", "path": "skills/remove-animations", "roles": ["jade"], "recommended": true,
+     "why": "Removes motion on keyboard actions, frequent screens, and decoration, and nothing else. Backs the standard's calm-by-default principle."},
     {"name": "webapp-testing", "source": "anthropics/skills", "path": "skills/webapp-testing", "roles": ["jade", "darwin"], "recommended": true,
      "why": "Playwright-driven checks and screenshots of the running app, which become evidence for UI tasks and design reviews."},
     {"name": "test-driven-development", "source": "obra/superpowers", "path": "skills/test-driven-development", "roles": ["jade", "gold", "quinn"], "recommended": true,

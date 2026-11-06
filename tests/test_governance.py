@@ -106,6 +106,13 @@ class SkillsTest(unittest.TestCase):
             self.assertIn(skill["source"], data["sources"])
             self.assertTrue(set(skill["roles"]) <= ROLE_IDS)
 
+    def test_design_skills_are_pinned_for_the_design_roles(self) -> None:
+        data = json.loads((REPO / "external-skills.json").read_text())
+        emil = {s["name"]: s for s in data["skills"] if s["source"] == "emilkowalski/skills"}
+        self.assertEqual(set(emil), {"prototype", "break-ui", "emil-design-eng", "review-animations", "remove-animations"})
+        self.assertRegex(data["sources"]["emilkowalski/skills"]["commit"], r"^[0-9a-f]{40}$")
+        self.assertTrue(all(set(s["roles"]) <= {"darwin", "jade"} for s in emil.values()))
+
     def test_open_source_skills_named_in_profiles_are_in_the_catalog(self) -> None:
         catalog = {skill["name"] for skill in json.loads((REPO / "external-skills.json").read_text())["skills"]}
         for profile in (REPO / "factory/roles").glob("*.md"):

@@ -57,6 +57,15 @@ From Nielsen's ten usability heuristics:
 - A component entry documents its purpose, variants, states, props, accessibility notes, and do/don't examples.
 - Change the system in its own task, tagged `ui`, so the change is reviewed once and reused everywhere.
 
+## Pulled design skills (when installed)
+
+Emil Kowalski's skills (`softory skills add prototype break-ui emil-design-eng review-animations remove-animations`) fit inside softory's rules. Where they differ, the standard, DESIGN.md, and your lane win. `prototype` and `review-animations` are manual-only in Claude, so read their `SKILL.md` from `.claude/skills/` (Codex: `.agents/skills/`).
+
+- **`prototype` (Darwin):** use its static-file branch. Build the directions in one HTML file at `docs/design/STORY-n/directions.html`, never in app code. Show at most three, and recommend one, which overrides its "never pre-pick" rule. Greg chooses at acceptance, and the file stays as part of the spec.
+- **`break-ui`:** Darwin lists each value's worst case and writes `docs/design/fixtures/`. Jade wires the dev-only toggle in a `frontend` task and attaches the report as `visual` evidence.
+- **`emil-design-eng`, `review-animations` (Jade, Darwin):** Jade checks against them while building and before review. Darwin uses `review-animations` in design review.
+- **`remove-animations` (Jade):** only in a `frontend` task, and only to remove motion the standard rules out.
+
 ## Design review (when built UI reaches `review`)
 
-Compare the built UI to the accepted spec and DESIGN.md. Request changes for a missing state, an accessibility failure, hard-coded values, or copy drift. Accept visual differences only if they're recorded and agreed. A new idea becomes a new design task, not a change to this one. Attach screenshots of what you checked.
+Compare the built UI to the accepted spec and DESIGN.md, and run `review-animations` on any motion if it's installed. Request changes for a missing state, an accessibility failure, hard-coded values, or copy drift. Accept visual differences only if they're recorded and agreed. A new idea becomes a new design task, not a change to this one. Attach screenshots of what you checked.
