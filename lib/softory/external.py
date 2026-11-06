@@ -36,10 +36,11 @@ def add(project: Project, names: list[str], recommended: bool) -> list[str]:
             source = data["sources"][skill["source"]]
             if skill["source"] not in clones:
                 clones[skill["source"]] = clone_at(source["repository"], source["commit"], Path(scratch) / skill["source"].replace("/", "_"))
-            origin = clones[skill["source"]] / skill["path"]
-            if not (origin / "SKILL.md").is_file():
-                raise SoftoryError(f"{name}: no SKILL.md at {skill['path']} in {skill['source']}", "not_found")
             for root in SKILL_ROOTS:
+                path = source_path(skill, root)
+                origin = clones[skill["source"]] / path
+                if not (origin / "SKILL.md").is_file():
+                    raise SoftoryError(f"{name}: no SKILL.md at {path} in {skill['source']}", "not_found")
                 destination = project.root / root / name
                 if destination.exists() and name not in ours:
                     raise SoftoryError(f"{root}/{name} already exists and wasn't installed by softory", "skill_conflict")
@@ -47,12 +48,17 @@ def add(project: Project, names: list[str], recommended: bool) -> list[str]:
                     shutil.rmtree(destination)
                 shutil.copytree(origin, destination)
                 (destination / "SOURCE.txt").write_text(
-                    f"{source['repository']} @ {source['commit']}\npath: {skill['path']}\nlicense: {source['license']}\n",
+                    f"{source['repository']} @ {source['commit']}\npath: {path}\nlicense: {source['license']}\n",
                     encoding="utf-8",
                 )
     manifest["external_skills"] = sorted(set(manifest.get("external_skills", [])) | set(wanted))
     _save(project, manifest)
     return wanted
+
+
+def source_path(skill: dict[str, Any], root: str) -> str:
+    """Where a skill lives in its source for one harness: ``paths`` names a build per skill root, else ``path``."""
+    return (skill.get("paths") or {}).get(root) or skill["path"]
 
 
 def _save(project: Project, manifest: dict[str, Any]) -> None:

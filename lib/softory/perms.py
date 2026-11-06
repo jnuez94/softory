@@ -31,6 +31,8 @@ COMMON_BASH = [
     ".agents/softory/bin/softory", ".agents/agentic-project-scaffold-lite/bin/coordination",
     "eval \"$(.agents/softory/bin/softory start", "git status", "git diff", "git log", "git show", "git add",
     "git commit", "git switch", "git checkout -b", "git branch", "git fetch", "git push", "git rev-parse",
+    # Impeccable's detector only reads; its other verbs (live, hooks, install) stay out.
+    ".claude/skills/impeccable/scripts/impeccable detect",
 ]
 NEVER_EDIT = [".agents/**", ".coordination/**", ".claude/**", ".git/**", "AGENTS.md", "CLAUDE.md"]
 

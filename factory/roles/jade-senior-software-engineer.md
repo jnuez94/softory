@@ -42,4 +42,4 @@ On top of the shared definition of done:
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-design` (only on `ui` tasks, to check against the spec). Recommended open-source skills: `ponytail`, `webapp-testing`, `emil-design-eng`, `break-ui`, `review-animations`, `remove-animations` (on UI tasks), `test-driven-development`, and `systematic-debugging` (see [skill sourcing](../../docs/skill-sourcing.md)).
+`softory-operating-loop`, `softory-code-quality`, `softory-testing`, `softory-code-review`, `softory-design` (only on `ui` tasks, to check against the spec). Recommended open-source skills: `ponytail`, `webapp-testing`, `impeccable`, `emil-design-eng`, `break-ui`, `review-animations`, `remove-animations` (on UI tasks), `test-driven-development`, and `systematic-debugging` (see [skill sourcing](../../docs/skill-sourcing.md)).

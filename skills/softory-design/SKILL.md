@@ -65,6 +65,7 @@ Emil Kowalski's skills (`softory skills add prototype break-ui emil-design-eng r
 - **`break-ui`:** Darwin lists each value's worst case and writes `docs/design/fixtures/`. Jade wires the dev-only toggle in a `frontend` task and attaches the report as `visual` evidence.
 - **`emil-design-eng`, `review-animations` (Jade, Darwin):** Jade checks against them while building and before review. Darwin uses `review-animations` in design review.
 - **`remove-animations` (Jade):** only in a `frontend` task, and only to remove motion the standard rules out.
+- **`impeccable`:** Darwin runs `critique` on a spec's chosen direction and records the score as evidence, and uses `shape`, `init`, and `document` for the project files. Jade uses `polish`, `harden`, `adapt`, and `audit` before review. Greg uses `clarify` against DESIGN.md's copy table. Its detector (`.claude/skills/impeccable/scripts/impeccable detect --json <files>`) is what `softory verify` runs on `ui` units, so run it before you ask for review. Never run `live` (it needs a person at a browser) or `hooks`. `bolder`, `overdrive`, `colorize`, and `delight` need a design task that asks for them. On motion, Emil's skills win where the two disagree. An exception goes in `.impeccable/config.json` with a reason, in a task Darwin reviews.
 
 ## Design review (when built UI reaches `review`)
 
