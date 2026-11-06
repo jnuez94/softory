@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import decide, feasibility, grants, verify
+from . import decide, design, feasibility, grants, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import allowed_tasks, is_paused
@@ -55,6 +55,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
     capped = {i for i, n in rounds.items() if n >= decide.cap_for(project, charter, i)}
     waits = feasibility.held(board, charter)  # todo tasks whose story hasn't passed its feasibility check
+    waits |= set(design.held(board, charter))  # and UI build tasks whose story's design isn't done
     reasons = []
     hold = is_paused(project, agent)
     # The owner let this role work on a few tasks while the pause holds. Scope every list before anything

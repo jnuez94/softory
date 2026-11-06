@@ -21,7 +21,7 @@ Applies to every unit with a `ui` tag or `lane:design`. A project adds its own r
 | --- | --- | --- |
 | **Epic: product frame** | Greg; the owner approves once | `docs/product/PRODUCT.md` names users, jobs, non-goals, and the reserved color's meaning. No `ui` story starts without it. |
 | **Story: design accepted** | Darwin builds; Greg accepts | The story's design task holds a spec (`docs/design/STORY-n.md`) with every section of the template filled. Greg's review accepts it. The owner is asked only when it adds a new pattern or breaks a DESIGN.md rule. |
-| **Task: built to spec** | Jade builds | The rendered check against the spec (`ui_reference` evidence) shows the worst-case data without overflow, reduced motion, and the copy table's wording. |
+| **Task: built to spec** | Jade builds | Build tasks wait until the story's design task is done. `softory verify` passes, including Impeccable's detector on the unit's own UI files (no error or warning) when it's installed. The rendered check against the spec (`ui_reference` evidence) shows the worst-case data without overflow, reduced motion, and the copy table's wording. |
 | **Review: matches the spec** | Darwin (the owner for Darwin's own work) | The build matches the accepted spec. A new idea found here becomes a new design task, never an in-place change. |
 
 ## Rules for specs

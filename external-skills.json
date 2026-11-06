@@ -27,6 +27,12 @@
       "commit": "c8a79627b59d72d764d6ab6f2c87c09a48169833",
       "license": "MIT"
     },
+    "pbakaus/impeccable": {
+      "repository": "https://github.com/pbakaus/impeccable",
+      "commit": "414603bf14c7a344edb466bb1f85690c77ce8b7d",
+      "license": "Apache-2.0",
+      "release": "skill-v4.8.0 (engine 0.1.18)"
+    },
     "vercel-labs/agent-skills": {
       "repository": "https://github.com/vercel-labs/agent-skills",
       "commit": "063bee94c3f4df8453406c830b0a7df0f2860278",
@@ -48,6 +54,10 @@
      "why": "A strict review of motion code: easing, duration, origin, reduced motion. Darwin uses it in design review, Jade before asking for one. Manual-only in Claude, so the role reads its SKILL.md."},
     {"name": "remove-animations", "source": "emilkowalski/skills", "path": "skills/remove-animations", "roles": ["jade"], "recommended": true,
      "why": "Removes motion on keyboard actions, frequent screens, and decoration, and nothing else. Backs the standard's calm-by-default principle."},
+    {"name": "impeccable", "source": "pbakaus/impeccable", "path": ".claude/skills/impeccable",
+     "paths": {".claude/skills": ".claude/skills/impeccable", ".agents/skills": ".agents/skills/impeccable"},
+     "roles": ["darwin", "jade", "greg"], "recommended": true,
+     "why": "Design critique, audit, polish, harden, adapt, and clarify, plus the deterministic detector softory verify runs on ui units. Each harness gets its own build. Its engine is a binary the launcher downloads once and checks against the checksums in this pinned commit. softory doesn't install its edit hooks, and live mode is out (it needs a person at a browser)."},
     {"name": "webapp-testing", "source": "anthropics/skills", "path": "skills/webapp-testing", "roles": ["jade", "darwin"], "recommended": true,
      "why": "Playwright-driven checks and screenshots of the running app, which become evidence for UI tasks and design reviews."},
     {"name": "test-driven-development", "source": "obra/superpowers", "path": "skills/test-driven-development", "roles": ["jade", "gold", "quinn"], "recommended": true,

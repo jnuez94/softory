@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import charter, feasibility, lifecycle, runstate, verify, verifyenv
+from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -423,10 +424,14 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         ready = [r for r in ready if r["id"] in scope]
         to_review = [r for r in to_review if r["id"] in scope]
         assigned = [a for a in assigned if a["id"] in scope]
-    waits = feasibility.held(board, charter.load(project))
+    settings = charter.load(project)
+    waits = feasibility.held(board, settings)
+    designs = design_rules.held(board, settings)
     for row in assigned:
         if row["id"] in waits:
             row["waits_for"] = "its story's feasibility check"
+        elif row["id"] in designs:
+            row["waits_for"] = f"its story's design, {designs[row['id']]}"
     result = {"agent": agent, "claimed": claimed, "ready_to_close": ready, "reviews_waiting": to_review,
               "assigned": assigned, "verify_queue": verifyenv.waiting(project)}
     if scope is not None:

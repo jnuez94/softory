@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 #: Folder, relative to a project root, that holds the installed softory bundle.
 BUNDLE_DIR = ".agents/softory"

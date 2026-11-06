@@ -49,4 +49,4 @@ Briefs, stories, criteria, triage, and the acceptance review are in `softory-pro
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-product-spec`.
+`softory-operating-loop`, `softory-product-spec`. Recommended open-source skills: `impeccable` (its clarify command, to check copy against DESIGN.md; see [skill sourcing](../../docs/skill-sourcing.md)).

@@ -36,6 +36,7 @@ Pulled skills go into `.claude/skills/` and `.agents/skills/` next to softory's 
 | `emil-design-eng` | emilkowalski/skills | MIT | Yes | Polish and motion judgement while building. 27 KB, so `ui` tasks only |
 | `review-animations` | emilkowalski/skills | MIT | Yes | A strict motion review, for Darwin's design review and Jade's self-check |
 | `remove-animations` | emilkowalski/skills | MIT | Yes | Takes out motion that the calm-by-default principle rules out |
+| `impeccable` | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | Apache-2.0 | Yes | Critique, audit, polish, and copy review, plus the detector `softory verify` runs on `ui` units. Pinned to release 4.8.0, with a separate build for Claude and Codex. Its engine binary downloads once and is checked against the pinned checksums. softory leaves its edit hooks and live mode out |
 | `webapp-testing` | anthropics/skills | Apache-2.0 | Yes | Playwright checks and screenshots, which become evidence for `ui` tasks |
 | `react-best-practices` | vercel-labs/agent-skills | MIT | React only | Performance rules for React and Next.js |
 

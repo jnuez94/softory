@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import verifyenv
+from . import design, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gate import builders, with_stand_ins
@@ -93,14 +93,20 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     if not sha:
         raise SoftoryError(f"{task_id} has no commit evidence this repository knows; add one with softory commit "
                            "or pass --commit", "not_found")
+    scan = None
+    if design.applies(project, charter, task):  # a ui unit's own UI files go through the design detector too
+        scan = {"launcher": design.detector(project),
+                "files": design.ui_files(unit_files(project, charter, task_id, sha) or [])}
     with verifyenv.turn(project, task_id, actor):
-        outcome = _run_in_tree(project, settings, task_id, sha)
+        outcome = _run_in_tree(project, settings, task_id, sha, scan)
     passed = outcome["code"] == 0 and outcome["stage"] == "test"
     entry = {"task": task_id, "passed": passed, "exit": outcome["code"], "command": command, "by": actor,
              "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
              "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1)}
     if outcome["stage"] == "setup":
         entry["setup_failed"] = True
+    if outcome.get("design"):
+        entry["design"] = outcome["design"]["detail"]
     entries = ledger(project)
     entries[sha] = entry
     ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
@@ -113,10 +119,13 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
               "shared": outcome["shared"]}
     if outcome["kept"]:
         result["kept"] = outcome["kept"]
+    if outcome.get("design"):
+        result["design"] = outcome["design"]
     return result
 
 
-def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: str) -> dict[str, Any]:
+def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: str,
+                 scan: dict[str, Any] | None = None) -> dict[str, Any]:
     place = Path(tempfile.mkdtemp(prefix="softory-verify-"))
     tree = place / "tree"
     added = git(project.root, "worktree", "add", "--detach", "--quiet", str(tree), sha)
@@ -127,6 +136,7 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
     out_dir.mkdir(parents=True, exist_ok=True)
     name = f"{task_id}-{sha[:12]}"
     shared, kept = {}, []
+    found = None
     started = datetime.now(timezone.utc)
     try:
         for path in settings.get("share") or []:
@@ -141,6 +151,11 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
         if stage == "test":
             code, more = _shell(verifyenv.awake(settings["command"]), tree, timeout)
             output += more
+        if stage == "test" and code == 0 and scan:
+            found = design.scan(scan["launcher"], tree, scan["files"])
+            output += f"\n[softory] design detector: {found['detail']}\n"
+            if not found["passed"]:
+                stage, code = "design", 2
         if code != 0:
             kept = verifyenv.keep_artifacts(tree, list(settings.get("keep") or []), out_dir / name)
     finally:
@@ -150,7 +165,7 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
     # A failure keeps the whole log for whoever has to fix it; a pass keeps the tail.
     log.write_text(output if code != 0 else output[-200_000:], encoding="utf-8")
     return {"stage": stage, "code": code, "output": output, "log": str(log), "shared": shared, "kept": kept,
-            "started": started}
+            "started": started, "design": found}
 
 
 def _shell(command: str, cwd: Path, timeout: float) -> tuple[int, str]:
@@ -263,6 +278,8 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
             result.append(_check("verified", False, f"tests not run at {sha[:12]}: run softory verify {task['id']}"))
         else:
             how = "setup failed" if entry.get("setup_failed") else ("passed" if entry["passed"] else "failed")
+            if entry.get("stage") == "design":
+                how = f"passed, but the design detector didn't: {entry.get('design', '')}"
             result.append(_check("verified", entry["passed"], f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
     if globs:
         result.append(_lane_check(project, charter, task, sha, globs, gates))

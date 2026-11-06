@@ -156,6 +156,8 @@ For a story with UI, Darwin writes the spec under its design task, with the ques
 
 From 0.5.2, Emil Kowalski's design skills are in the catalog: `prototype` and `break-ui` for Darwin, and `emil-design-eng`, `review-animations`, and `remove-animations` for Jade. Pull them with `softory skills add --recommended`. `softory-design` says how each fits the lanes.
 
+From 0.5.3, UI build tasks wait until their story's design task is done. With `impeccable` installed (`softory skills add impeccable`), `softory verify` also runs its design detector on a UI task's changed files, and an error or warning blocks the close.
+
 ### Upgrading
 
 Pull softory and run the installer again over the project. It keeps the database, your stand-ins, and every agent, and rewrites only softory's own files:

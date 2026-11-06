@@ -25,6 +25,11 @@
     "model": "gpt-6-astra",
     "effort": "high"
   },
+  "design": {
+    "description": "The design standard's machine gates. With wait_for_design, a todo ui or frontend task under a story whose lane:design task isn't done waits: its builder isn't woken, and queue says why. With detect, and the impeccable skill installed, softory verify on a ui unit also scans the unit's own UI files with Impeccable's detector; error and warning findings fail the verify, advisory ones are counted. Exceptions live in .impeccable/config.json, each with a reason.",
+    "wait_for_design": true,
+    "detect": true
+  },
   "epics": {
     "description": "Epics inside these limits start without the owner's go/no-go. Greg raises an escalation to the owner for anything bigger.",
     "max_stories": 5,

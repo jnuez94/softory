@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.3] - 2026-11-06
+
+Phase 3 of the design standard: the machine gates. Taste reviews should argue about taste, not about a missing focus ring.
+
+- **UI build work waits for its design.** A todo `ui` or `frontend` task under a story whose `lane:design` task isn't done doesn't wake its builder, and `softory queue` says which design it waits for. This works like the feasibility hold (charter `design.wait_for_design`). Greg's acceptance of the design task releases it.
+- **`softory verify` runs Impeccable's detector on `ui` units.** With the `impeccable` skill installed, the verify scans the unit's own UI files after the tests pass. Any error or warning finding fails it, so the gate's `verified` check fails and the unit can't close. Advisory findings are counted in the log. A detector that can't scan fails closed. Exceptions go in `.impeccable/config.json` with a reason (charter `design.detect`).
+- **Impeccable in the catalog**, Apache-2.0, pinned to release 4.8.0 (`414603b`, engine 0.1.18), for Darwin, Jade, and Greg. A catalog entry can now name a separate build per harness (`paths`), so Claude and Codex each get Impeccable's own build. Its launcher downloads the engine binary once and checks it against the checksums in the pinned commit. softory installs neither its edit hooks nor live mode: the verify is the gate, and live mode needs a person at a browser.
+- **Permissions.** Roles may run `impeccable detect`, but not its other commands.
+- **`softory-design`** says which Impeccable commands each role uses, and which need a design task first: `bolder`, `overdrive`, `colorize`, and `delight`.
+
+Not in this release: contrast and 44 px checks need a rendered page (a URL scan), and Tablet has no headless render yet (planned for 0.7.0). Until then, an Obsidian plugin's TS and CSS get the detector's pattern rules only. No separate design record type was added: the story's `lane:design` task already is the record, and the hold above gives it the gate the proposal asked for.
+
 ## [0.5.2] - 2026-11-06
 
 Phase 2 of the design standard: Emil Kowalski's five design skills, pinned and text only. Nothing runs at install, and the gate doesn't change.
