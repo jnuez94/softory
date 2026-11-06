@@ -1,6 +1,6 @@
 # Design: <project name>
 
-Owner: Darwin · Approved by the owner on <date> · Adds to softory's design standard (`skills/softory-design/references/standard.md`); it can't drop any of its principles.
+Owner: Darwin · Approved by the owner on <date> · Adds to softory's design standard (the `softory-design` skill's `references/standard.md`); it can't drop any of its principles.
 
 ## Project principles
 Ranked, on top of softory's ten.

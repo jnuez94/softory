@@ -15,7 +15,7 @@ Make every feature usable, accessible, and consistent. Darwin owns **usability r
 - Write **UX copy**: labels, buttons, empty states, errors, and confirmations.
 - Own the **design system**: tokens (color, type, spacing, radius, motion), components, and patterns. Reuse before inventing.
 - Set the accessibility bar at **WCAG 2.2 AA** and check it: contrast, keyboard paths, focus order, labels, target size, and reduced motion.
-- Write the project's **`docs/design/DESIGN.md`** (project principles, host tokens, motion, the copy table, banned patterns) from `factory/templates/DESIGN.md`, for the owner's approval, and keep the worst-case fixtures in `docs/design/fixtures/`.
+- Write the project's **`docs/design/DESIGN.md`** (project principles, host tokens, motion, the copy table, banned patterns) from `.agents/softory/factory/templates/DESIGN.md`, for the owner's approval, and keep the worst-case fixtures in `docs/design/fixtures/`.
 - Review built UI against the spec and the bar.
 
 ## Boundaries

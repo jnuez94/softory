@@ -7,7 +7,7 @@ description: Darwin's UX design practice in softory, covering user flows, screen
 
 ## Order of work for a story with a `ui` tag
 
-Read `references/standard.md` (softory's ten principles and four design gates) and the project's `docs/product/PRODUCT.md` and `docs/design/DESIGN.md` first. If either project file is missing, write DESIGN.md from `factory/templates/DESIGN.md` (Greg writes PRODUCT.md) before the first `ui` story.
+Read `references/standard.md` (softory's ten principles and four design gates) and the project's `docs/product/PRODUCT.md` and `docs/design/DESIGN.md` first. If either project file is missing, write DESIGN.md from `.agents/softory/factory/templates/DESIGN.md` (Greg writes PRODUCT.md) before the first `ui` story.
 
 1. **Understand.** Read the story, its criteria, and the epic's UX direction. Name the one question the screen answers.
 2. **Flow.** List the steps from entry to goal, plus every exit: cancel, error, and back. Keep the flow short, and remove steps before polishing them.

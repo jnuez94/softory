@@ -150,7 +150,7 @@ Not yet: compact typed handoffs, shorter queue output, and tokens per accepted u
 
 ### How design works (0.5.1)
 
-Each project keeps two files you approve once: `docs/product/PRODUCT.md` (Greg: who it's for, their jobs, non-goals, the one reserved color) and `docs/design/DESIGN.md` (Darwin: project rules, host tokens, motion, one wording per state, banned patterns). Templates are in `factory/templates/`. Softory's own [design standard](skills/softory-design/references/standard.md) sits under both: ten ranked principles and four gates.
+Each project keeps two files you approve once: `docs/product/PRODUCT.md` (Greg: who it's for, their jobs, non-goals, the one reserved color) and `docs/design/DESIGN.md` (Darwin: project rules, host tokens, motion, one wording per state, banned patterns). Templates are in `factory/templates/` (installed at `.agents/softory/factory/templates/`). Softory's own [design standard](skills/softory-design/references/standard.md) sits under both: ten ranked principles and four gates.
 
 For a story with UI, Darwin writes the spec under its design task, with the question the screen answers, every state, worst-case data, exact copy, and at most three directions. Greg accepts it. You're asked only when a design adds a new pattern or breaks DESIGN.md. Changes after acceptance go in a new revision, never in place.
 

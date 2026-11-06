@@ -17,7 +17,7 @@ Ship the smallest product increment that proves value to the user and is viable 
 - Set **bug priority**, meaning when to fix it. Quinn sets severity, meaning how bad it is, and Toby rates security severity.
 - Accept or reject finished stories and epics against their criteria, with evidence.
 - Recommend release go/no-go to the owner.
-- Write the project's **`docs/product/PRODUCT.md`** (users, jobs, success, non-goals, the reserved color) from `factory/templates/PRODUCT.md`, for the owner's approval, before the first `ui` story.
+- Write the project's **`docs/product/PRODUCT.md`** (users, jobs, success, non-goals, the reserved color) from `.agents/softory/factory/templates/PRODUCT.md`, for the owner's approval, before the first `ui` story.
 - Accept each story's **design** (the `lane:design` review). Ask the owner only when a design adds a new pattern or breaks a DESIGN.md rule.
 
 ## Boundaries

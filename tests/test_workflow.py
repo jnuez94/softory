@@ -430,6 +430,8 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn(f"parent:{made['id']}", design["tags"])
         self.assertIn("lane:design", design["tags"])
         self.assertIn("docs/product/PRODUCT.md and docs/design/DESIGN.md", made["reminder"])
+        self.assertIn(".agents/softory/factory/templates/", made["reminder"])
+        self.assertTrue((self.root / ".agents/softory/factory/templates/DESIGN.md").is_file())
 
     def test_the_design_reminder_goes_once_the_project_files_exist(self) -> None:
         for path in ("docs/product/PRODUCT.md", "docs/design/DESIGN.md"):

@@ -147,8 +147,9 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
         result["design_task"] = design["id"]
     missing = missing_design_files(project, unit, options)
     if missing:
+        templates = project.factory_file("templates").relative_to(project.root)
         result["reminder"] = (f"{' and '.join(missing)} not written yet. The design standard needs them before "
-                              "UI work: templates are in factory/templates/ (Greg writes PRODUCT.md, Darwin DESIGN.md).")
+                              f"UI work: templates are in {templates}/ (Greg writes PRODUCT.md, Darwin DESIGN.md).")
     return result
 
 
