@@ -66,7 +66,11 @@ class AutonomyTest(unittest.TestCase):
         digest = json.loads(softory(self.root, "digest").stdout)["digest"]
         self.assertTrue(any(row["key"] == "needs-STORY-1" for row in digest))
         self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
-        time.sleep(1.1)  # a re-plan after the verdict runs the check again
+        self.approve({"environment": {"accounts": ["GitHub"], "devices": ["An unlocked Mac"]},  # the owner provides it
+                      "run": {"roles": ["jade"]}})
+        self.assertEqual(json.loads(softory(self.root, "run", "--dry-run").stdout)["feasibility"], "STORY-1")
+        softory(self.root, "feasible", "STORY-1", "--needs", "A paid provider tier", "--actor", "quinn")
+        self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
         coord(self.root, "task", "update", "TASK-1", "--title", "List, checked headless", "--actor", "quinn",
               "--if-revision", revision(self.root, "TASK-1"))
         self.assertEqual(json.loads(softory(self.root, "run", "--dry-run").stdout)["feasibility"], "STORY-1")
@@ -147,6 +151,37 @@ class AutonomyTest(unittest.TestCase):
         self.assertIn("STORY-1 [todo, 0/1 done]", softory(self.root, "tree").stdout)
         kickoff = json.loads(softory(self.root, "kickoff").stdout)
         self.assertIn("softory charter approve", (self.root / kickoff["prompt"]).read_text())
+
+
+class FeasibilityUnitTest(unittest.TestCase):
+    def board(self, story_status: str) -> object:
+        from types import SimpleNamespace  # noqa: PLC0415
+        from softory.units import children_by_parent  # noqa: PLC0415
+
+        story = {"id": "STORY-1", "status": story_status, "title": "See today", "tags": "unit:story", "updated_at": "1"}
+        old = {"id": "TASK-1", "status": "done", "title": "List", "tags": "unit:task,parent:STORY-1", "updated_at": "1"}
+        new = {"id": "TASK-2", "status": "todo", "title": "Follow-up", "tags": "unit:task,parent:STORY-1",
+               "updated_at": "2"}
+        tasks = [story, old, new]
+        by_id = {t["id"]: t for t in tasks}
+        return SimpleNamespace(tasks=tasks, by_id=by_id, gates={"units": {}}, children=children_by_parent(tasks),
+                               show=lambda i: by_id[i])
+
+    def test_new_work_under_a_done_story_is_held_and_checked(self) -> None:
+        from softory import feasibility  # noqa: PLC0415
+
+        charter = {"feasibility": {"required": True}}
+        board = self.board("done")
+        self.assertEqual(feasibility.held(board, charter), {"TASK-2"})
+        self.assertEqual(feasibility.due(board, charter), ["STORY-1"])  # every held task has a check coming
+
+    def test_a_changed_environment_changes_the_plan(self) -> None:
+        from softory import feasibility  # noqa: PLC0415
+
+        board = self.board("in_progress")
+        before = feasibility.plan_hash(board.show, "STORY-1", ["TASK-1", "TASK-2"], {"environment": {"accounts": []}})
+        after = feasibility.plan_hash(board.show, "STORY-1", ["TASK-1", "TASK-2"], {"environment": {"accounts": ["x"]}})
+        self.assertNotEqual(before, after)
 
 
 class RecoveryUnitTest(unittest.TestCase):
