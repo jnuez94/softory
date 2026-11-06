@@ -152,6 +152,12 @@ def extra_rounds(project: Project, task_id: str) -> int:
     return int(_load(project, "settled.json").get(task_id, {}).get("extra", 0))
 
 
+def retried_at(project: Project) -> dict[str, str]:
+    """When each unit was last given an extra round: a retry is news for its builder."""
+    return {task_id: entry["log"][-1]["at"] for task_id, entry in _load(project, "settled.json").items()
+            if entry.get("log")}
+
+
 def cap_for(project: Project, charter: dict[str, Any], task_id: str) -> int:
     return int(charter["task_caps"]["review_rounds"]) + extra_rounds(project, task_id)
 

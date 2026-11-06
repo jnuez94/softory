@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import unittest
@@ -453,10 +454,16 @@ class UnattendedTest(unittest.TestCase):
         self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
         refused = softory(self.root, "settle", "TASK-1", "retry", "--reason", "x", "--actor", "gold", check=False)
         self.assertIn("not_allowed", refused.stderr)
+        time.sleep(1.1)  # the extra round lands after the review that capped it
         with ThreadPoolExecutor(2) as pool:  # two retries at once: the lock lets only one extra round through
             raced = list(pool.map(lambda _: softory(self.root, "settle", "TASK-1", "retry", "--reason",
                                                     "one fix left, scoped", "--actor", "quinn", check=False), range(2)))
         self.assertEqual(sorted(r.returncode == 0 for r in raced), [False, True])
+        shown = coord(self.root, "task", "show", "TASK-1")["data"]
+        later = max([shown["updated_at"], *(r["created_at"] for r in shown.get("reviews") or [])])  # Jade ran since
+        woken = json.loads(softory(self.root, "pending", "jade", "--since", later, "--retry-hours", "0",
+                                   check=False).stdout)
+        self.assertIn("TASK-1", json.dumps(woken["reasons"]))  # the extra round wakes the builder
         lifted = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
         self.assertNotIn("capped", lifted)
         coord(self.root, "review", "add", "--id", "REV-TASK-1-4", "--task", "TASK-1", "--reviewer", "gold",

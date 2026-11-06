@@ -43,6 +43,9 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     charter = charters.load(project)
     for task_id, passed in feasibility.released(board, charter).items():  # a pass releases held work: that's news
         touched[task_id] = max(touched.get(task_id, ""), passed)
+    for task_id, retried in decide.retried_at(project).items():  # so is an extra round past the review cap
+        if task_id in touched:
+            touched[task_id] = max(touched[task_id], retried)
 
     def changed(ids: list[str]) -> list[str]:
         return [i for i in ids if (since is None or touched.get(i, "") > since) and i not in capped]
