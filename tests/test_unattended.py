@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import unittest
 from datetime import datetime
@@ -111,6 +113,7 @@ class UnattendedTest(unittest.TestCase):
         install(self.root)
         softory(self.root, "new", "story", "--title", "See today", "--actor", "greg")
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "List", "--actor", "quinn")
+        softory(self.root, "feasible", "STORY-1", "--pass", "--actor", "quinn")
 
     def approve(self, settings: dict) -> dict:
         path = self.root / ".git" / "charter.json"
@@ -332,10 +335,11 @@ class UnattendedTest(unittest.TestCase):
 
     def test_escalate_refuses_text_the_owner_cannot_read(self) -> None:
         refused = softory(self.root, "escalate", "--issue", "BUG60 had contain9 rounds", "--ask", "approve",
-                          "--actor", "quinn", check=False)
+                          "--recommend", "x", "--reversible", "no", "--actor", "quinn", check=False)
         self.assertIn("invalid_arguments", refused.stderr)
         made = json.loads(softory(self.root, "escalate", "--issue", "TASK-1 had 3 rounds of requested changes.",
                                   "--ask", "Allow one more round on TASK-1?", "--tasks", "TASK-1",
+                                  "--recommend", "One more round", "--reversible", "no",
                                   "--actor", "quinn").stdout)
         self.assertEqual(made["owner"], "owner")
         found = json.loads(softory(self.root, "digest").stdout)
@@ -443,8 +447,31 @@ class UnattendedTest(unittest.TestCase):
         capped = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
         self.assertEqual(capped["capped"], ["TASK-1"])
         self.assertNotIn("TASK-1", json.dumps(capped["reasons"]))
-        found = json.loads(softory(self.root, "digest").stdout)
-        self.assertIn("cap-TASK-1", [row["key"] for row in found["digest"]])
+        quinn = json.loads(softory(self.root, "pending", "quinn", "--since", "2000-01-01").stdout)
+        self.assertIn("TASK-1", json.dumps(quinn["reasons"]))  # Quinn settles it, not the owner
+        missed = json.loads(softory(self.root, "pending", "quinn", "--since", "2999-01-01").stdout)
+        self.assertIn("TASK-1", json.dumps(missed["reasons"]))  # a run that missed it retries it
+        self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
+        refused = softory(self.root, "settle", "TASK-1", "retry", "--reason", "x", "--actor", "gold", check=False)
+        self.assertIn("not_allowed", refused.stderr)
+        time.sleep(1.1)  # the extra round lands after the review that capped it
+        with ThreadPoolExecutor(2) as pool:  # two retries at once: the lock lets only one extra round through
+            raced = list(pool.map(lambda _: softory(self.root, "settle", "TASK-1", "retry", "--reason",
+                                                    "one fix left, scoped", "--actor", "quinn", check=False), range(2)))
+        self.assertEqual(sorted(r.returncode == 0 for r in raced), [False, True])
+        shown = coord(self.root, "task", "show", "TASK-1")["data"]
+        later = max([shown["updated_at"], *(r["created_at"] for r in shown.get("reviews") or [])])  # Jade ran since
+        woken = json.loads(softory(self.root, "pending", "jade", "--since", later, "--retry-hours", "0",
+                                   check=False).stdout)
+        self.assertIn("TASK-1", json.dumps(woken["reasons"]))  # the extra round wakes the builder
+        lifted = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
+        self.assertNotIn("capped", lifted)
+        coord(self.root, "review", "add", "--id", "REV-TASK-1-4", "--task", "TASK-1", "--reviewer", "gold",
+              "--artifact", sha, "--scope", "t", "--decision", "changes_requested", "--required-changes", "x")
+        found = json.loads(softory(self.root, "digest").stdout)  # Quinn's one extra round is spent: the owner's now
+        keys = [row["key"] for row in found["digest"]]
+        self.assertIn("cap-TASK-1", keys)
+        self.assertTrue(any(k.startswith("settled-TASK-1") for k in keys))
 
     def test_digest_pages_a_gate_bypass_once(self) -> None:
         marker = self.root / ".git" / "pages"

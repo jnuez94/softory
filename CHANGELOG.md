@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0] - 2026-11-04
+
+Nothing waits on the owner mid-flight, except what can't be undone. Tablet's team finished 278 of 291 tasks in two days and then stopped, because all that was left waited on the owner.
+
+- **Escalations default on timeout.** `softory escalate` needs `--recommend` and `--reversible yes|no`. An undoable one applies after `decisions.default_after_hours` (24) with no answer: the runner records a decision, resolves the escalation, and tells the role. One that can't be undone waits. `softory answer <ESC> "..."` answers or replaces a default, at a terminal. The digest shows each recommendation and when it applies.
+- **Quinn settles units at the review cap.** `softory settle <ID> retry|split|drop` (one extra round per unit, never a reassignment), with `decisions.quinn_settles`. Quinn is woken for them; the owner sees what he chose. A unit Quinn built, or one whose extra round is spent, still goes to the owner.
+- **Declared environment and scope.** The charter gains `environment` (networks, accounts, devices, `desktop_unlocked`, `unavailable`) and `out_of_scope`. Softory reads them for planning and never enforces them.
+- **Feasibility check.** Once a story has todo tasks, the runner starts `softory run-check <STORY>`: Quinn on `feasibility.harness`/`model` (Codex GPT-6 Astra by default), reading only the plan, vision, scope, and environment, records `softory feasible --pass` or `--needs`. Until a pass, the story's todo tasks don't wake their builders and `queue` marks them. Needs tells Greg and Quinn to re-plan and lands in the digest as a provisioning request; any change afterwards runs the check again. All three of Tablet's open escalations were feasibility gaps.
+- **Recovery.** Each tick sweeps sessions silent for twice the longest `minutes_per_run` (at least 60 minutes) and returns their claims to todo.
+- **A `ui` reference check.** The gate's `ui_reference` check needs one `reference`, `screenshot`, or `visual` evidence row on a `ui` task or bug (`gates.json` `ui_reference`; the owner can waive it). From Tablet's STORY-12.
+- **Story progress** in `softory tree`, counted from children until scaffold fixes S5.
+- **Intake.** `softory kickoff` writes Greg's one-time interview of the owner and prints the command to open it; the answers become a charter draft to approve. `softory feature "<idea>"` files an idea as a story for Greg. `softory setup` checks that the environment is declared.
+
+Review fixes before release: a feasibility check honours `softory pause` and scoped resumes and never overlaps another Quinn run; each run writes its own output file; escalation and settlement state is updated under a lock; the check reads each task's acceptance and description (the check and the runner's prompt now read the scaffold's `acceptance_criteria`, which both had missed); a capped unit Quinn hasn't settled is retried like other waiting work and reaches the owner's digest after 8 hours. A verdict records a hash of the plan it read and of the charter's vision, scope, and environment, so a pass no longer covers tasks or requirements added after it, a needs verdict is checked again once the owner declares what was missing, and new work under a done story gets its own check; a pass wakes the builders of the tasks it releases, and so does an extra round from `settle retry`, and the check reads requirements whole, not cut; the check also waits while any Quinn session is active, and `settle retry` checks its one-round limit under the lock.
+
+Waits for a week of Tablet runner logs: compact typed handoffs, trimmed queue and status output, and tokens per accepted unit. Approvals from chat need a channel and are not in this release.
+
 ## [0.4.3] - 2026-11-04
 
 From the Tablet pilot (1 to 4 November) and one note from remittance. Five of Tablet's 23 owner decisions were lane-check waivers for files a task never touched.

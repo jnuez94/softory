@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from . import charter, lifecycle, runstate, verify, verifyenv
+from . import charter, feasibility, lifecycle, runstate, verify, verifyenv
 from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -181,7 +181,8 @@ def tree(project: Project, coord: Coordination, root_id: str | None, show_all: b
     def render(task: dict[str, Any], depth: int) -> None:
         owners = ",".join(task.get("assignees") or []) or "unassigned"
         claim = f" claimed:{task['claimed_by']}" if task.get("claimed_by") else ""
-        lines.append(f"{'  ' * depth}{task['id']} [{_shown_status(task)}] {task['title']} ({owners}{claim})")
+        lines.append(f"{'  ' * depth}{task['id']} [{_shown_status(task)}{progress(task['id'], grouped)}] "
+                     f"{task['title']} ({owners}{claim})")
         for child in grouped.get(task["id"], []):
             render(child, depth + 1)
 
@@ -207,6 +208,16 @@ def tree(project: Project, coord: Coordination, root_id: str | None, show_all: b
         if reviews and not show_all:
             lines.append(f"({len(reviews)} review run(s) not shown; add --all to list them)")
     return "\n".join(lines) + ("\n" if lines else "(no work yet)\n")
+
+
+def progress(task_id: str, grouped: dict[Any, list[dict[str, Any]]]) -> str:
+    """', 3/5 done' for a unit with children, counted from them, since the scaffold keeps no parent state (S5)."""
+    children = grouped.get(task_id, [])
+    if not children:
+        return ""
+    done = sum(1 for c in children if c["status"] == "done")
+    moving = sum(1 for c in children if c["status"] in ("in_progress", "review"))
+    return f", {done}/{len(children)} done" + (f", {moving} moving" if moving else "")
 
 
 def _shown_status(task: dict[str, Any]) -> str:
@@ -396,6 +407,10 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         ready = [r for r in ready if r["id"] in scope]
         to_review = [r for r in to_review if r["id"] in scope]
         assigned = [a for a in assigned if a["id"] in scope]
+    waits = feasibility.held(board, charter.load(project))
+    for row in assigned:
+        if row["id"] in waits:
+            row["waits_for"] = "its story's feasibility check"
     result = {"agent": agent, "claimed": claimed, "ready_to_close": ready, "reviews_waiting": to_review,
               "assigned": assigned, "verify_queue": verifyenv.waiting(project)}
     if scope is not None:

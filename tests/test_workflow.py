@@ -532,6 +532,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(tree[-2:], ["Not under an epic:", "  STORY-2 [todo] Loose (greg)"])
 
     def test_pending_tells_a_scheduler_whether_to_run(self) -> None:
+        held = softory(self.root, "pending", "jade", check=False)
+        self.assertEqual(held.returncode, 3)  # TASK-1 waits for STORY-1's feasibility check
+        queued = json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["assigned"][0]
+        self.assertEqual(queued["waits_for"], "its story's feasibility check")
+        softory(self.root, "feasible", "STORY-1", "--pass", "--actor", "quinn")
         fresh = softory(self.root, "pending", "jade", check=False)
         self.assertEqual(fresh.returncode, 0)  # never ran, and TASK-1 is assigned
         self.assertEqual(json.loads(fresh.stdout)["reasons"], [{"why": "assigned work changed", "ids": ["TASK-1"]}])

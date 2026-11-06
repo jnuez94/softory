@@ -3,6 +3,28 @@
   "description": "Defaults for unattended runs. The owner overrides any of them once with `softory charter approve <file>` at a terminal; the result lives in local.json. Agents read it with `softory charter show` and never change it.",
   "vision": "",
   "owner_aliases": [],
+  "out_of_scope": [],
+  "environment": {
+    "description": "What agents can reach, as the owner declares it. Softory never enforces it; the harness does. Planning and the feasibility check read it, so a plan that needs more becomes a provisioning request instead of a stuck task.",
+    "network": [],
+    "accounts": [],
+    "devices": [],
+    "desktop_unlocked": false,
+    "unavailable": [],
+    "notes": ""
+  },
+  "decisions": {
+    "description": "Every escalation names a recommended option and whether it can be undone. One that can be undone applies after default_after_hours with no answer, as a decision the owner can reverse with softory answer; one that can't waits. With quinn_settles, Quinn splits, drops, or allows one more round on a unit at the review cap (one extra round per unit); the owner sees it in the digest.",
+    "default_after_hours": 24,
+    "quinn_settles": true
+  },
+  "feasibility": {
+    "description": "Before a story's tasks start, a fresh Quinn run on a different model reads the plan, the charter, and the environment and records pass or what's missing. With required, todo tasks under a story wait for a pass.",
+    "required": true,
+    "harness": "codex",
+    "model": "gpt-6-astra",
+    "effort": "high"
+  },
   "epics": {
     "description": "Epics inside these limits start without the owner's go/no-go. Greg raises an escalation to the owner for anything bigger.",
     "max_stories": 5,

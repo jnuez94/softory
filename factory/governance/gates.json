@@ -78,6 +78,11 @@
     "data": {"reviewers": ["toby"], "if_builder": ["quinn"], "why": "sensitive or user data handling"},
     "deps": {"reviewers": ["toby"], "if_builder": ["quinn"], "why": "new or upgraded third-party dependency"}
   },
+  "ui_reference": {
+    "description": "A task or bug with one of these tags needs one evidence row of these types before it closes: a rendered check against its design reference. Tablet's STORY-12 passed its whole suite while the preview never rendered.",
+    "tags": ["ui"],
+    "evidence_types": ["reference", "screenshot", "visual"]
+  },
   "accepting_decisions": ["accepted", "conditionally_accepted"],
   "rules": {
     "no_self_review": "For a review entry marked not_self, and for every tag review, a reviewer who is assigned to or holds the claim on the task never counts. Greg's acceptance of a story or epic he owns is an acceptance, not a self code review, so it counts.",
@@ -86,11 +91,12 @@
     "if_builder": "When the specialist a tag review names is the only builder (Toby wrote the threat model, Quinn built the architecture change), the tag's if_builder roles review it instead: Quinn for Toby's own security work, Jade or Gold for Quinn's architecture work, the owner for Darwin's own design work. A role-wide stand-in for the specialist does not count on the specialist's own work; a stand-in the owner scoped to that task does. If the specialist only co-built the task, the backup does not apply and the specialist must come off the task or the owner must grant a scoped stand-in. The owner chose named backups on 2026-10-23.",
     "review_records": "A review unit (unit:review) is a record of a review run. It closes when it holds reports and no code evidence, names the tasks it reviewed (for:<ID>) and none of them were built by its reviewer, carries the reviewer's verdict (on the record or on every reviewed task), and every reviewer whose latest verdict on it requests changes names follow-up tasks that exist. Tag reviews do not apply, and nobody reviews the review. It may close from review, blocked, or todo.",
     "stand_ins": "An agent the owner names with softory standin add (or approves with softory approve) counts wherever the roles it stands in for count, as a reviewer or a closer. A grant may name tasks and an end date; outside them it does not count. Grants live in .agents/softory/local.json, each recorded as a decision.",
-    "waivers": "The owner may waive one review check (review:*, no_open_rejections, findings_tracked, verdicts_recorded, independent, verified, lane_paths) on one task with softory approve. The gate shows the waiver and its reason. Status, evidence, blockers, children, closer, and config checks cannot be waived.",
+    "waivers": "The owner may waive one review check (review:*, no_open_rejections, findings_tracked, verdicts_recorded, independent, verified, lane_paths, ui_reference) on one task with softory approve. The gate shows the waiver and its reason. Status, evidence, blockers, children, closer, and config checks cannot be waived.",
     "drop": "softory drop closes a unit nobody will build, as won't do or superseded, with a recorded decision. Only the unit's dropper may, and not while it has open children.",
     "stacks": "softory stack groups work built on top of other work. softory close --stack closes every member together, bottom first, only if each passes the gate when the other members count as done.",
     "design_lane": "A task or bug with lane:design is a design deliverable Darwin builds: Greg's product review replaces the peer code review, and softory verify does not apply. Tag reviews still apply.",
     "verified": "When the charter sets verify.command, a task or bug needs a passing softory verify at the newest commit in its evidence. softory keeps that result in its own ledger; an evidence row an agent writes doesn't count.",
+    "ui_reference": "A task or bug tagged ui needs an evidence row of a ui_reference type: a rendered check against its design reference, so a green suite that never renders the screen can't close it.",
     "lane_paths": "When the charter sets paths for the task's lane, every file the unit's own commits change must be in the lane or shared_paths, unless the task is tagged cross-lane and Quinn accepted it (Quinn's arch backup, Jade or Gold, when Quinn built it). Own commits are those since git.base that no other unit's verified commit already holds.",
     "config": "These rules change only through a softory release. The installer records the hash of this file, softory's code, and local.json, and makes them read-only; the gate fails closed (config_intact) if any of them changes."
   }

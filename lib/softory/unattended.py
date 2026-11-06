@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from . import charter as charters
-from . import digest, ops, runner, runstate, setup, teamstats, verify
+from . import digest, intake, ops, runner, runstate, setup, teamstats, verify
 from .coordination import Coordination
 from .owner import confirm_at_terminal
 from .project import Project
 from .work import actor_of
 
-COMMANDS = ("charter", "setup", "run", "run-role", "pause", "resume", "verify", "digest", "schedule", "usage")
+COMMANDS = ("charter", "kickoff", "feature", "setup", "run", "run-role", "run-check", "pause", "resume", "verify", "digest", "schedule", "usage")
 
 
 def add_parsers(sub: Any) -> None:
@@ -25,6 +25,9 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--merge", action="store_true", help="Add the file's settings to the ones already approved instead "
                    "of replacing them")
 
+    sub.add_parser("kickoff", help="Greg's one-time interview of the owner, written as a charter draft to approve")
+    p = sub.add_parser("feature", help="File an idea as a story for Greg to shape; the runner wakes him")
+    p.add_argument("idea")
     p = sub.add_parser("setup", help="The owner's one-time checklist for unattended runs, checked")
     p.add_argument("--load-schedule", action="store_true", help="Load the runner's launchd job (owner, at a "
                    "terminal), so the runner is the only thing that starts roles")
@@ -32,6 +35,8 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--dry-run", action="store_true", help="Say who would start; start nothing and page nobody")
     p = sub.add_parser("run-role", help="Run one role once now (the runner calls this)")
     p.add_argument("role")
+    p = sub.add_parser("run-check", help="Run the feasibility check on one story now (the runner calls this)")
+    p.add_argument("story")
     p = sub.add_parser("pause", help="Stop unattended runs, for every role or one; anyone may")
     p.add_argument("--role")
     p.add_argument("--reason", default="paused")
@@ -61,6 +66,10 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
             result: Any = charters.load(project)
         else:
             result = charters.approve(project, coord, Path(args.file), confirm_at_terminal, args.merge)
+    elif command == "kickoff":
+        result = intake.kickoff(project)
+    elif command == "feature":
+        result = intake.feature(project, coord, args.idea)
     elif command == "setup":
         result = (setup.load_schedule(project, confirm_at_terminal) if args.load_schedule
                   else setup.checklist(project))
@@ -68,6 +77,8 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
         result = runner.tick(project, coord, args.dry_run)
     elif command == "run-role":
         result = runner.run_role(project, coord, args.role)
+    elif command == "run-check":
+        result = runner.run_check(project, coord, args.story)
     elif command == "pause":
         result = runstate.pause(project, args.role, args.reason, args.actor or _actor_or_owner(project))
     elif command == "resume":

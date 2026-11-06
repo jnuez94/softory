@@ -2,7 +2,8 @@
 
 Urgent (paged at once, outside quiet hours): a unit closed without the gate,
 and a role that hit today's budget. Everything else waits for the digest:
-proposals, open escalations to the owner, tasks past their review-round cap,
+proposals, open escalations to the owner with their recommendations, defaults applied, units at the
+review cap that Quinn can't settle and what Quinn settled, provisioning requests from feasibility checks,
 unread messages to the owner, silent roles, and budget warnings. Each page
 goes once a day per item. With no paging command, the digest still lands in
 .agents/softory/run/digest.md and in the owner's inbox.
@@ -13,16 +14,24 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from . import owner as owners
-from . import team, watch
+from . import decide, feasibility, team, watch
 from .coordination import Coordination
 from .project import Project
 from .runstate import budget, paused, state_dir
 from .gate import spec_for as gate_spec
 from .work import Board
+
+QUINN_SETTLE_HOURS = 8  # a capped unit Quinn hasn't settled in this long reaches the owner too
+
+
+def _hours_since(board: Board, task_id: str) -> float:
+    """Hours since the unit last changed (an update or a review)."""
+    stamps = [board.by_id[task_id]["updated_at"], *(r["created_at"] for r in board.reviews.get(task_id, []))]
+    return (datetime.now(timezone.utc) - watch.parse_time(max(stamps))).total_seconds() / 3600
 
 
 def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -42,17 +51,37 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
         later.append({"key": f"prop-{proposal['id']}", "text": f"{proposal['id']} ({proposal['kind']}) from "
                       f"{proposal['proposed_by']}: {proposal['why'][:160]}. Run: softory approve {proposal['id']}"})
     names = owner_names(project, charter)
+    recommended = decide.recommendations(project)
     for row in coord.all_rows("escalation", "list", "--status", "open"):
         if str(row.get("owner", "")).strip().lower() in names:
             later.append({"key": f"esc-{row['id']}", "text": f"{row['id']} from {row.get('raised_by')}: "
-                          f"{_cut(row.get('issue'), 600)} Asks: {_cut(row.get('requested_decision'), 400)}"})
+                          f"{_cut(row.get('issue'), 600)} Asks: {_cut(row.get('requested_decision'), 400)}"
+                          + _default_note(recommended.get(row["id"]), charter, row["id"])})
+    for row in recommended.values():
+        if row.get("settled") == "defaulted" and row.get("decision"):
+            later.append({"key": f"default-{row['decision']}", "text": f"Defaulted with no answer: {row['recommend']} "
+                          f"({row['decision']}). Replace it with softory answer <ESC> \"...\""})
     board = Board(project, coord)
-    cap = charter["task_caps"]["review_rounds"]
     for task_id, rounds in sorted(watch.review_rounds(board, int(charter['task_caps'].get('free_evidence_rounds', 1))).items()):
         task = board.by_id.get(task_id)
-        if task and task["status"] != "done" and rounds >= cap:
-            later.append({"key": f"cap-{task_id}", "text": f"{task_id} had {rounds} rounds of requested changes and "
-                          f"stopped: split it, drop it, or allow one more round ({task['title'][:80]})"})
+        if not task or task["status"] == "done" or rounds < decide.cap_for(project, charter, task_id):
+            continue
+        if decide.quinn_may_settle(project, charter, board.show(task_id)):
+            if _hours_since(board, task_id) < QUINN_SETTLE_HOURS:
+                continue  # Quinn settles it; the owner sees what he chose below
+            later.append({"key": f"cap-{task_id}", "text": f"{task_id} has waited {QUINN_SETTLE_HOURS:g}+ hours at "
+                          f"the review cap for Quinn to settle it. Settle it yourself if he hasn't: softory settle "
+                          f"{task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
+            continue
+        later.append({"key": f"cap-{task_id}", "text": f"{task_id} had {rounds} rounds of requested changes and "
+                      f"stopped: softory settle {task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
+    for row in decide.recent_settlements(project):
+        later.append({"key": f"settled-{row['task']}-{row['at']}", "text": f"{row['by']} settled {row['task']} "
+                      f"({row['action']}): {_cut(row['reason'], 200)}"})
+    for row in feasibility.requests(board):
+        later.append({"key": f"needs-{row['story']}", "text": f"Provisioning request for {row['story']} "
+                      f"({row['title'][:60]}): {'; '.join(row['needs'])}. The team re-plans around it meanwhile; "
+                      "add it to the charter's environment if you provide it"})
     churn = int((charter.get("waste") or {}).get("revision", 0) or 0)
     for task in board.tasks:
         spec = gate_spec(task, board.gates)[1]
@@ -72,6 +101,16 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
             continue
         later.append({"key": f"paused-{who}", "text": f"{who} is paused: {why}. Resume with softory resume"})
     return {"urgent": urgent, "digest": later}
+
+
+def _default_note(row: dict[str, Any] | None, charter: dict[str, Any], escalation_id: str) -> str:
+    if not row:
+        return ""
+    when = decide.due_at(row, charter)
+    if when is None:
+        return f" Recommends: {_cut(row['recommend'], 200)} (can't be undone, so it waits for you)."
+    return (f" Recommends: {_cut(row['recommend'], 200)}; applies {when.strftime('%d %b %H:%M')} UTC unless you "
+            f"run softory answer {escalation_id} \"...\".")
 
 
 def owner_names(project: Project, charter: dict[str, Any]) -> set[str]:
