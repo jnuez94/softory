@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.2] - 2026-11-06
+
+Phase 2 of the design standard: Emil Kowalski's five design skills, pinned and text only. Nothing runs at install, and the gate doesn't change.
+
+- **Five pulled skills** from [emilkowalski/skills](https://github.com/emilkowalski/skills) (MIT) at `c8a7962`: `prototype` and `break-ui` for Darwin, `emil-design-eng`, `review-animations`, and `remove-animations` for Jade, with Darwin using `review-animations` in design review. All five are recommended, so `softory skills add --recommended` pulls them for Claude and Codex.
+- **How they fit softory.** `softory-design` says where each one's rules give way. `prototype` builds a static file under `docs/design/STORY-n/`, never app code, shows at most three directions, and recommends one. `break-ui` splits into Darwin's fixtures and Jade's dev-only toggle. `remove-animations` only removes motion, and only in a `frontend` task. `prototype` and `review-animations` are manual-only in Claude, so roles read their `SKILL.md`.
+- **`web-design-guidelines`** now says to leave it out where DESIGN.md allows nothing remote, since it fetches its rules at run time.
+
+Next is the trial: one Tablet story (Today) with the skills installed, with its review rounds compared against Vault Radar's.
+
 ## [0.5.1] - 2026-11-06
 
 A written design standard, phase 1 of the owner's UI/UX proposal: text only, nothing installed, and nothing new that blocks a close. In Vault Radar, design rounds mostly fixed rules that were never written down, and edge cases turned up as bugs after build.

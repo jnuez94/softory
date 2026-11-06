@@ -49,4 +49,4 @@ Softory's ten design principles and four design gates are in `softory-design/ref
 
 ## Skills to load
 
-`softory-operating-loop`, `softory-design`. Recommended open-source skills: `frontend-design` and `web-design-guidelines` (see [skill sourcing](../../docs/skill-sourcing.md)).
+`softory-operating-loop`, `softory-design`. Recommended open-source skills: `prototype`, `break-ui`, `review-animations`, `emil-design-eng`, `frontend-design`, and `web-design-guidelines` (see [skill sourcing](../../docs/skill-sourcing.md)).

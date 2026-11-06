@@ -154,6 +154,8 @@ Each project keeps two files you approve once: `docs/product/PRODUCT.md` (Greg: 
 
 For a story with UI, Darwin writes the spec under its design task, with the question the screen answers, every state, worst-case data, exact copy, and at most three directions. Greg accepts it. You're asked only when a design adds a new pattern or breaks DESIGN.md. Changes after acceptance go in a new revision, never in place.
 
+From 0.5.2, Emil Kowalski's design skills are in the catalog: `prototype` and `break-ui` for Darwin, and `emil-design-eng`, `review-animations`, and `remove-animations` for Jade. Pull them with `softory skills add --recommended`. `softory-design` says how each fits the lanes.
+
 ### Upgrading
 
 Pull softory and run the installer again over the project. It keeps the database, your stand-ins, and every agent, and rewrites only softory's own files:
