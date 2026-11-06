@@ -130,9 +130,15 @@ def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story
     story = coord.task(story_id)
     tasks = [t for t in coord.all_tasks("--tag", f"parent:{story_id}") if t["status"] != "done"]
     environment = {k: v for k, v in (charter.get("environment") or {}).items() if k != "description"}
-    plan = [f"{story_id}: {story['title']}", f"Acceptance: {story.get('acceptance') or '(none)'}",
+    plan = [f"{story_id}: {story['title']}", f"Acceptance: {_acceptance(story) or '(none)'}",
             f"Description: {' '.join(str(story.get('description') or '').split())[:1500]}", "Tasks:"]
-    plan += [f"- {t['id']} [{t['status']}] {t['title']}" for t in tasks]
+    for summary in tasks:  # each task's own requirements: that is where accounts and devices hide
+        task = coord.task(summary["id"])
+        plan.append(f"- {task['id']} [{task['status']}] {task['title']}")
+        for label, text in (("Acceptance", _acceptance(task)), ("Description", task.get("description"))):
+            text = " ".join(str(text or "").split())
+            if text:
+                plan.append(f"  {label}: {text[:800]}")
     return (
         "You are Quinn (quinn) running softory's feasibility check, on a different model from the one that "
         f"planned this work. Start with: eval \"$(.agents/softory/bin/softory start quinn --harness "
@@ -148,3 +154,7 @@ def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story
         f"Out of scope: {json.dumps(charter.get('out_of_scope') or [])}\n"
         f"Environment: {json.dumps(environment)}\n\n" + "\n".join(plan)
     )
+
+
+def _acceptance(task: dict[str, Any]) -> str:
+    return " ".join(str(task.get("acceptance_criteria") or task.get("acceptance") or "").split())

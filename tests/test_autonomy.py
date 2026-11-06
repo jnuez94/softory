@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
 import unittest
 
@@ -53,7 +55,8 @@ class AutonomyTest(unittest.TestCase):
         self.assertIn("owner_terminal_required", softory(self.root, "answer", waits, "x", check=False).stderr)
 
     def test_feasibility_holds_the_tasks_until_the_plan_fits_the_environment(self) -> None:
-        self.approve({"environment": {"accounts": ["GitHub"], "desktop_unlocked": False}})
+        # Jade only: a Quinn run the tick starts (to re-plan) holds the check for a later tick.
+        self.approve({"environment": {"accounts": ["GitHub"], "desktop_unlocked": False}, "run": {"roles": ["jade"]}})
         plan = json.loads(softory(self.root, "run", "--dry-run").stdout)
         self.assertEqual(plan["feasibility"], "STORY-1")
         self.assertNotIn("jade", plan["started"])
@@ -72,16 +75,46 @@ class AutonomyTest(unittest.TestCase):
         self.assertIn("jade", plan["started"])
         self.assertNotIn("feasibility", plan)
 
+    def test_a_pause_or_a_running_quinn_holds_the_feasibility_check(self) -> None:
+        self.approve({"run": {"roles": []}})
+        self.assertEqual(json.loads(softory(self.root, "run", "--dry-run").stdout)["feasibility"], "STORY-1")
+        softory(self.root, "pause", "--role", "quinn", "--reason", "stop")
+        self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
+        at_terminal(self.root, "resume", "--task", "STORY-1", "--roles", "quinn")
+        self.assertEqual(json.loads(softory(self.root, "run", "--dry-run").stdout)["feasibility"], "STORY-1")
+        at_terminal(self.root, "resume", "--role", "quinn")
+        from softory.runstate import state_dir  # noqa: PLC0415
+        from softory.project import Project  # noqa: PLC0415
+        pid = state_dir(Project.find(self.root)) / "quinn.pid"
+        pid.write_text(str(os.getpid()))
+        self.addCleanup(pid.unlink, missing_ok=True)
+        self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
+
+    def test_escalation_notes_from_many_roles_all_survive(self) -> None:
+        from softory import decide  # noqa: PLC0415
+        from softory.project import Project  # noqa: PLC0415
+        project = Project.find(self.root)
+        threads = [threading.Thread(target=decide.note, args=(project, f"ESC-{n}", "x", True, "jade"))
+                   for n in range(20)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(decide.recommendations(project)), 20)
+
     def test_the_check_run_reads_the_plan_and_the_environment(self) -> None:
         script = 'printf %s "$1" > .git/prompt'
         self.approve({"environment": {"devices": ["this Mac, locked overnight"]},
                       "run": {"harnesses": {"fake": ["sh", "-c", script, "sh", "{prompt}"]}},
                       "feasibility": {"harness": "fake", "model": "m2"}})
+        coord(self.root, "task", "update", "TASK-1", "--acceptance", "Works with a fake provider", "--actor", "quinn",
+              "--if-revision", revision(self.root, "TASK-1"))
         ran = json.loads(softory(self.root, "run-check", "STORY-1").stdout)
         self.assertEqual((ran["role"], ran["job"], ran["model"]), ("quinn", "feasibility", "m2"))
         prompt = (self.root / ".git/prompt").read_text()
         self.assertIn("this Mac, locked overnight", prompt)
         self.assertIn("TASK-1 [todo] List", prompt)
+        self.assertIn("Acceptance: Works with a fake provider", prompt)
         self.assertIn("softory feasible STORY-1 --pass", prompt)
 
     def test_a_ui_unit_needs_a_check_against_its_reference(self) -> None:

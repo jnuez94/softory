@@ -44,8 +44,8 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
         if why and not allowed_tasks(project, role):
             report["skipped"][role] = f"paused: {why}"
             continue
-        if running(project, role):
-            report["skipped"][role] = "already running"
+        if running(project, role) or (role == "quinn" and running(project, CHECK)):
+            report["skipped"][role] = "already running"  # a feasibility check is a Quinn run too
             continue
         use = budget(project, charter, role)
         if use["over"]:
@@ -58,7 +58,7 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
         if not dry_run:
             spawn(project, role)
         report["started"].append(role)
-    check = _feasibility_due(project, coord, charter)
+    check = None if "quinn" in report["started"] else _feasibility_due(project, coord, charter)
     if check:
         if not dry_run:
             spawn(project, "quinn", ["run-check", check])
@@ -67,12 +67,18 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
 
 
 def _feasibility_due(project: Project, coord: Coordination, charter: dict[str, Any]) -> str | None:
-    """One story to check this tick, when no check is running and Quinn's budget allows it."""
-    if running(project, CHECK) or budget(project, charter, "quinn")["over"]:
+    """One story to check this tick: Quinn isn't running, isn't paused, and is inside today's budget.
+
+    While Quinn is paused, only a story the owner's scoped resume names for Quinn may be checked.
+    """
+    if running(project, CHECK) or running(project, "quinn") or budget(project, charter, "quinn")["over"]:
+        return None
+    scope = allowed_tasks(project, "quinn") if is_paused(project, "quinn") else None
+    if scope is not None and not scope:
         return None
     from .work import Board  # noqa: PLC0415 - a full board read only when a check might be due
 
-    due = feasibility.due(Board(project, coord), charter)
+    due = [s for s in feasibility.due(Board(project, coord), charter) if scope is None or s in scope]
     return due[0] if due else None
 
 
@@ -90,7 +96,8 @@ def running(project: Project, role: str) -> bool:
 def spawn(project: Project, role: str, command: list[str] | None = None) -> None:
     logs = state_dir(project) / "logs"
     logs.mkdir(exist_ok=True)
-    out = (logs / f"{role}-{now().strftime('%Y%m%dT%H%M%SZ')}.log").open("w", encoding="utf-8")
+    name = role if command is None else f"{role}-{command[0]}"
+    out = (logs / f"{name}-{now().strftime('%Y%m%dT%H%M%SZ')}.log").open("a", encoding="utf-8")
     subprocess.Popen([sys.executable, str(project.bundle / "bin" / "softory"), *(command or ["run-role", role])],  # noqa: S603
                      cwd=project.root, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                      start_new_session=True, env=_clean_env())
@@ -136,7 +143,7 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     started = now()
     logs = state_dir(project) / "logs"
     logs.mkdir(exist_ok=True)
-    out_path = logs / f"{role}-{started.strftime('%Y%m%dT%H%M%SZ')}.out"
+    out_path = logs / f"{pid_name or role}-{started.strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}.out"  # one per run
     try:
         with out_path.open("w", encoding="utf-8") as out:
             env = {**_clean_env(), RUNNER_ENV: "1"}  # sessions it starts aren't logged as manual

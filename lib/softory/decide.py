@@ -12,9 +12,11 @@ round, goes to the owner as before.
 
 from __future__ import annotations
 
+import fcntl
 import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -37,6 +39,21 @@ def _save(project: Project, name: str, data: dict[str, Any]) -> None:
     (state_dir(project) / name).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+@contextmanager
+def _editing(project: Project, name: str) -> Iterator[dict[str, Any]]:
+    """Read, change, and write one state file under an exclusive lock, so concurrent roles don't lose rows."""
+    with (state_dir(project) / f"{name}.lock").open("w", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            data = _load(project, name)
+            try:
+                yield data
+            finally:  # keep what was already done, even if a later row failed
+                _save(project, name, data)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -45,10 +62,9 @@ def _now() -> datetime:
 
 def note(project: Project, escalation_id: str, recommend: str, reversible: bool, raised_by: str) -> None:
     """Keep the escalation's recommendation beside it; the scaffold's record has no field for it."""
-    rows = _load(project, "escalations.json")
-    rows[escalation_id] = {"recommend": recommend, "reversible": reversible, "raised_by": raised_by,
-                           "at": _now().isoformat(timespec="seconds")}
-    _save(project, "escalations.json", rows)
+    with _editing(project, "escalations.json") as rows:
+        rows[escalation_id] = {"recommend": recommend, "reversible": reversible, "raised_by": raised_by,
+                               "at": _now().isoformat(timespec="seconds")}
 
 
 def recommendations(project: Project) -> dict[str, dict[str, Any]]:
@@ -67,9 +83,15 @@ def apply_due(project: Project, coord: Coordination, charter: dict[str, Any],
               clock: datetime | None = None) -> list[str]:
     """Apply every undoable escalation's recommendation once its time is up. The runner calls this each tick."""
     clock = clock or _now()
-    rows = recommendations(project)
     owner = project.roster()["owner"]["id"]
-    applied = []
+    applied: list[str] = []
+    with _editing(project, "escalations.json") as rows:
+        _apply(coord, charter, clock, owner, rows, applied)
+    return applied
+
+
+def _apply(coord: Coordination, charter: dict[str, Any], clock: datetime, owner: str,
+           rows: dict[str, Any], applied: list[str]) -> None:
     for escalation_id, row in rows.items():
         when = due_at(row, charter)
         if row.get("settled") or when is None or clock < when:
@@ -92,8 +114,6 @@ def apply_due(project: Project, coord: Coordination, charter: dict[str, Any],
               f"{row['recommend']}. Keep it easy to undo; the owner may still answer.")
         row.update(settled="defaulted", decision=decision)
         applied.append(escalation_id)
-    _save(project, "escalations.json", rows)
-    return applied
 
 
 def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
@@ -114,10 +134,9 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
                   "--because", f"decision:{decision}")
     _tell(coord, owner, raised_by, f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
           f"The owner answered {escalation_id}" + (" and replaces the default" if reversing else "") + f": {text}")
-    rows = recommendations(project)
-    if escalation_id in rows:
-        rows[escalation_id]["settled"] = "answered"
-        _save(project, "escalations.json", rows)
+    with _editing(project, "escalations.json") as rows:
+        if escalation_id in rows:
+            rows[escalation_id]["settled"] = "answered"
     return {"escalation": escalation_id, "decision": decision, "reversed_default": reversing}
 
 
@@ -169,11 +188,10 @@ def settle(project: Project, coord: Coordination, charter: dict[str, Any], task_
         coord.task(unit_id)  # must exist
     result: dict[str, Any] = {"task": task_id, "action": action}
     if action == "retry":
-        settled = _load(project, "settled.json")
-        entry = settled.setdefault(task_id, {"extra": 0, "log": []})
-        entry["extra"] += 1
-        entry["log"].append({"by": actor, "at": _now().isoformat(timespec="seconds"), "reason": reason})
-        _save(project, "settled.json", settled)
+        with _editing(project, "settled.json") as settled:
+            entry = settled.setdefault(task_id, {"extra": 0, "log": []})
+            entry["extra"] += 1
+            entry["log"].append({"by": actor, "at": _now().isoformat(timespec="seconds"), "reason": reason})
         result["decision"] = record_decision(coord, actor, "SETTLE", f"One more review round for {task_id}", reason,
                                              f"{task_id} had {rounds} rounds of requested changes.")
     else:

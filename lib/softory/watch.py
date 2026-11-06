@@ -81,17 +81,19 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"
                                   and t["id"] not in waits],
     }.items()}
-    if agent == "quinn":  # units at the review cap that Quinn may settle, new since the last run
-        stuck = [i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
-                 and decide.quinn_may_settle(project, charter, board.show(i))]
-        stuck = [i for i in in_scope(stuck) if since is None or touched.get(i, "") > since]
+    unsettled: list[str] = []  # units at the review cap that Quinn may settle and hasn't yet
+    if agent == "quinn":
+        unsettled = in_scope([i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
+                              and decide.quinn_may_settle(project, charter, board.show(i))])
+        stuck = [i for i in unsettled if since is None or touched.get(i, "") > since]
         if stuck:
             reasons.append({"why": "units at the review cap: settle each with softory settle (retry, split, or drop)",
                             "ids": stuck})
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
-    everything = [i for ids in waiting.values() for i in ids if i not in capped]
+    # Capped units wait for a settlement, so a run that missed one retries it like any other waiting work.
+    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})

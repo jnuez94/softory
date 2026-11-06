@@ -63,8 +63,9 @@ def _unit(project: Project, charter: dict[str, Any], board: Board, task_id: str)
     if parent_of(task):
         head.append(f"parent {parent_of(task)}")
     parts = [f"- {task_id} [{', '.join(head)}] {task.get('title', '')}"]
-    if task.get("acceptance"):
-        parts.append(f"  Acceptance: {_trim(task['acceptance'])}")
+    acceptance = task.get("acceptance_criteria") or task.get("acceptance")  # the scaffold's field name first
+    if acceptance:
+        parts.append(f"  Acceptance: {_trim(acceptance)}")
     accepting = set(board.gates["accepting_decisions"])
     asked = [f"{who}: {_trim(r.get('required_changes') or r.get('decision', ''))}"
              for who, r in latest_reviews({"reviews": board.reviews.get(task_id, [])}).items()

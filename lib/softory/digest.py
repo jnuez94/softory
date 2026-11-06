@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from . import owner as owners
@@ -24,6 +24,14 @@ from .project import Project
 from .runstate import budget, paused, state_dir
 from .gate import spec_for as gate_spec
 from .work import Board
+
+QUINN_SETTLE_HOURS = 8  # a capped unit Quinn hasn't settled in this long reaches the owner too
+
+
+def _hours_since(board: Board, task_id: str) -> float:
+    """Hours since the unit last changed (an update or a review)."""
+    stamps = [board.by_id[task_id]["updated_at"], *(r["created_at"] for r in board.reviews.get(task_id, []))]
+    return (datetime.now(timezone.utc) - watch.parse_time(max(stamps))).total_seconds() / 3600
 
 
 def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -59,7 +67,12 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
         if not task or task["status"] == "done" or rounds < decide.cap_for(project, charter, task_id):
             continue
         if decide.quinn_may_settle(project, charter, board.show(task_id)):
-            continue  # Quinn settles it; the owner sees what he chose below
+            if _hours_since(board, task_id) < QUINN_SETTLE_HOURS:
+                continue  # Quinn settles it; the owner sees what he chose below
+            later.append({"key": f"cap-{task_id}", "text": f"{task_id} has waited {QUINN_SETTLE_HOURS:g}+ hours at "
+                          f"the review cap for Quinn to settle it. Settle it yourself if he hasn't: softory settle "
+                          f"{task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
+            continue
         later.append({"key": f"cap-{task_id}", "text": f"{task_id} had {rounds} rounds of requested changes and "
                       f"stopped: softory settle {task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
     for row in decide.recent_settlements(project):

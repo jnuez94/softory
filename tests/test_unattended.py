@@ -447,6 +447,8 @@ class UnattendedTest(unittest.TestCase):
         self.assertNotIn("TASK-1", json.dumps(capped["reasons"]))
         quinn = json.loads(softory(self.root, "pending", "quinn", "--since", "2000-01-01").stdout)
         self.assertIn("TASK-1", json.dumps(quinn["reasons"]))  # Quinn settles it, not the owner
+        missed = json.loads(softory(self.root, "pending", "quinn", "--since", "2999-01-01").stdout)
+        self.assertIn("TASK-1", json.dumps(missed["reasons"]))  # a run that missed it retries it
         self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
         refused = softory(self.root, "settle", "TASK-1", "retry", "--reason", "x", "--actor", "gold", check=False)
         self.assertIn("not_allowed", refused.stderr)
