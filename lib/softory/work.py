@@ -145,7 +145,22 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             "priority": options.get("priority"),
             "acceptance": "Flows, states, and acceptance notes for the story's UI, ready for Quinn's breakdown."})
         result["design_task"] = design["id"]
+    missing = missing_design_files(project, unit, options)
+    if missing:
+        result["reminder"] = (f"{' and '.join(missing)} not written yet. The design standard needs them before "
+                              "UI work: templates are in factory/templates/ (Greg writes PRODUCT.md, Darwin DESIGN.md).")
     return result
+
+
+def missing_design_files(project: Project, unit: str, options: dict[str, Any]) -> list[str]:
+    """PRODUCT.md matters from the first epic; both matter once a story has UI. A reminder, never a block."""
+    if unit == "epic":
+        wanted = ["docs/product/PRODUCT.md"]
+    elif unit == "story" and options.get("design"):
+        wanted = ["docs/product/PRODUCT.md", "docs/design/DESIGN.md"]
+    else:
+        return []
+    return [path for path in wanted if not (project.root / path).is_file()]
 
 
 def check_review_targets(coord: Coordination, targets: list[str], reviewers: set[str]) -> None:

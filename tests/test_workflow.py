@@ -429,6 +429,15 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(design["assignees"], ["darwin"])
         self.assertIn(f"parent:{made['id']}", design["tags"])
         self.assertIn("lane:design", design["tags"])
+        self.assertIn("docs/product/PRODUCT.md and docs/design/DESIGN.md", made["reminder"])
+
+    def test_the_design_reminder_goes_once_the_project_files_exist(self) -> None:
+        for path in ("docs/product/PRODUCT.md", "docs/design/DESIGN.md"):
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text("# written\n", encoding="utf-8")
+        made = json.loads(softory(self.root, "new", "story", "--parent", "EPIC-1", "--title", "Inbox", "--design",
+                                  "--actor", "greg").stdout)
+        self.assertNotIn("reminder", made)
 
     def test_a_stack_closes_together_or_not_at_all(self) -> None:
         softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--blocks-source", "--title", "On top", "--actor", "quinn")

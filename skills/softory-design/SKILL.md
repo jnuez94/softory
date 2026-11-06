@@ -7,13 +7,16 @@ description: Darwin's UX design practice in softory, covering user flows, screen
 
 ## Order of work for a story with a `ui` tag
 
-1. **Understand.** Read the story, its criteria, and the epic's UX direction. Who is the user, what are they trying to do, and what do they already know?
+Read `references/standard.md` (softory's ten principles and four design gates) and the project's `docs/product/PRODUCT.md` and `docs/design/DESIGN.md` first. If either project file is missing, write DESIGN.md from `factory/templates/DESIGN.md` (Greg writes PRODUCT.md) before the first `ui` story.
+
+1. **Understand.** Read the story, its criteria, and the epic's UX direction. Name the one question the screen answers.
 2. **Flow.** List the steps from entry to goal, plus every exit: cancel, error, and back. Keep the flow short, and remove steps before polishing them.
-3. **States.** For every screen or component in the flow, design these states: **empty, loading, partial, success, error, and no-permission**. Add offline if the app works offline.
-4. **Layout and components.** Use existing design-system components and tokens first. A new component needs a reason in the spec.
-5. **Copy.** Write every label, button, empty state, error, and confirmation (rules below).
-6. **Accessibility.** Bake it into each decision (checklist below). It's not a final pass.
-7. **Spec.** Write `docs/design/STORY-n.md` using `references/spec-template.md`, and link it as evidence on the story.
+3. **States.** For every screen or component in the flow, design these states: **empty, loading, partial, success, error, stale, and no-permission**. Add offline if the app works offline.
+4. **Worst-case data.** List the worst real data for each screen and check the design against it, using `docs/design/fixtures/`.
+5. **Layout and components.** Use existing design-system components and tokens first. A new component needs a reason in the spec. Show at most three directions, with one recommended.
+6. **Copy.** Write every label, button, empty state, error, and confirmation (rules below), and add new wording to DESIGN.md's copy table.
+7. **Accessibility.** Bake it into each decision (checklist below). It's not a final pass.
+8. **Spec.** Write `docs/design/STORY-n.md` using `references/spec-template.md`, and link it as evidence on the design task. After acceptance, revise with `STORY-n-r2.md`, never in place.
 
 ## Heuristics to check every design against
 
@@ -41,7 +44,7 @@ From Nielsen's ten usability heuristics:
 
 - Text contrast is at least 4.5:1, or 3:1 for large text, UI component borders, and focus indicators.
 - Everything works with a keyboard, the focus order follows the visual order, and focus is always visible and never hidden behind sticky UI.
-- Targets are at least 24 by 24 CSS pixels.
+- Targets are at least 24 by 24 CSS pixels, or DESIGN.md's size if it sets a larger one.
 - Every input has a visible label. Errors are announced and tied to their field.
 - Color is never the only signal.
 - Motion respects reduced-motion preferences. Nothing flashes more than 3 times per second.
@@ -56,4 +59,4 @@ From Nielsen's ten usability heuristics:
 
 ## Design review (when built UI reaches `review`)
 
-Compare the built UI to the spec. Request changes for a missing state, an accessibility failure, hard-coded values, or copy drift. Accept visual differences only if they're recorded and agreed. Attach screenshots of what you checked.
+Compare the built UI to the accepted spec and DESIGN.md. Request changes for a missing state, an accessibility failure, hard-coded values, or copy drift. Accept visual differences only if they're recorded and agreed. A new idea becomes a new design task, not a change to this one. Attach screenshots of what you checked.
