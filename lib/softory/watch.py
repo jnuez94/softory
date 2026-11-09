@@ -122,7 +122,9 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
             reasons.append({"why": why, "ids": changed(ids)})
     # A hold keeps the tracker's status, so a blocked unit freed by the owner fits no list above: wake its builder.
     # Until the unit changes after its release, a run that missed it retries it like other waiting work.
+    # A unit at its review cap still waits for Quinn or the owner, released or not.
     unhandled = in_scope([i for i, at in sorted(freed_at.items()) if i in board.by_id and i not in on_hold
+                          and i not in capped
                           and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
                           and str(board.by_id[i].get("updated_at") or "") <= at])
     freed = [i for i in unhandled if since is None or freed_at[i] > since]

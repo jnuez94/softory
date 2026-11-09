@@ -472,7 +472,16 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         elif row["id"] in designs:
             row["waits_for"] = f"its story's design, {designs[row['id']]}"
     on_hold = board.held
-    mine_held = sorted({i for i in [*claimed, *(r["id"] for r in to_review), *(a["id"] for a in assigned)]
+    # Assigned and claimed lists skip review, and ready_to_close skips held units, so look at the board too:
+    # a held unit the role builds or would close shows under held, whatever its status.
+    def closes(t: dict[str, Any]) -> bool:
+        closable = gate_rules.RECORD_STATUSES if gate_rules.spec_for(t, gates)[1].get("record") else ("review",)
+        return t["status"] in closable and agent in gate_rules.closers(t, gates)
+    theirs = {t["id"] for t in board.tasks if t["id"] in on_hold and t["status"] != "done"
+              and (agent in (t.get("assignees") or []) or closes(t))}
+    if scope is not None:
+        theirs &= set(scope)
+    mine_held = sorted({i for i in [*claimed, *(r["id"] for r in to_review), *(a["id"] for a in assigned), *theirs]
                         if i in on_hold})
     claimed = [i for i in claimed if i not in on_hold]
     to_review = [r for r in to_review if r["id"] not in on_hold]

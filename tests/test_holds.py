@@ -99,6 +99,21 @@ class HoldsTest(unittest.TestCase):
         self.assertEqual(json.loads(softory(self.root, "handoff", "TASK-1", "--actor", "jade").stdout)["status"],
                          "review")
 
+    def test_held_work_in_review_stays_in_its_builders_queue(self) -> None:
+        sha = self.commit("web/a.js", "a\n")
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
+        proposal = json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "ui_reference",
+                                      "--why", "a text-only fix", "--actor", "jade").stdout)
+        at_terminal(self.root, "approve", proposal["proposal"])
+        softory(self.root, "handoff", "TASK-1", "--actor", "jade")
+        ruling = json.loads(softory(self.root, "ruling", "--title", "Park it", "--decision", "Wait", "--where", "x",
+                                    "--actor", "quinn").stdout)["decision"]
+        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--actor", "quinn")
+        self.assertEqual([h["id"] for h in self.queue()["held"]], ["TASK-1"])
+
     def test_an_owner_ruling_defers_a_unit_until_lifted(self) -> None:
         refused = softory(self.root, "defer", "TASK-1", "--decision", "nope", "--actor", "quinn", check=False)
         self.assertIn("not_found", refused.stderr)

@@ -458,6 +458,11 @@ class UnattendedTest(unittest.TestCase):
             parked = json.loads(softory(self.root, "pending", "quinn", "--since", since, check=False).stdout)
             self.assertNotIn("TASK-1", json.dumps(parked["reasons"]))
         softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
+        for since in ("2000-01-01", "2999-01-01"):  # released, but still at the cap: the builder waits
+            builder = json.loads(softory(self.root, "pending", "jade", "--since", since, "--retry-hours", "0.0001",
+                                         check=False).stdout)
+            self.assertNotIn("TASK-1", json.dumps(builder["reasons"]))
+            self.assertEqual(builder["capped"], ["TASK-1"])
         self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
         refused = softory(self.root, "settle", "TASK-1", "retry", "--reason", "x", "--actor", "gold", check=False)
         self.assertIn("not_allowed", refused.stderr)
