@@ -53,6 +53,8 @@ Epics and stories don't sit in `in_progress` while children are built. A claim i
 5. When every task is done, Greg claims the story, adds evidence, and releases it to `review`. Darwin reviews it if it's tagged `ui`. **Greg** records acceptance.
 6. Greg closes it with `softory close STORY-n`.
 
+To amend a story's criteria after work started, Greg records the decision first (`softory ruling` for the owner's word, else `decision add`), then runs `task update STORY-n --acceptance "..." --if-revision <rev> --actor greg`. No claim is needed, and the change runs the feasibility check again.
+
 ## Task flow (function or bug fix)
 
 1. **Quinn** creates and assigns it. A bug can be filed by anyone with `softory new bug --type functional|visual [--found-at build|verify|review|acceptance|staging|production]`. A bug that turns out not to be a defect is dropped with `softory drop BUG-n --withdrawn --reason ...`. Greg sets its priority and Quinn sets its lane and assignee.

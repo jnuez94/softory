@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import charter, feasibility, lifecycle, runstate, sessions, verify, verifyenv
+from . import charter, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
@@ -37,8 +37,21 @@ def actor_of(explicit: str | None) -> str:
 
 def start(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
     """Start an execution session for a role and return shell exports."""
+    if harness:
+        check_harness(charter.load(project), role_id, harness)
     session_id = open_session(project, coord, role_id, harness, model)
     return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
+
+
+def check_harness(settings: dict[str, Any], role_id: str, harness: str) -> None:
+    """Refuse a harness the charter doesn't run the role on. Tablet had a Codex Jade review after the owner
+    ruled Jade runs on Claude (TASK-72). The owner allows more in the charter: ``models.<role>.also``."""
+    choice = (settings.get("models") or {}).get(role_id) or {}
+    allowed = {pick.get("harness") for pick in (choice, choice.get("escalate") or {}) if pick.get("harness")}
+    allowed |= set(choice.get("also") or [])
+    if allowed and harness not in allowed:
+        raise SoftoryError(f"The charter runs {role_id} on {', '.join(sorted(allowed))}, not {harness}. Start it "
+                           f"there, or ask the owner to add {harness} to models.{role_id}.also", "wrong_harness")
 
 
 def open_session(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
@@ -377,6 +390,14 @@ class Board:
         self.reviews = all_reviews(coord) if reviews is None else reviews
         self.children = children_by_parent(self.tasks)
         self._shown: dict[str, dict[str, Any]] = {}
+        self._held: dict[str, str] | None = None
+
+    @property
+    def held(self) -> dict[str, str]:
+        """Units held off every queue (an open escalation, an owner's deferral) -> why."""
+        if self._held is None:
+            self._held = holds.held(self.project, self.coord)
+        return self._held
 
     def show(self, task_id: str) -> dict[str, Any]:
         if task_id not in self._shown:
@@ -447,8 +468,16 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
             row["waits_for"] = "its story's feasibility check"
         elif row["id"] in designs:
             row["waits_for"] = f"its story's design, {designs[row['id']]}"
+    on_hold = board.held
+    mine_held = sorted({i for i in [*claimed, *(r["id"] for r in to_review), *(a["id"] for a in assigned)]
+                        if i in on_hold})
+    claimed = [i for i in claimed if i not in on_hold]
+    to_review = [r for r in to_review if r["id"] not in on_hold]
+    assigned = [a for a in assigned if a["id"] not in on_hold]
     result = {"agent": agent, "claimed": claimed, "ready_to_close": ready, "reviews_waiting": to_review,
               "assigned": assigned, "verify_queue": verifyenv.waiting(project)}
+    if mine_held:
+        result["held"] = [{"id": i, "why": on_hold[i]} for i in mine_held]
     if scope is not None:
         result["scoped_to"] = sorted(scope)
     return result
@@ -492,8 +521,11 @@ def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:
     """Units that pass the gate and that ``agent`` may close."""
     gates = board.gates
     accepting = set(gates["accepting_decisions"])
+    on_hold = getattr(board, "held", {})
     ready = []
     for summary in board.tasks:
+        if summary["id"] in on_hold:
+            continue  # waits for the owner
         unit, spec = gate_rules.spec_for(summary, gates)
         record = bool(spec.get("record"))
         closable = ("review", *gate_rules.RECORD_STATUSES) if record else ("review",)

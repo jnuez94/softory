@@ -12,6 +12,7 @@ from typing import Any
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
 from .coordination import Coordination
 from .install import SKILL_ROOTS
+from .errors import SoftoryError
 from .project import Project
 
 
@@ -147,6 +148,7 @@ def coord(project: Project, args: list[str]) -> int:
     for that role, for harnesses whose shells drop ``COORDINATION_SESSION``."""
     os.chdir(project.root)
     binary = str(project.coordination_bin)
+    _refuse_bare_handoff(project, Coordination(binary, project.root), args)
     if "--session" not in args and not os.environ.get("COORDINATION_SESSION"):
         role = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--agent", "--actor")), None)
         found = sessions.recall(project, role, sessions.open_check(Coordination(binary, project.root)))
@@ -154,6 +156,21 @@ def coord(project: Project, args: list[str]) -> int:
             args = ["--session", found, *args]
     os.execv(binary, [binary, *args])
     return 0  # unreachable
+
+
+def _refuse_bare_handoff(project: Project, coord: Coordination, args: list[str]) -> None:
+    """``task release <ID> --to review`` through softory gets the same check as ``softory handoff``."""
+    from . import gate  # noqa: PLC0415
+
+    at = args.index("release") if "release" in args else -1
+    if at < 1 or args[at - 1] != "task" or at + 1 >= len(args) or "--to" not in args:
+        return
+    if args[args.index("--to") + 1:args.index("--to") + 2] != ["review"]:
+        return
+    shown = coord.call("task", "show", args[at + 1])
+    reference = gate.ui_reference_check(shown["data"], project.gates()) if shown.get("ok") else None
+    if reference and not reference["pass"]:
+        raise SoftoryError(f"{args[at + 1]}: {reference['detail']}", "ui_reference_missing")
 
 
 def tracker(project: Project, args: list[str]) -> int:

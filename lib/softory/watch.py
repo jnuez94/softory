@@ -11,12 +11,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import decide, design, feasibility, grants, verify
+from . import decide, design, feasibility, grants, holds, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import allowed_tasks, is_paused
 from .gate import latest_reviews
 from .gate import spec_for as gate_spec
+from .gate import ui_reference_check as gate_ui
 from .work import Board, actor_of, queue
 
 
@@ -46,6 +47,9 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         touched[task_id] = max(touched.get(task_id, ""), passed)
     for task_id, done in design.released(board, charter).items():  # so does a finished design
         touched[task_id] = max(touched.get(task_id, ""), done)
+    for task_id, freed in holds.released(project, coord).items():  # and the owner's answer, or a deferral lifted
+        if task_id in touched:
+            touched[task_id] = max(touched[task_id], freed)
     for task_id, retried in decide.retried_at(project).items():  # so is an extra round past the review cap
         if task_id in touched:
             touched[task_id] = max(touched[task_id], retried)
@@ -83,11 +87,22 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     # A reviewer waits until softory saw the tests pass; the builder is woken to run or fix them instead.
     untested = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
                 and tests.get(t["id"]) in ("not run", "failed", "setup failed") and t["id"] not in sent_back]
-    reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")]
+    # A ui unit that reached review without its reference check goes back to its builder, not to reviewers.
+    unreferenced = {t["id"] for t in board.tasks if t["status"] == "review"
+                    and not (gate_ui(board.show(t["id"]), board.gates) or {"pass": True})["pass"]}
+    no_reference = [i for i in sorted(unreferenced) if agent in (board.by_id[i].get("assignees") or [])
+                    and i not in sent_back]
+    reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")
+               and t["id"] not in unreferenced]
     batching = _batch_hold(charter, reviews, touched, now)
+    on_hold = board.held  # waiting on the owner: nothing for the role to do yet
+    sent_back = [i for i in sent_back if i not in on_hold]
+    untested = [i for i in untested if i not in on_hold]
+    no_reference = [i for i in no_reference if i not in on_hold]
     waiting = {why: in_scope(ids) for why, ids in {
         "changes requested": sent_back,
         "tests not passed at the commit (run softory verify, fix if it fails)": untested,
+        "ui unit in review without its reference check (add one; reviewers wait for it)": no_reference,
         "reviews waiting": [] if batching else reviews,
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"

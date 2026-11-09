@@ -84,6 +84,9 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
 | `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
 | `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
+| `softory handoff <ID>` | Moves your claimed unit to review once it has evidence and, for a `ui` unit, its check against the design reference |
+| `softory report <ID> <file> [--type T] [--keep]` | Files a report or screenshot under `.coordination/softory/evidence/<ID>/` and records it as evidence. An untracked file is moved, so the main checkout stays clean |
+| `softory workspace <role> [commit]` | The role's reusable checkout of a commit for reviews, with `verify.share` folders linked from the main checkout. A worktree where git allows it, a snapshot where a sandbox protects `.git` |
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` / `close --ready` | Runs the gate, then moves it to done only if it passes. `--ready` closes every unit you may close that passes now |
@@ -106,13 +109,15 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory setup` | The owner's one-time checklist, with each step checked |
 | `softory setup --load-schedule` | Loads the runner's launchd job after you type yes (owner, at a terminal) |
 | `softory run [--dry-run]` / `run-role <role>` / `run-check <STORY>` | One runner tick: frees silent sessions' claims, applies escalation defaults that are due, starts each role that has work inside the budget, and starts one feasibility check when a story needs one |
-| `softory escalate --issue ... --ask "...?" --recommend ... --reversible yes\|no` | Asks the owner one question, with the option the role would take. One that can be undone applies after `decisions.default_after_hours` (24) with no answer |
+| `softory escalate --issue ... --ask "...?" --recommend ... --reversible yes\|no [--holds IDs]` | Asks the owner one question, with the option the role would take. One that can be undone applies after `decisions.default_after_hours` (24) with no answer. `--holds` takes units off every queue until the answer, which wakes their builders |
+| `softory defer <ID> --decision <id> [--until YYYY-MM-DD]` / `--lift` | Takes a unit off every queue on an owner's decision (an answer, or a `softory ruling`), until the date or until lifted |
 | `softory answer <ESC> "<answer>"` | Answers an escalation, or replaces one that defaulted; the role that asked is told (owner, at a terminal) |
 | `softory settle <ID> retry\|split\|drop --reason ... [--into IDs]` | Quinn settles a unit stopped at the review cap: one more round (once per unit), a split, or a drop. The owner settles the rest with `--actor owner` |
 | `softory feasible <STORY> --pass \| --needs "..." [--plan <hash>]` | The feasibility check's verdict, for the plan it read. Until a pass, the story's todo tasks wait; a new task or changed requirements after a pass are checked again; needs becomes a provisioning request in your digest |
 | `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task |
 | `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
+| `softory gc [--days 14] [--dry-run]` | Removes workspaces unused for that long, old run and verify logs, and verify trees a crashed run left in the temp folder |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
 `softory <command> --help` gives each command's options. The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
@@ -209,6 +214,15 @@ Softory assumes nothing about a harness beyond its command line in `run.harnesse
 - **Sessions survive fresh shells.** Claude Code runs each command in a new shell, so exported variables are gone by the next one. `softory start` remembers the session for the role; any `softory` command with `--actor <role>`, and `softory coord` commands that name `--agent` or `--actor`, find it. An ended session is never reused.
 - **Runtime state lives in `.coordination/softory/`**, beside the database: the run log, verify ledger and logs, escalations, proposals, feedback, and sessions. Codex's `workspace-write` sandbox protects `.agents/`, so a Codex role couldn't record feedback there. Rules stay in `.agents/softory`, read-only for every harness. The installer moves an older install's files over; reload the runner afterwards (`softory setup --load-schedule`) so its log follows.
 - **Verify doesn't need to write `.git`.** If `git worktree add` is refused (Codex protects `.git` too), verify checks out every tracked file of the commit through a temporary index outside `.git`. It doesn't use `git archive`, which honors `export-ignore`.
+- **The charter names each role's harness.** `softory start <role> --harness X` refuses a harness the charter doesn't run the role on. The owner allows more in `models.<role>.also`.
+
+### Waiting on the owner, and reviewing (0.5.5)
+
+- **Held work wakes nobody.** `softory escalate --holds TASK-n,...` takes those units off every queue, ready-to-close and `pending` while the escalation is open. The answer, or the default for an undoable one, releases them and wakes their builders. `softory defer <ID> --decision <id>` does the same on an owner's decision, until `--until` or `--lift`. `softory queue` lists held units with why.
+- **One workspace per reviewer.** `softory workspace <role> <commit>` replaces copies in /tmp. The verify ledger is the test proof, so reviewers don't rerun the suite.
+- **Reports live outside the checkout.** `softory report` files them under `.coordination/softory/evidence/<ID>/`, and `softory verify` warns when the main checkout has changed or untracked paths.
+- **A ui unit reaches review with its reference check.** `softory handoff` refuses without it, as does `softory coord task release ... --to review`. A ui unit in review without one wakes its builder, not its reviewers.
+- **`softory gc`** removes unused workspaces, old logs and leftover verify trees.
 
 Adding a harness takes one template line in the charter's `run.harnesses`, plus a parser in `usage.py` if you want its token counts.
 

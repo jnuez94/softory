@@ -1,0 +1,174 @@
+"""Work waiting on the owner wakes nobody, reviewers reuse one checkout, and evidence stays out of the
+main checkout (0.5.5, from the Tablet pilot)."""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import unittest
+
+from tests.helpers import coord, git_project, git_status, install, needs_sources, revision, run, softory
+from tests.test_workflow import at_terminal, start
+
+
+@needs_sources
+class HoldsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.holder, self.root = git_project({"README.md": "# app\n", ".gitignore": "node_modules/\n"})
+        self.addCleanup(self.holder.cleanup)
+        install(self.root)
+        softory(self.root, "new", "story", "--title", "See today", "--actor", "greg")
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "List",
+                "--tags", "ui", "--actor", "quinn")
+        self.approve({"feasibility": {"required": False}, "verify": {"share": ["node_modules"]}})
+
+    def approve(self, settings: dict) -> dict:
+        path = self.root / ".git" / "charter.json"
+        path.write_text(json.dumps(settings))
+        return at_terminal(self.root, "charter", "approve", str(path), "--merge")
+
+    def commit(self, name: str, text: str) -> str:
+        (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / name).write_text(text)
+        run(["git", "add", name], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", name], self.root)
+        return run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+
+    def queue(self, agent: str = "jade") -> dict:
+        return json.loads(softory(self.root, "queue", "--agent", agent).stdout)
+
+    def pending(self, agent: str = "jade") -> dict:
+        return json.loads(softory(self.root, "pending", agent, check=False).stdout)
+
+    def test_an_escalation_holds_its_units_until_the_answer(self) -> None:
+        self.assertEqual([a["id"] for a in self.queue()["assigned"]], ["TASK-1"])
+        made = json.loads(softory(self.root, "escalate", "--issue", "The chat provider needs a paid key.",
+                                  "--ask", "Buy the provider key?", "--recommend", "Use a fake provider",
+                                  "--reversible", "no", "--holds", "TASK-1", "--actor", "jade").stdout)
+        self.assertEqual(made["holds"], ["TASK-1"])
+        self.assertEqual(coord(self.root, "escalation", "show", made["escalation"])["data"]["related_tasks"], "TASK-1")
+        queued = self.queue()
+        self.assertEqual((queued["assigned"], [h["id"] for h in queued["held"]]), ([], ["TASK-1"]))
+        self.assertIn(made["escalation"], queued["held"][0]["why"])
+        self.assertFalse(self.pending()["pending"])
+        self.assertFalse(json.loads(softory(self.root, "pending", "jade", "--retry-hours", "0.0001",
+                                            check=False).stdout)["pending"])  # not even the retry
+        start(self.root, "jade")  # a finished session, so released work must be newer than its start
+        softory(self.root, "end", "--actor", "jade")
+        time.sleep(1.1)
+        at_terminal(self.root, "answer", made["escalation"], "Use a fake provider for now")
+        self.assertEqual([a["id"] for a in self.queue()["assigned"]], ["TASK-1"])
+        woke = self.pending()
+        self.assertTrue(woke["pending"])
+        self.assertIn("TASK-1", {i for r in woke["reasons"] for i in r.get("ids", [])})
+        self.assertIn("not_found", softory(self.root, "escalate", "--issue", "x y z.", "--ask", "Ok?",
+                                           "--recommend", "a", "--reversible", "no", "--holds", "TASK-99",
+                                           "--actor", "jade", check=False).stderr)
+
+    def test_an_owner_ruling_defers_a_unit_until_lifted(self) -> None:
+        refused = softory(self.root, "defer", "TASK-1", "--decision", "nope", "--actor", "quinn", check=False)
+        self.assertIn("not_found", refused.stderr)
+        coord(self.root, "decision", "add", "--id", "DEC-Q", "--title", "Mine", "--owner", "quinn",
+              "--status", "accepted", "--context", "c", "--decision", "d")
+        self.assertIn("not_allowed", softory(self.root, "defer", "TASK-1", "--decision", "DEC-Q", "--actor", "quinn",
+                                             check=False).stderr)
+        ruling = json.loads(softory(self.root, "ruling", "--title", "Park the list", "--decision", "Wait for v2",
+                                    "--where", "thread, 9 Nov", "--actor", "quinn").stdout)["decision"]
+        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--until", "2099-01-01", "--actor", "quinn")
+        self.assertEqual(self.queue()["assigned"], [])
+        self.assertIn("2099-01-01", self.queue()["held"][0]["why"])
+        softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
+        self.assertEqual([a["id"] for a in self.queue()["assigned"]], ["TASK-1"])
+
+    def test_handoff_needs_the_reference_check_for_ui_work(self) -> None:
+        sha = self.commit("web/a.js", "a\n")
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        refused = softory(self.root, "handoff", "TASK-1", "--actor", "jade", check=False)
+        self.assertIn("evidence_required", refused.stderr)
+        softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
+        refused = softory(self.root, "handoff", "TASK-1", "--actor", "jade", check=False)
+        self.assertIn("ui_reference_missing", refused.stderr)
+        bare = softory(self.root, "coord", "task", "release", "TASK-1", "--to", "review", "--actor", "jade",
+                       "--if-revision", revision(self.root, "TASK-1"), check=False)
+        self.assertIn("ui_reference_missing", bare.stderr)
+        shot = self.root / "shot.png"
+        shot.write_bytes(b"png")
+        filed = json.loads(softory(self.root, "report", "TASK-1", str(shot), "--type", "reference",
+                                   "--actor", "jade").stdout)
+        self.assertTrue(filed["moved"])
+        self.assertFalse(shot.exists())
+        self.assertTrue((self.root / filed["uri"]).is_file())
+        self.assertEqual(git_status(self.root), "")  # the checkout stays clean
+        handed = json.loads(softory(self.root, "handoff", "TASK-1", "--actor", "jade").stdout)
+        self.assertEqual(handed["status"], "review")
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["status"], "review")
+        tracked = json.loads(softory(self.root, "report", "TASK-1", str(self.root / "README.md"),
+                                     "--actor", "jade").stdout)
+        self.assertFalse(tracked["moved"])  # a tracked file is copied, never taken
+        self.assertTrue((self.root / "README.md").is_file())
+
+    def test_a_reviewer_reuses_one_workspace(self) -> None:
+        (self.root / "node_modules").mkdir()
+        (self.root / "node_modules/dep.js").write_text("dep\n")
+        first = self.commit("web/a.js", "a\n")
+        second = self.commit("web/b.js", "b\n")
+        made = json.loads(softory(self.root, "workspace", "gold", first).stdout)
+        tree = self.root / ".coordination/softory/workspaces/gold"
+        self.assertEqual((made["mode"], made["workspace"]), ("worktree", str(tree)))
+        self.assertTrue((tree / "web/a.js").is_file())
+        self.assertFalse((tree / "web/b.js").exists())
+        self.assertTrue((tree / "node_modules/dep.js").is_file())
+        (tree / "scratch.txt").write_text("left over\n")
+        moved = json.loads(softory(self.root, "workspace", "gold", second).stdout)
+        self.assertEqual((moved["mode"], moved["commit"]), ("worktree", second))
+        self.assertTrue((tree / "web/b.js").is_file())
+        self.assertFalse((tree / "scratch.txt").exists())
+        self.assertTrue((self.root / "node_modules/dep.js").is_file())  # the shared folder is never touched
+        run(["git", "worktree", "remove", "--force", str(tree)], self.root)
+        (self.root / ".git/worktrees").write_text("")  # as under a .git-protecting sandbox
+        snap = json.loads(softory(self.root, "workspace", "gold", first).stdout)
+        self.assertEqual(snap["mode"], "snapshot")
+        self.assertTrue((tree / "web/a.js").is_file())
+
+    def test_start_refuses_a_harness_the_charter_doesnt_name(self) -> None:
+        refused = softory(self.root, "start", "jade", "--harness", "codex", check=False)
+        self.assertIn("wrong_harness", refused.stderr)
+        self.approve({"models": {"jade": {"harness": "claude", "model": "m", "escalate": None, "also": ["codex"]}}})
+        allowed = softory(self.root, "start", "jade", "--harness", "codex")
+        self.assertIn("COORDINATION_SESSION=jade-codex-", allowed.stdout)
+
+    def test_gc_removes_old_logs_and_idle_workspaces(self) -> None:
+        softory(self.root, "workspace", "gold")
+        logs = self.root / ".coordination/softory/logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        old, new = logs / "jade-old.out", logs / "jade-new.out"
+        old.write_text("x" * 1000)
+        new.write_text("y")
+        week_ago = time.time() - 30 * 86400
+        os.utime(old, (week_ago, week_ago))
+        os.utime(self.root / ".coordination/softory/workspaces/gold", (week_ago, week_ago))
+        listed = json.loads(softory(self.root, "gc", "--dry-run").stdout)
+        self.assertEqual(listed["would_remove"], {"workspace": 1, "log": 1})
+        self.assertTrue(old.exists())
+        json.loads(softory(self.root, "gc").stdout)
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists())
+        self.assertFalse((self.root / ".coordination/softory/workspaces/gold").exists())
+        self.assertNotIn("workspaces/gold", run(["git", "worktree", "list"], self.root).stdout)
+
+    def test_verify_warns_about_loose_files_in_the_checkout(self) -> None:
+        self.approve({"verify": {"command": "true"}})
+        sha = self.commit("web/a.js", "a\n")
+        coord(self.root, "evidence", "add", "--task", "TASK-1", "--uri", f"commit:{sha}", "--type", "commit",
+              "--actor", "jade")
+        (self.root / "review-notes.md").write_text("notes\n")
+        result = json.loads(softory(self.root, "verify", "TASK-1", "--actor", "jade").stdout)
+        self.assertTrue(result["passed"])
+        self.assertIn("review-notes.md", result["warning"])
+
+
+if __name__ == "__main__":
+    unittest.main()

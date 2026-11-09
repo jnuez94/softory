@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, external, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, worktree
+from . import __version__, external, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -96,6 +96,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("start", nargs="?", help="Commit or branch to start from (default: HEAD)")
     p.add_argument("--share", action="append", help="Also link this untracked path, e.g. .web/node_modules (repeatable)")
 
+    p = sub.add_parser("workspace", help="Your reusable checkout of a commit for reviews, dependencies linked")
+    p.add_argument("role")
+    p.add_argument("commit", nargs="?", help="Default: HEAD")
+
+    p = sub.add_parser("gc", help="Remove unused workspaces, old logs, and verify trees a crashed run left")
+    p.add_argument("--days", type=float, default=14.0, help="Older than this many days (default 14)")
+    p.add_argument("--dry-run", action="store_true", help="Only list what would go")
+
     p = sub.add_parser("standin", help="Let an existing agent act for a softory role (owner only, at a terminal)")
     standin = p.add_subparsers(dest="standin_command", required=True)
     standin.add_parser("list")
@@ -149,6 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("stack", help="Group work built on top of other work, bottom first, to close together")
     p.add_argument("ids", nargs="+", metavar="ID")
+    p.add_argument("--actor", help="Default: $SOFTORY_ROLE")
+    p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
+
+    p = sub.add_parser("handoff", help="Move your claimed unit to review once it has evidence and, for ui, its "
+                                       "reference check")
+    p.add_argument("id")
+    p.add_argument("--note", default="")
     p.add_argument("--actor", help="Default: $SOFTORY_ROLE")
     p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
 
@@ -281,6 +296,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         result = worktree.add(project, Path(args.path).resolve(), args.branch, args.start, args.share)
         print(ops.dumps(result), end="")
         return 0 if not result["git_status_changes"] else 2
+    elif args.command == "workspace":
+        print(ops.dumps(workspace.workspace(project, args.role, args.commit)), end="")
+    elif args.command == "gc":
+        print(ops.dumps(workspace.gc(project, args.days, args.dry_run)), end="")
     elif args.command == "standin":
         if args.standin_command == "list":
             print(ops.dumps(owner.stand_in_rows(project)), end="")
@@ -310,6 +329,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(result), end="")
     elif args.command == "stack":
         print(ops.dumps(lifecycle.stack(project, coord, args.ids, work.actor_of(args.actor))), end="")
+    elif args.command == "handoff":
+        print(ops.dumps(lifecycle.handoff(project, coord, args.id, work.actor_of(args.actor), args.note)), end="")
     elif args.command == "gate":
         result = work.gate(project, coord, args.id, args.actor)
         print(ops.dumps(result), end="")

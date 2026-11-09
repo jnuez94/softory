@@ -33,6 +33,27 @@ def update_tags(coord: Coordination, task: dict[str, Any], tags: list[str], acto
               "--if-revision", str(task["revision"]), session=task.get("claimed_by") == actor)
 
 
+def handoff(project: Project, coord: Coordination, task_id: str, actor: str, note: str = "") -> dict[str, Any]:
+    """Move a claimed unit to review, once it has what reviewers need: evidence and, for a ui unit, its
+    rendered check against the design reference. Both used to show only at close, after a review round."""
+    from .units import live_evidence  # noqa: PLC0415
+
+    task = coord.task(task_id)
+    if task["status"] != "in_progress" or task.get("claimed_by") != actor:
+        raise SoftoryError(f"{task_id} isn't in progress under your claim ({task['status']}, "
+                           f"claimed by {task.get('claimed_by') or 'nobody'})", "invalid_task_state")
+    if not live_evidence(task.get("evidence")):
+        raise SoftoryError(f"{task_id} has no evidence: record the commit with softory commit first",
+                           "evidence_required")
+    reference = gate_rules.ui_reference_check(task, project.gates())
+    if reference and not reference["pass"]:
+        raise SoftoryError(f"{task_id}: {reference['detail']}", "ui_reference_missing")
+    extra = ["--note", note] if note else []
+    coord.run("task", "release", task_id, "--to", "review", "--actor", actor, "--if-revision",
+              str(task["revision"]), *extra, session=True)
+    return {"task": task_id, "status": "review", "next": f"softory reviewers {task_id}, then message each one"}
+
+
 def move_to_done(coord: Coordination, task_id: str, actor: str, note: str, because: str | None = None) -> None:
     """Take a task to done through the moves the scaffold allows.
 
