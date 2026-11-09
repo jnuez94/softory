@@ -102,6 +102,9 @@ def defer(project: Project, coord: Coordination, unit: str, decision: str, until
         raise SoftoryError(f"No decision {decision}. Record the owner's word first with softory ruling", "not_found")
     if shown["data"].get("owner_id") != owner:
         raise SoftoryError(f"{decision} isn't the owner's decision; only the owner defers work", "not_allowed")
+    if shown["data"].get("status") != "accepted":
+        raise SoftoryError(f"{decision} is {shown['data'].get('status')}, not accepted: a proposal the owner hasn't "
+                           "approved, or one they rejected, defers nothing", "not_allowed")
     if until:
         try:
             if date.fromisoformat(until) < _today():

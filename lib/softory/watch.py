@@ -179,7 +179,10 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     """(messages that need the role, the rest). A message needs the role when the owner sent it, it carries an
     action tag, or it names a unit the role builds, holds, reviewed, or owes a review or a close on.
     Acknowledgements and news wake nobody: each woke a paid run in Tablet, and replies woke the sender back.
+    A message about a held unit wakes the role only when the owner sent it; otherwise it counts for neither
+    list, so it can't start a run, even on the retry, while the unit waits for the owner.
     """
+    on_hold = getattr(board, "held", {})
     mine = {t["id"] for t in board.tasks if agent in (t.get("assignees") or []) or t.get("claimed_by") == agent}
     mine |= {task_id for task_id, rows in board.reviews.items()
              if any((r.get("reviewer_id") or r.get("reviewer")) == agent for r in rows)}
@@ -187,8 +190,11 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     owner = board.project.roster()["owner"]["id"]
     wanted, rest = [], []
     for message in unread:
+        from_owner = message.get("sender_id") == owner
+        if message.get("task_id") in on_hold and not from_owner:
+            continue
         tags = {t.strip().lower() for t in str(message.get("tags") or "").split(",") if t.strip()}
-        needed = message.get("sender_id") == owner or tags & ACTION_TAGS or message.get("task_id") in mine
+        needed = from_owner or tags & ACTION_TAGS or message.get("task_id") in mine
         (wanted if needed else rest).append(message)
     return wanted, rest
 

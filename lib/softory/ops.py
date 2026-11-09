@@ -157,16 +157,44 @@ def coord(project: Project, args: list[str]) -> int:
     return 0  # unreachable
 
 
+#: The coordination CLI's global options that take a value, and ``task release``'s.
+_GLOBAL_VALUES = {"--session", "--db"}
+_RELEASE_VALUES = {"--to", "--actor", "--if-revision", "--note"}
+
+
+def _release_to_review(args: list[str]) -> str | None:
+    """The task a ``task release ... --to review`` command moves to review, however its arguments are
+    ordered or spelled (``--to review`` or ``--to=review``), or None for any other command."""
+    i = 0
+    while i < len(args) and args[i].startswith("-"):  # global options come before the command
+        i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    if args[i:i + 2] != ["task", "release"]:
+        return None
+    task, to, rest = None, None, args[i + 2:]
+    j = 0
+    while j < len(rest):
+        token = rest[j]
+        if token.startswith("--"):
+            name, _, value = token.partition("=")
+            if not _ and name in _RELEASE_VALUES:
+                value = rest[j + 1] if j + 1 < len(rest) else ""
+                j += 1
+            if name == "--to":
+                to = value
+        elif task is None:
+            task = token
+        j += 1
+    return task if to == "review" and task else None
+
+
 def _refuse_bare_handoff(project: Project, coord: Coordination, args: list[str]) -> None:
     """``task release <ID> --to review`` through softory gets the same checks as ``softory handoff``."""
     from .lifecycle import ready_for_review  # noqa: PLC0415
 
-    at = args.index("release") if "release" in args else -1
-    if at < 1 or args[at - 1] != "task" or at + 1 >= len(args) or "--to" not in args:
+    task_id = _release_to_review(args)
+    if task_id is None:
         return
-    if args[args.index("--to") + 1:args.index("--to") + 2] != ["review"]:
-        return
-    shown = coord.call("task", "show", args[at + 1])
+    shown = coord.call("task", "show", task_id)
     if shown.get("ok"):  # an unknown task fails in the CLI itself, with its own error
         ready_for_review(project, shown["data"])
 

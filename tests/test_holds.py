@@ -108,7 +108,17 @@ class HoldsTest(unittest.TestCase):
                                              check=False).stderr)
         ruling = json.loads(softory(self.root, "ruling", "--title", "Park the list", "--decision", "Wait for v2",
                                     "--where", "thread, 9 Nov", "--actor", "quinn").stdout)["decision"]
+        coord(self.root, "decision", "add", "--id", "DEC-ASK", "--title", "Asked", "--owner", "owner",
+              "--status", "proposed", "--context", "c", "--decision", "d")
+        self.assertIn("not accepted", softory(self.root, "defer", "TASK-1", "--decision", "DEC-ASK",
+                                              "--actor", "quinn", check=False).stderr)
         softory(self.root, "defer", "TASK-1", "--decision", ruling, "--until", "2099-01-01", "--actor", "quinn")
+        coord(self.root, "message", "send", "--id", "MSG-FYI", "--sender", "quinn", "--recipient", "jade",
+              "--task", "TASK-1", "--body", "FYI on the list")
+        self.assertFalse(self.pending()["pending"])  # news about held work wakes nobody
+        time.sleep(1.1)
+        self.assertFalse(json.loads(softory(self.root, "pending", "jade", "--retry-hours", "0.0001",
+                                            check=False).stdout)["pending"])  # not even on the retry
         self.assertEqual(self.queue()["assigned"], [])
         self.assertIn("2099-01-01", self.queue()["held"][0]["why"])
         softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
@@ -145,9 +155,12 @@ class HoldsTest(unittest.TestCase):
         softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
         refused = softory(self.root, "handoff", "TASK-1", "--actor", "jade", check=False)
         self.assertIn("ui_reference_missing", refused.stderr)
-        bare = softory(self.root, "coord", "task", "release", "TASK-1", "--to", "review", "--actor", "jade",
-                       "--if-revision", revision(self.root, "TASK-1"), check=False)
-        self.assertIn("ui_reference_missing", bare.stderr)
+        rev = revision(self.root, "TASK-1")
+        for spelling in (["TASK-1", "--to", "review", "--actor", "jade", "--if-revision", rev],
+                         ["TASK-1", "--to=review", "--actor", "jade", "--if-revision", rev],
+                         ["--actor", "jade", "TASK-1", "--to", "review", "--if-revision", rev]):
+            bare = softory(self.root, "coord", "task", "release", *spelling, check=False)
+            self.assertIn("ui_reference_missing", bare.stderr, spelling)
         shot = self.root / "shot.png"
         shot.write_bytes(b"png")
         filed = json.loads(softory(self.root, "report", "TASK-1", str(shot), "--type", "reference",
