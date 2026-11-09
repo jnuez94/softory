@@ -25,7 +25,7 @@ Models with no role: Sonnet 5.5 scores below Opus 5.5 everywhere above and used 
 
 ## Effort and real cost
 
-Reviews run at `effort.review` (medium) and builds at `effort.build` (high), so a review doesn't pay for build-level reasoning; set `models.<role>.effort` to raise one role, such as Toby's reviews. Every run now logs the tokens and dollars its harness reports, so after a week `softory usage` and `.agents/softory/run/runs.jsonl` show what each role really costs, which is a better guide than the benchmark costs above.
+Reviews run at `effort.review` (medium) and builds at `effort.build` (high), so a review doesn't pay for build-level reasoning; set `models.<role>.effort` to raise one role, such as Toby's reviews. Every run now logs the tokens and dollars its harness reports, so after a week `softory usage` and `.coordination/softory/runs.jsonl` show what each role really costs, which is a better guide than the benchmark costs above.
 
 ## Caveats
 

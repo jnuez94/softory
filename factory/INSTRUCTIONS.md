@@ -17,6 +17,8 @@ eval "$(.agents/softory/bin/softory start <role> --harness <claude|codex> --mode
 | `gold` | Sr. Software Engineer | `lane:backend` and `lane:infra` tasks |
 | `toby` | Security Engineer | threat models, security reviews, severity |
 
+If your harness drops shell variables between commands, pass `--actor <role>` to softory commands: softory finds the session it opened for you.
+
 Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per session. Read another role's profile only when you need it.
 
 ### Rules every role follows
@@ -38,5 +40,6 @@ Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per sessi
 - Use `softory queue` and `softory inbox` instead of listing everything. Pass `--limit` and `--section` to coordination list and health calls.
 - Search, then read line ranges. Trim command output to the failures. Read the diff for reviews, not the repository.
 - Lead with the result. Records are short: evidence is a link plus one line, and a review lists the blocking items.
+- A message wakes its recipient for a paid run when it names their unit (`--task`) or is tagged `request`. Never send acknowledgements or FYIs; news waits for their next run.
 
 `.agents/softory/bin/softory --help` lists every command. In a git worktree, run `softory link` first (or create it with `softory worktree add`), and run coordination commands as `softory coord <args>`.

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from . import __version__, external, feedback, lifecycle, messages, ops, owner, records, team, unattended, watch, work, worktree
+from . import __version__, external, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -84,7 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--share", action="append", help="Also link this untracked path, e.g. .web/node_modules (repeatable)")
 
     p = sub.add_parser("end", help="End your coordination session")
-    p.add_argument("--session", help="Default: $COORDINATION_SESSION")
+    p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
+    p.add_argument("--actor", help="Default: $SOFTORY_ROLE")
 
     p = sub.add_parser("worktree", help="Create a git worktree with softory linked in")
     wt = p.add_subparsers(dest="worktree_command", required=True)
@@ -143,10 +145,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--superseded-by", metavar="ID", help="The unit that replaces it")
     p.add_argument("--withdrawn", action="store_true", help="A bug that turned out not to be a defect")
     p.add_argument("--actor", help="Who drops it (default: $SOFTORY_ROLE)")
+    p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
 
     p = sub.add_parser("stack", help="Group work built on top of other work, bottom first, to close together")
     p.add_argument("ids", nargs="+", metavar="ID")
     p.add_argument("--actor", help="Default: $SOFTORY_ROLE")
+    p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
 
     p = sub.add_parser("gate", help="Check whether a unit may move to done")
     p.add_argument("id")
@@ -157,6 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ready", action="store_true", help="Close every unit you may close that passes its gate now")
     p.add_argument("--stack", action="store_true", help="Close the unit's whole stack together, or none of it")
     p.add_argument("--actor", help="Who is closing it (default: $SOFTORY_ROLE)")
+    p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
 
     p = sub.add_parser("reviewers", help="Who must review a unit, and where each review stands")
     p.add_argument("id")
@@ -239,7 +244,11 @@ def _dispatch(args: argparse.Namespace) -> int:
         return 0 if not result["git_status_changes"] else 2
 
     project = Project.find()
-    coord = Coordination(project.coordination_bin, project.root)
+    coord = Coordination(project.coordination_bin, project.root, getattr(args, "session", None))
+    if not coord.session and args.command not in ("start", "install"):
+        # The harness's shell may have dropped the exports: use the session softory opened for the role.
+        role = getattr(args, "actor", None) or os.environ.get("SOFTORY_ROLE")
+        coord.session = sessions.recall(project, role, sessions.open_check(coord))
     if args.command in unattended.COMMANDS:
         return unattended.dispatch(args, project, coord)
     if args.command in records.COMMANDS:
@@ -257,7 +266,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         options = dict(vars(args), actor=work.actor_of(args.actor))
         print(ops.dumps(team.adopt(project, coord, args.id, args.unit, options)), end="")
     elif args.command == "end":
-        print(ops.dumps(work.end(coord, args.session)), end="")
+        print(ops.dumps(work.end(project, coord, args.session)), end="")
     elif args.command == "feedback":
         result = {"notes": feedback.entries(project)} if args.list else feedback.add(
             project, args.note or "", args.kind, args.task, args.actor)

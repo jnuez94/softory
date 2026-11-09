@@ -7,6 +7,7 @@ import os
 import shlex
 import stat
 import subprocess
+import time
 import unittest
 from pathlib import Path
 
@@ -557,10 +558,18 @@ class WorkflowTest(unittest.TestCase):
         softory(self.root, "end", "--session", session)
         idle = softory(self.root, "pending", "jade", check=False)
         self.assertEqual((idle.returncode, json.loads(idle.stdout)["reasons"]), (3, []))
+        coord(self.root, "message", "send", "--id", "MSG-0", "--sender", "greg", "--recipient", "jade",
+              "--body", "Thanks, noted")
+        news = softory(self.root, "pending", "jade", check=False)
+        self.assertEqual(news.returncode, 3)  # an acknowledgement wakes nobody
+        time.sleep(1.1)  # timestamps are to the second
+        stale = softory(self.root, "pending", "jade", "--retry-hours", "0.0001", check=False)
+        self.assertEqual(json.loads(stale.stdout)["reasons"][0]["why"], "unread messages waiting")  # read on a later run
         coord(self.root, "message", "send", "--id", "MSG-1", "--sender", "quinn", "--recipient", "jade",
-              "--body", "TASK-1 needs a loading state")
+              "--task", "TASK-1", "--body", "TASK-1 needs a loading state")
         mail = softory(self.root, "pending", "jade", check=False)
-        self.assertEqual((mail.returncode, json.loads(mail.stdout)["reasons"]), (0, [{"why": "unread messages", "count": 1}]))
+        self.assertEqual((mail.returncode, json.loads(mail.stdout)["reasons"]),
+                         (0, [{"why": "messages that need you", "count": 1}]))
 
     def test_triage_flags_stale_sessions(self) -> None:
         session = start(self.root, "darwin")["COORDINATION_SESSION"]

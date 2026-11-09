@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from . import charter, feasibility, lifecycle, runstate, verify, verifyenv
+from . import charter, feasibility, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
@@ -18,6 +18,7 @@ from .units import (
     check_parent,
     children_by_parent,
     lane_of,
+    live_evidence,
     next_id,
     parent_of,
     resolution_of,
@@ -36,6 +37,12 @@ def actor_of(explicit: str | None) -> str:
 
 def start(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
     """Start an execution session for a role and return shell exports."""
+    session_id = open_session(project, coord, role_id, harness, model)
+    return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
+
+
+def open_session(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
+    """Start a session for a role, remember it for commands whose shell lost the exports, and return its ID."""
     role = project.role(role_id)
     if not model or not harness:  # usage and reviews compare models, so a session always names one
         pick = (charter.load(project).get("models") or {}).get(role_id) or {}
@@ -51,15 +58,18 @@ def start(project: Project, coord: Coordination, role_id: str, harness: str | No
         args += ["--model", model]
     coord.run(*args)
     runstate.note_start(project, role_id, session_id)
-    return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
+    sessions.remember(project, role_id, session_id)
+    return session_id
 
 
-def end(coord: Coordination, session: str | None) -> dict[str, Any]:
+def end(project: Project, coord: Coordination, session: str | None) -> dict[str, Any]:
     """End the session ``softory start`` opened, so its claims don't go stale."""
-    session = session or os.environ.get("COORDINATION_SESSION")
+    session = session or coord.session
     if not session:
-        raise SoftoryError("No session to end: pass --session or set COORDINATION_SESSION", "invalid_arguments")
+        raise SoftoryError("No session to end: pass --session or --actor, or set COORDINATION_SESSION",
+                           "invalid_arguments")
     coord.run("session", "end", session)
+    sessions.forget(project, session)
     return {"ended": session}
 
 
@@ -413,10 +423,14 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         latest = gate_rules.latest_reviews(task)
         built_by = gate_rules.builders(task)
         for requirement in gate_rules.required_reviews(task, gates):
-            if gate_rules.may_review(requirement, agent, built_by):
-                if latest.get(agent, {}).get("decision") not in gates["accepting_decisions"]:
-                    to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
-                break
+            if not gate_rules.may_review(requirement, agent, built_by):
+                continue
+            owed = review_owed(task, requirement, agent, built_by, latest, set(gates["accepting_decisions"]))
+            if owed is None:
+                continue  # another listed reviewer already covered it; maybe the next requirement is the agent's
+            if owed:
+                to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
+            break
     ready = ready_to_close(board, agent)
     scope = runstate.scope_for(project, agent)
     if scope is not None:  # paused, with the owner's leave to work on these tasks only
@@ -437,6 +451,26 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
     if scope is not None:
         result["scoped_to"] = sorted(scope)
     return result
+
+
+def review_owed(task: dict[str, Any], requirement: dict[str, Any], agent: str, built_by: set[str],
+                latest: dict[str, dict[str, Any]], accepting: set[str]) -> bool | None:
+    """Whether ``agent`` owes ``task`` a review for ``requirement``: True, False (nothing to do now),
+    or None (someone else satisfied the requirement, so it isn't the agent's).
+
+    A reviewer who asked for changes owes a new pass only once new evidence lands after that request;
+    until then the builder has the move.
+    """
+    mine = latest.get(agent)
+    if mine and mine.get("decision") in accepting:
+        return False
+    if mine:
+        asked = str(mine.get("created_at") or "")
+        newer = [r for r in live_evidence(task.get("evidence")) if str(r.get("created_at") or "9") > asked]
+        return bool(newer)
+    covered = any(latest.get(r, {}).get("decision") in accepting
+                  for r in gate_rules.eligible(requirement, built_by, latest) if r != agent)
+    return None if covered else True
 
 
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:

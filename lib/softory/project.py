@@ -8,7 +8,7 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from . import BUNDLE_DIR, COORDINATION_BIN, grants
+from . import BUNDLE_DIR, COORDINATION_BIN, STATE_DIR, grants
 from .errors import SoftoryError
 from .gitlocal import main_checkout
 
@@ -48,6 +48,11 @@ class Project:
     @property
     def bundle(self) -> Path:
         return self.root / BUNDLE_DIR
+
+    @property
+    def state(self) -> Path:
+        """Where softory writes while it runs. Not rules: nothing here is hashed or read-only."""
+        return self.root / STATE_DIR
 
     @property
     def coordination_bin(self) -> Path:
@@ -116,7 +121,7 @@ class Project:
 
     def proposals_path(self) -> Path:
         """Changes agents propose for the owner to approve. Proposing grants nothing."""
-        return self.bundle / "proposals.json"
+        return self.state / "proposals.json"
 
     def integrity_changes(self) -> list[str] | None:
         """Protected files that differ from the install, or None for an install from before 0.3.0."""

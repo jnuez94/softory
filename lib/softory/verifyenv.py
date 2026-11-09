@@ -25,7 +25,7 @@ from .project import Project
 
 
 def _queue_file(project: Project) -> Path:
-    return project.bundle / "run" / "verify-queue.json"
+    return project.state / "verify-queue.json"
 
 
 def waiting(project: Project) -> list[dict[str, Any]]:
@@ -40,7 +40,7 @@ def waiting(project: Project) -> list[dict[str, Any]]:
 @contextlib.contextmanager
 def turn(project: Project, task_id: str, actor: str) -> Iterator[None]:
     """Wait for this project's verify lock, showing the wait in the queue file, and hold it while running."""
-    run_dir = project.bundle / "run"
+    run_dir = project.state
     run_dir.mkdir(parents=True, exist_ok=True)
     me = {"task": task_id, "by": actor, "pid": os.getpid(),
           "since": datetime.now(timezone.utc).isoformat(timespec="seconds")}
