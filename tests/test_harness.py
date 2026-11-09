@@ -7,12 +7,14 @@ import json
 import sys
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tests.helpers import REPO
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import runner, watch, work  # noqa: E402
+from softory import digest, runner, watch, work  # noqa: E402
+from softory.coordination import Coordination  # noqa: E402
 from tests.helpers import COORDINATION, coord, git_project, git_status, install, needs_sources, revision, run, softory
 from tests.test_workflow import at_terminal, failing, gate, start
 
@@ -138,6 +140,48 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(queue(), [])  # the builder has the move, though its evidence may share the second
         coord(self.root, "evidence", "add", "--task", "TASK-1", "--uri", "commit:2", "--type", "commit", "--actor", "jade")
         self.assertEqual(queue(), ["TASK-1"])
+
+    def test_retracting_evidence_answers_a_request_for_changes(self) -> None:
+        self.build("TASK-1", "jade", "1")
+        self.review("TASK-1", "gold", "changes_requested")
+        queue = lambda: [r["id"] for r in json.loads(softory(self.root, "queue", "--agent", "gold").stdout)["reviews_waiting"]]
+        self.assertEqual(queue(), [])
+        row = coord(self.root, "task", "show", "TASK-1")["data"]["evidence"][0]
+        softory(self.root, "supersede", "TASK-1", str(row["id"]), "--reason", "wrong commit", "--actor", "jade")
+        self.assertEqual(queue(), ["TASK-1"])
+
+    def test_an_interrupted_runner_stops_the_harness_before_handing_back_claims(self) -> None:
+        import signal
+        import subprocess
+
+        script = (f"{COORDINATION} --session \"$COORDINATION_SESSION\" task claim TASK-1 --agent jade "
+                  f"--if-revision {revision(self.root, 'TASK-1')}; sleep 4; touch .git/late")
+        self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script]}},
+                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+                      "feasibility": {"required": False}})
+        runner_process = subprocess.Popen([str(self.root / ".agents/softory/bin/softory"), "run-role", "jade"],
+                                          cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for _ in range(100):
+            if coord(self.root, "task", "show", "TASK-1")["data"].get("claimed_by") == "jade":
+                break
+            time.sleep(0.1)
+        runner_process.send_signal(signal.SIGINT)
+        runner_process.communicate(timeout=60)
+        task = coord(self.root, "task", "show", "TASK-1")["data"]
+        self.assertEqual((task["status"], task.get("claimed_by")), ("todo", None))
+        time.sleep(4.5)
+        self.assertFalse((self.root / ".git/late").exists())  # the harness was stopped, not left editing
+
+    def test_the_week_counts_moves_to_done_not_edits(self) -> None:
+        softory(self.root, "start", "quinn")
+        softory(self.root, "drop", "TASK-1", "--reason", "not needed", "--actor", "quinn")
+        connection = Coordination(self.root / COORDINATION, self.root)
+        self.assertEqual(digest.closed_since(connection, "2000-01-01T00:00:00+00:00"), {"TASK-1"})
+        time.sleep(1.1)
+        after = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        coord(self.root, "task", "update", "TASK-1", "--title", "Renamed", "--actor", "quinn",
+              "--if-revision", revision(self.root, "TASK-1"))
+        self.assertEqual(digest.closed_since(connection, after), set())  # an edit isn't a delivery
 
     def test_runs_record_what_they_changed_and_the_digest_sums_it(self) -> None:
         (self.root / ".git/report.json").write_text(json.dumps({"total_cost_usd": 0.25,

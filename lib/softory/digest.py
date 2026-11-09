@@ -146,8 +146,15 @@ def build(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
 def week(project: Project, coord: Coordination, days: float = 7) -> dict[str, Any]:
     """What the runner spent over ``days`` and what it bought: units closed, and runs that changed nothing."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
-    closed = sum(1 for t in coord.all_tasks("--status", "done") if str(t.get("updated_at", "")) >= since)
-    return usage.week(all_runs(project), closed, days)
+    return usage.week(all_runs(project), len(closed_since(coord, since)), days)
+
+
+def closed_since(coord: Coordination, since: str) -> set[str]:
+    """Units moved to done at or after ``since``, from the audit log. A done task's ``updated_at`` also moves
+    when someone edits it, which would count old work as delivered."""
+    rows = coord.all_rows("audit", "list", "--object-type", "task", "--action", "status")
+    return {str(r["object_id"]) for r in rows
+            if str(r.get("created_at", "")) >= since and "-> done;" in f"{r.get('detail', '')};"}
 
 
 def _week_lines(spent: dict[str, Any]) -> str:
