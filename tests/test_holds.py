@@ -141,6 +141,15 @@ class HoldsTest(unittest.TestCase):
         self.assertTrue(woke["pending"], woke)
         self.assertIn({"why": "held work released: the owner answered, or the deferral ended", "ids": ["TASK-1"]},
                       woke["reasons"])
+        start(self.root, "jade")  # a run that ends without touching the unit
+        softory(self.root, "end", "--actor", "jade")
+        time.sleep(1.1)
+        retry = lambda: json.loads(softory(self.root, "pending", "jade", "--retry-hours", "0.0001", check=False).stdout)
+        self.assertIn("TASK-1", json.dumps(retry()["reasons"]))  # still unhandled: the retry picks it up
+        coord(self.root, "task", "update", "TASK-1", "--next-steps", "Unblock with the ruling", "--actor", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        time.sleep(1.1)
+        self.assertNotIn("TASK-1", json.dumps(retry()["reasons"]))  # handled: blocked work rests again
 
     def test_handoff_needs_the_reference_check_for_ui_work(self) -> None:
         sha = self.commit("web/a.js", "a\n")
@@ -158,7 +167,9 @@ class HoldsTest(unittest.TestCase):
         rev = revision(self.root, "TASK-1")
         for spelling in (["TASK-1", "--to", "review", "--actor", "jade", "--if-revision", rev],
                          ["TASK-1", "--to=review", "--actor", "jade", "--if-revision", rev],
-                         ["--actor", "jade", "TASK-1", "--to", "review", "--if-revision", rev]):
+                         ["--actor", "jade", "TASK-1", "--to", "review", "--if-revision", rev],
+                         ["--because", "decision:DEC-1", "TASK-1", "--to", "review", "--actor", "jade",
+                          "--if-revision", rev]):
             bare = softory(self.root, "coord", "task", "release", *spelling, check=False)
             self.assertIn("ui_reference_missing", bare.stderr, spelling)
         shot = self.root / "shot.png"

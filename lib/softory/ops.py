@@ -157,14 +157,15 @@ def coord(project: Project, args: list[str]) -> int:
     return 0  # unreachable
 
 
-#: The coordination CLI's global options that take a value, and ``task release``'s.
+#: The coordination CLI's global options that take a value. Every ``task release`` option takes one.
 _GLOBAL_VALUES = {"--session", "--db"}
-_RELEASE_VALUES = {"--to", "--actor", "--if-revision", "--note"}
 
 
 def _release_to_review(args: list[str]) -> str | None:
     """The task a ``task release ... --to review`` command moves to review, however its arguments are
-    ordered or spelled (``--to review`` or ``--to=review``), or None for any other command."""
+    ordered or spelled (``--to review`` or ``--to=review``), or None for any other command. The CLI
+    doesn't accept abbreviations, and every option of ``task release`` (``--to``, ``--actor``, ``--note``,
+    ``--because``, ``--if-revision``, and any it adds) takes a value, so the first bare word is the task."""
     i = 0
     while i < len(args) and args[i].startswith("-"):  # global options come before the command
         i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
@@ -174,29 +175,32 @@ def _release_to_review(args: list[str]) -> str | None:
     j = 0
     while j < len(rest):
         token = rest[j]
-        if token.startswith("--"):
-            name, _, value = token.partition("=")
-            if not _ and name in _RELEASE_VALUES:
+        if token.startswith("-") and token not in ("-h", "--help"):
+            name, has_value, value = token.partition("=")
+            if not has_value:
                 value = rest[j + 1] if j + 1 < len(rest) else ""
                 j += 1
             if name == "--to":
                 to = value
-        elif task is None:
+        elif task is None and not token.startswith("-"):
             task = token
         j += 1
-    return task if to == "review" and task else None
+    return (task or "") if to == "review" else None
 
 
 def _refuse_bare_handoff(project: Project, coord: Coordination, args: list[str]) -> None:
-    """``task release <ID> --to review`` through softory gets the same checks as ``softory handoff``."""
+    """``task release <ID> --to review`` through softory gets the same checks as ``softory handoff``.
+    It fails closed: a task it can't find is refused here rather than passed through unchecked."""
+    from .errors import SoftoryError  # noqa: PLC0415
     from .lifecycle import ready_for_review  # noqa: PLC0415
 
     task_id = _release_to_review(args)
     if task_id is None:
         return
-    shown = coord.call("task", "show", task_id)
-    if shown.get("ok"):  # an unknown task fails in the CLI itself, with its own error
-        ready_for_review(project, shown["data"])
+    shown = coord.call("task", "show", task_id) if task_id else {}
+    if not shown.get("ok"):
+        raise SoftoryError(f"softory can't find the task in: task release {' '.join(args)}", "not_found")
+    ready_for_review(project, shown["data"])
 
 
 def tracker(project: Project, args: list[str]) -> int:

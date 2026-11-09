@@ -121,13 +121,15 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
     # A hold keeps the tracker's status, so a blocked unit freed by the owner fits no list above: wake its builder.
-    freed = in_scope([i for i, at in sorted(freed_at.items()) if i in board.by_id and i not in on_hold
-                      and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
-                      and (since is None or at > since)])
+    # Until the unit changes after its release, a run that missed it retries it like other waiting work.
+    unhandled = in_scope([i for i, at in sorted(freed_at.items()) if i in board.by_id and i not in on_hold
+                          and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
+                          and str(board.by_id[i].get("updated_at") or "") <= at])
+    freed = [i for i in unhandled if since is None or freed_at[i] > since]
     if freed:
         reasons.append({"why": "held work released: the owner answered, or the deferral ended", "ids": freed})
     # Capped units wait for a settlement, so a run that missed one retries it like any other waiting work.
-    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled
+    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled + unhandled
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
