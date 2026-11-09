@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 
 from tests.helpers import REPO
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import watch, work  # noqa: E402
+from softory import runner, watch, work  # noqa: E402
 from tests.helpers import COORDINATION, coord, git_project, git_status, install, needs_sources, revision, run, softory
 from tests.test_workflow import at_terminal, failing, gate, start
 
@@ -198,6 +199,21 @@ class OrderingTest(unittest.TestCase):
         wanted, rest = watch.unread_messages(Coord(), "jade", Board(), {}, page=2)
         self.assertEqual([m["id"] for m in wanted], ["MSG-5"])
         self.assertEqual(len(rest), 5)
+
+    def test_a_timed_out_harness_that_ignores_sigterm_is_stopped_before_cleanup(self) -> None:
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "still-running"
+            script = f"trap '' TERM; (trap '' TERM; sleep 2; touch {marker}) & sleep 60"
+            child = subprocess.Popen(["sh", "-c", script], start_new_session=True)
+            started = time.monotonic()
+            runner._stop(child, grace=0.5)
+            self.assertIsNotNone(child.returncode)  # it has exited when _stop returns
+            self.assertLess(time.monotonic() - started, 10)
+            time.sleep(2.5)
+            self.assertFalse(marker.exists())  # the background job it left was killed with it
 
 
 if __name__ == "__main__":

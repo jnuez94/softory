@@ -171,7 +171,7 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
             try:
                 code = child.wait(timeout=float(limits["minutes_per_run"]) * 60)
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGTERM)
+                _stop(child)
                 code = 124
     except FileNotFoundError as error:
         code = 127
@@ -191,6 +191,31 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     with (state_dir(project) / "runs.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(row) + "\n")
     return {"ran": True, **row}
+
+
+#: Seconds a harness gets to exit after SIGTERM before its process group is killed.
+STOP_GRACE = 30.0
+
+
+def _stop(child: subprocess.Popen, grace: float = STOP_GRACE) -> None:
+    """Stop a timed-out harness and everything it started, and wait until it has. Its claims go back to todo
+    only after this, so a harness that ignores SIGTERM can't keep editing a task another run may claim."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(child.pid, sig)
+        except ProcessLookupError:
+            break  # the whole group is gone
+        try:
+            child.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            continue  # still running: kill it
+        if sig == signal.SIGTERM:  # the harness exited; take down anything it left running in its group
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        break
+    child.wait()
 
 
 def _close_session(project: Project, coord: Coordination, session: str, role: str) -> None:
