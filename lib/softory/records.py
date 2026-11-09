@@ -143,17 +143,19 @@ def report(project: Project, coord: Coordination, task_id: str, source: Path, ki
     folder.mkdir(parents=True, exist_ok=True)
     inside = source.is_relative_to(project.root.resolve())
     tracked = inside and is_tracked(project.root, str(source.relative_to(project.root.resolve())))
+    filed = source.is_relative_to((project.state / "evidence").resolve())  # another unit's evidence: keep it
+    keep = keep or tracked or not inside or filed
     if source.parent == folder.resolve():
         target = source  # already filed: record it again, don't copy it over itself
     else:
         target = _reserve(folder, source.name)
-        if keep or tracked or not inside:  # never take a tracked file, or one from outside the project
+        if keep:  # never take a tracked file, one from outside the project, or one already filed
             shutil.copy2(source, target)
         else:
             shutil.move(str(source), target)
     uri = str(target.relative_to(project.root))
     coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", kind, "--actor", actor)
-    return {"task": task_id, "uri": uri, "type": kind, "moved": not (keep or tracked or not inside)}
+    return {"task": task_id, "uri": uri, "type": kind, "moved": not keep and target != source}
 
 
 def _reserve(folder: Path, name: str) -> Path:

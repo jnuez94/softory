@@ -394,6 +394,7 @@ class Board:
         self.children = children_by_parent(self.tasks)
         self._shown: dict[str, dict[str, Any]] = {}
         self._held: dict[str, str] | None = None
+        self._unreferenced: set[str] | None = None
 
     @property
     def held(self) -> dict[str, str]:
@@ -401,6 +402,14 @@ class Board:
         if self._held is None:
             self._held = holds.held(self.project, self.coord)
         return self._held
+
+    @property
+    def awaiting_reference(self) -> set[str]:
+        """ui units in review without their reference check: their builder owes one, so reviewers wait."""
+        if self._unreferenced is None:
+            self._unreferenced = {t["id"] for t in self.tasks if t["status"] == "review" and not (
+                gate_rules.ui_reference_check(self.show(t["id"]), self.gates) or {"pass": True})["pass"]}
+        return self._unreferenced
 
     def show(self, task_id: str) -> dict[str, Any]:
         if task_id not in self._shown:
@@ -441,8 +450,8 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
             if summary["status"] not in gate_rules.RECORD_STATUSES or not any(
                     tag in gates["tag_reviews"] for tag in tags_of(summary)):
                 continue
-        elif summary["status"] != "review":
-            continue
+        elif summary["status"] != "review" or summary["id"] in board.awaiting_reference:
+            continue  # not in review, or a ui unit whose builder still owes its reference check
         task = board.show(summary["id"])
         latest = gate_rules.latest_reviews(task)
         built_by = gate_rules.builders(task)

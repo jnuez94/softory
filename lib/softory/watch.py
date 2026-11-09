@@ -17,7 +17,6 @@ from .project import Project
 from .runstate import allowed_tasks, is_paused
 from .gate import latest_reviews
 from .gate import spec_for as gate_spec
-from .gate import ui_reference_check as gate_ui
 from .work import Board, actor_of, queue
 
 
@@ -89,8 +88,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     untested = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
                 and tests.get(t["id"]) in ("not run", "failed", "setup failed") and t["id"] not in sent_back]
     # A ui unit that reached review without its reference check goes back to its builder, not to reviewers.
-    unreferenced = {t["id"] for t in board.tasks if t["status"] == "review"
-                    and not (gate_ui(board.show(t["id"]), board.gates) or {"pass": True})["pass"]}
+    unreferenced = board.awaiting_reference
     no_reference = [i for i in sorted(unreferenced) if agent in (board.by_id[i].get("assignees") or [])
                     and i not in sent_back]
     reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")
@@ -184,7 +182,8 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     action tag, or it names a unit the role builds, holds, reviewed, or owes a review or a close on.
     Acknowledgements and news wake nobody: each woke a paid run in Tablet, and replies woke the sender back.
     A message about a held unit wakes the role only when the owner sent it; otherwise it counts for neither
-    list, so it can't start a run, even on the retry, while the unit waits for the owner.
+    list, so it can't start a run, even on the retry, while the unit waits for the owner. The same goes for a
+    ui unit in review without its reference check, except for its builder, who owes the check.
     """
     on_hold = getattr(board, "held", {})
     mine = {t["id"] for t in board.tasks if agent in (t.get("assignees") or []) or t.get("claimed_by") == agent}
@@ -197,6 +196,9 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
         from_owner = message.get("sender_id") == owner
         if message.get("task_id") in on_hold and not from_owner:
             continue
+        if (message.get("task_id") in getattr(board, "awaiting_reference", set()) and not from_owner
+                and agent not in (board.by_id[message["task_id"]].get("assignees") or [])):
+            continue  # reviewers wait for the reference check, so "ready for review" can't wake them yet
         tags = {t.strip().lower() for t in str(message.get("tags") or "").split(",") if t.strip()}
         needed = from_owner or tags & ACTION_TAGS or message.get("task_id") in mine
         (wanted if needed else rest).append(message)

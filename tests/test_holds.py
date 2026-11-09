@@ -202,6 +202,38 @@ class HoldsTest(unittest.TestCase):
                                      "--actor", "jade").stdout)
         self.assertFalse(tracked["moved"])  # a tracked file is copied, never taken
         self.assertTrue((self.root / "README.md").is_file())
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Other",
+                "--actor", "quinn")
+        reused = json.loads(softory(self.root, "report", "TASK-2", str(self.root / filed["uri"]),
+                                    "--actor", "jade").stdout)
+        self.assertFalse(reused["moved"])  # another unit's evidence is copied, so TASK-1's link still works
+        self.assertTrue((self.root / filed["uri"]).is_file())
+        self.assertTrue((self.root / reused["uri"]).is_file())
+
+    def test_reviewers_wait_for_the_reference_check_even_when_messaged(self) -> None:
+        sha = self.commit("web/a.js", "a\n")
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
+        # Released straight through the tracker, as units were before handoff checked the reference
+        coord(self.root, "--session", session, "task", "release", "TASK-1", "--to", "review", "--actor", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        softory(self.root, "end", "--actor", "jade")
+        others = ["greg", "darwin", "quinn", "gold", "toby"]
+        for role in others:
+            coord(self.root, "message", "send", "--id", f"MSG-{role}", "--sender", "jade", "--recipient", role,
+                  "--task", "TASK-1", "--tags", "request", "--body", "Ready for review")
+        for role in others:
+            self.assertNotIn("TASK-1", [r["id"] for r in self.queue(role)["reviews_waiting"]], role)
+            woke = self.pending(role)
+            self.assertNotIn("messages that need you", [r["why"] for r in woke["reasons"]], role)
+            self.assertNotIn("TASK-1", json.dumps(woke["reasons"]), role)
+        self.assertIn("TASK-1", json.dumps(self.pending("jade")["reasons"]))  # the builder owes the check
+        shot = self.root / "shot.png"
+        shot.write_bytes(b"png")
+        softory(self.root, "report", "TASK-1", str(shot), "--type", "reference", "--actor", "jade")
+        self.assertTrue(any("TASK-1" in [r["id"] for r in self.queue(role)["reviews_waiting"]] for role in others))
 
     def test_a_reviewer_reuses_one_workspace(self) -> None:
         (self.root / "node_modules").mkdir()
