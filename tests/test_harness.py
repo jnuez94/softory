@@ -108,6 +108,14 @@ class HarnessTest(unittest.TestCase):
         result = json.loads(softory(self.root, "verify", "TASK-1", "--actor", "jade").stdout)
         self.assertTrue(result["passed"])
 
+    def test_the_fallback_snapshot_keeps_files_archives_leave_out(self) -> None:
+        self.approve({"verify": {"command": "test ! -d tests || sh tests/check.sh"}})
+        self.commit(".gitattributes", "tests/ export-ignore\n")
+        self.build("TASK-1", "jade", self.commit("tests/check.sh", "exit 1\n"))  # a failing suite
+        (self.root / ".git/worktrees").write_text("")
+        result = json.loads(softory(self.root, "verify", "TASK-1", "--actor", "jade", check=False).stdout)
+        self.assertFalse(result["passed"])  # git archive would have dropped tests/ and passed
+
     def test_a_review_another_reviewer_covered_is_not_owed(self) -> None:
         coord(self.root, "agent", "add", "--id", "avery", "--name", "Avery", "--role", "Reviewer", "--actor", "owner")
         softory(self.root, "propose", "standin", "avery", "--for", "gold", "--why", "share reviews", "--actor", "gold")

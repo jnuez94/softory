@@ -184,18 +184,25 @@ def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
     """Check out ``sha`` at ``tree``: True for a git worktree, False for a plain archive, None if neither worked.
 
     A worktree writes under .git, which some harness sandboxes protect (Codex's workspace-write does), so the
-    same verify falls back to ``git archive``, which only reads the repository. Tests that need git history
-    then see no .git, but the files are the commit's either way.
+    same verify falls back to a snapshot through a throwaway index kept outside .git: ``read-tree`` then
+    ``checkout-index`` writes every tracked file as a checkout would. Not ``git archive``: it honors
+    ``export-ignore`` and ``export-subst``, so a repository that keeps tests out of its archives would pass
+    with no tests run. Tests that need git history see no .git, but the files are the commit's either way.
     """
     if git(root, "worktree", "add", "--detach", "--quiet", str(tree), sha).returncode == 0:
         return True
     shutil.rmtree(tree, ignore_errors=True)
     tree.mkdir(parents=True)
-    archive = subprocess.run(["git", "archive", "--format=tar", sha], cwd=root, capture_output=True, check=False)  # noqa: S603, S607
-    if archive.returncode != 0:
-        return None
-    unpacked = subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, capture_output=True, check=False)  # noqa: S603, S607
-    return False if unpacked.returncode == 0 else None
+    index = tree.parent / f"{tree.name}.index"
+    env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+    try:
+        for args in (["read-tree", sha], ["checkout-index", "--all", "--force", f"--prefix={tree}/"]):
+            done = subprocess.run(["git", *args], cwd=root, env=env, capture_output=True, check=False)  # noqa: S603, S607
+            if done.returncode != 0:
+                return None
+    finally:
+        index.unlink(missing_ok=True)
+    return False
 
 
 def _shell(command: str, cwd: Path, timeout: float) -> tuple[int, str]:
