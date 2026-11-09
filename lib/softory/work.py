@@ -470,7 +470,9 @@ def review_owed(task: dict[str, Any], requirement: dict[str, Any], agent: str, b
         return False
     if mine:
         asked = str(mine.get("created_at") or "")
-        for row in live_evidence(task.get("evidence")):
+        rows = task.get("evidence") or []
+        retractions = [r for r in rows if str(r.get("uri", "")).startswith("softory-supersedes:")]
+        for row in [*live_evidence(rows), *retractions]:  # retracting a wrong row answers a request too
             stamp = str(row.get("created_at") or "9")
             if stamp > asked or (stamp == asked and (came_after is None
                                                      or came_after(str(row.get("id")), str(mine.get("id"))))):

@@ -161,6 +161,7 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     logs = state_dir(project) / "logs"
     logs.mkdir(exist_ok=True)
     out_path = logs / f"{pid_name or role}-{started.strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}.out"  # one per run
+    child: subprocess.Popen | None = None
     try:
         with out_path.open("w", encoding="utf-8") as out:
             env = {**_clean_env(), RUNNER_ENV: "1", SOFTORY_ROLE: role}  # sessions it starts aren't logged as manual
@@ -173,13 +174,22 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
             except subprocess.TimeoutExpired:
                 _stop(child)
                 code = 124
+            except BaseException:  # Ctrl-C or a kill of the runner: the harness has its own session, so stop it
+                _stop(child)
+                raise
     except FileNotFoundError as error:
         code = 127
         print(f"softory: {error}", file=sys.stderr)
     finally:
-        pid_file.unlink(missing_ok=True)
-        if session:
-            _close_session(project, coord, session, role)
+        if child is not None and child.poll() is None:
+            # Stopping it was cut short. Leave its marker and session alone: handing its claims back now would
+            # let another run edit the same task while it still does. Stale-session recovery finishes it.
+            print(f"softory: {role}'s harness (pid {child.pid}) is still running; its session stays open",
+                  file=sys.stderr)
+        else:
+            pid_file.unlink(missing_ok=True)
+            if session:
+                _close_session(project, coord, session, role)
     spent = usage.parse(out_path.read_text(encoding="utf-8", errors="replace") if out_path.is_file() else "",
                         pick["model"], charter.get("prices") or {})
     row = {"role": role, "started": started.isoformat(timespec="seconds"), "harness": pick["harness"],
