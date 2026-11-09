@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from . import charter, feasibility, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
@@ -425,7 +425,8 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         for requirement in gate_rules.required_reviews(task, gates):
             if not gate_rules.may_review(requirement, agent, built_by):
                 continue
-            owed = review_owed(task, requirement, agent, built_by, latest, set(gates["accepting_decisions"]))
+            owed = review_owed(task, requirement, agent, built_by, latest, set(gates["accepting_decisions"]),
+                               lambda e, r: _audit_id(coord, "evidence", e) > _audit_id(coord, "review", r))
             if owed is None:
                 continue  # another listed reviewer already covered it; maybe the next requirement is the agent's
             if owed:
@@ -454,23 +455,37 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
 
 
 def review_owed(task: dict[str, Any], requirement: dict[str, Any], agent: str, built_by: set[str],
-                latest: dict[str, dict[str, Any]], accepting: set[str]) -> bool | None:
+                latest: dict[str, dict[str, Any]], accepting: set[str],
+                came_after: Callable[[str, str], bool] | None = None) -> bool | None:
     """Whether ``agent`` owes ``task`` a review for ``requirement``: True, False (nothing to do now),
     or None (someone else satisfied the requirement, so it isn't the agent's).
 
     A reviewer who asked for changes owes a new pass only once new evidence lands after that request;
-    until then the builder has the move.
+    until then the builder has the move. Timestamps are whole seconds, so evidence in the same second as
+    the review is ordered by ``came_after(evidence_id, review_id)`` (the audit log); without it, a tie
+    counts as new, since an extra pass costs less than a review nobody is woken for.
     """
     mine = latest.get(agent)
     if mine and mine.get("decision") in accepting:
         return False
     if mine:
         asked = str(mine.get("created_at") or "")
-        newer = [r for r in live_evidence(task.get("evidence")) if str(r.get("created_at") or "9") > asked]
-        return bool(newer)
+        for row in live_evidence(task.get("evidence")):
+            stamp = str(row.get("created_at") or "9")
+            if stamp > asked or (stamp == asked and (came_after is None
+                                                     or came_after(str(row.get("id")), str(mine.get("id"))))):
+                return True
+        return False
     covered = any(latest.get(r, {}).get("decision") in accepting
                   for r in gate_rules.eligible(requirement, built_by, latest) if r != agent)
     return None if covered else True
+
+
+def _audit_id(coord: Coordination, kind: str, object_id: str) -> int:
+    """The audit row that recorded an evidence row or review: the order things happened in, to the row."""
+    rows = coord.call("audit", "list", "--object-type", kind, "--object-id", object_id, "--limit", "1")
+    found = (rows.get("data") or []) if rows.get("ok") else []
+    return int(found[0]["id"]) if found else 0
 
 
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:

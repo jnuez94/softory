@@ -4,11 +4,15 @@ and a gate no close path skips (0.5.4, from the Tablet pilot)."""
 from __future__ import annotations
 
 import json
-import time
+import sys
 import unittest
 from pathlib import Path
 
-from tests.helpers import coord, git_project, git_status, install, needs_sources, revision, run, softory
+from tests.helpers import REPO
+
+sys.path.insert(0, str(REPO / "lib"))
+from softory import watch, work  # noqa: E402
+from tests.helpers import COORDINATION, coord, git_project, git_status, install, needs_sources, revision, run, softory
 from tests.test_workflow import at_terminal, failing, gate, start
 
 
@@ -122,8 +126,7 @@ class HarnessTest(unittest.TestCase):
         self.build("TASK-1", "jade", "1")
         self.review("TASK-1", "gold", "changes_requested")
         queue = lambda: [r["id"] for r in json.loads(softory(self.root, "queue", "--agent", "gold").stdout)["reviews_waiting"]]
-        self.assertEqual(queue(), [])  # the builder has the move
-        time.sleep(1.1)  # timestamps are to the second
+        self.assertEqual(queue(), [])  # the builder has the move, though its evidence may share the second
         coord(self.root, "evidence", "add", "--task", "TASK-1", "--uri", "commit:2", "--type", "commit", "--actor", "jade")
         self.assertEqual(queue(), ["TASK-1"])
 
@@ -140,6 +143,53 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual((week["runs"], week["usd"], week["idle_share"]), (1, 0.25, 1.0))
         digest = Path(json.loads(softory(self.root, "digest").stdout)["file"]).read_text()
         self.assertIn("100% changed nothing", digest)
+
+    def test_a_run_that_stops_mid_task_hands_the_claim_back(self) -> None:
+        script = (f"{COORDINATION} --session \"$COORDINATION_SESSION\" task claim TASK-1 --agent jade "
+                  f"--if-revision {revision(self.root, 'TASK-1')}")  # then the harness exits, claim held
+        self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script]}},
+                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+                      "feasibility": {"required": False}})
+        softory(self.root, "run-role", "jade")
+        task = coord(self.root, "task", "show", "TASK-1")["data"]
+        self.assertEqual((task["status"], task.get("claimed_by")), ("todo", None))
+        self.assertIn("claim it again", task["notes"])
+        self.assertEqual(coord(self.root, "session", "list", "--agent", "jade", "--status", "active")["data"], [])
+        self.assertFalse((self.root / ".coordination/softory/sessions/jade.json").exists())
+
+
+class OrderingTest(unittest.TestCase):
+    """Whole-second timestamps and paged inboxes, without a project."""
+
+    def test_evidence_in_the_reviews_second_goes_by_the_audit_order(self) -> None:
+        task = {"evidence": [{"id": "7", "created_at": "2026-11-09T01:00:00+00:00"}]}
+        latest = {"gold": {"id": "REV-1", "decision": "changes_requested", "created_at": "2026-11-09T01:00:00+00:00"}}
+        owed = lambda after: work.review_owed(task, {}, "gold", {"jade"}, latest, {"accepted"}, after)
+        self.assertTrue(owed(lambda e, r: True))
+        self.assertFalse(owed(lambda e, r: False))
+        self.assertTrue(owed(None))  # unknown order: wake the reviewer rather than stall the task
+
+    def test_an_owner_message_past_the_first_page_still_wakes(self) -> None:
+        inbox = [{"id": f"MSG-{n}", "sender_id": "greg", "body": "noted"} for n in range(5)]
+        inbox.append({"id": "MSG-5", "sender_id": "owner", "body": "please look"})
+
+        class Coord:
+            def run(self, *args: str) -> dict:
+                limit, offset = int(args[args.index("--limit") + 1]), int(args[args.index("--offset") + 1])
+                return {"messages": inbox[offset:offset + limit]}
+
+        class Board:
+            tasks: list = []
+            reviews: dict = {}
+
+            class project:
+                @staticmethod
+                def roster() -> dict:
+                    return {"owner": {"id": "owner"}}
+
+        wanted, rest = watch.unread_messages(Coord(), "jade", Board(), {}, page=2)
+        self.assertEqual([m["id"] for m in wanted], ["MSG-5"])
+        self.assertEqual(len(rest), 5)
 
 
 if __name__ == "__main__":

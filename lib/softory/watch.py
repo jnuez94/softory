@@ -65,10 +65,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     # decides whether to run, so messages and other work wait for the full resume without hiding the retry.
     scope = allowed_tasks(project, agent) if hold else set()
     in_scope = (lambda ids: [i for i in ids if i in scope]) if scope else (lambda ids: ids)
-    inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
-    unread = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
-    if unread and not scope:
-        wanted, rest = split_messages(unread, agent, board, work)
+    if not scope:
+        wanted, rest = unread_messages(coord, agent, board, work)
         if wanted:
             reasons.append({"why": "messages that need you", "count": len(wanted)})
         elif rest and retry_hours > 0 and min(m.get("created_at") or "" for m in rest) <= (
@@ -133,6 +131,25 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
 
 #: Message tags that ask the recipient for something. Anything else is news, read on the role's next run.
 ACTION_TAGS = {"request", "question", "ruling", "answer", "blocker", "urgent"}
+
+
+def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any],
+                    page: int = 100) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The role's unread messages, split as ``split_messages`` does. Pages run oldest first, so a page of
+    FYIs can't hide a later owner message: read on until one needs the role or the inbox runs out."""
+    wanted: list[dict[str, Any]] = []
+    rest: list[dict[str, Any]] = []
+    offset = 0
+    while not wanted:
+        inbox = coord.run("inbox", "list", "--agent", agent, "--limit", str(page), "--offset", str(offset))
+        messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
+        need, other = split_messages(messages, agent, board, work)
+        wanted += need
+        rest += other
+        if len(messages) < page:
+            break
+        offset += page
+    return wanted, rest
 
 
 def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,

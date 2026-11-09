@@ -179,7 +179,7 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     finally:
         pid_file.unlink(missing_ok=True)
         if session:
-            _close_session(project, coord, session)
+            _close_session(project, coord, session, role)
     spent = usage.parse(out_path.read_text(encoding="utf-8", errors="replace") if out_path.is_file() else "",
                         pick["model"], charter.get("prices") or {})
     row = {"role": role, "started": started.isoformat(timespec="seconds"), "harness": pick["harness"],
@@ -193,12 +193,32 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     return {"ran": True, **row}
 
 
-def _close_session(project: Project, coord: Coordination, session: str) -> None:
-    """End the run's session unless the role already did."""
+def _close_session(project: Project, coord: Coordination, session: str, role: str) -> None:
+    """End the run's session unless the role already did.
+
+    The scaffold won't end a session that still owns claims, so a run that exited or timed out mid-task
+    hands each claim back to todo first: the role's next run claims it fresh instead of the task sitting
+    in progress until stale-session recovery blocks it. If the session still won't end, it stays
+    remembered so ``softory end --actor <role>`` or recovery can finish it.
+    """
     shown = coord.call("session", "show", session)
-    if shown.get("ok") and (shown.get("data") or {}).get("status") == "active":
-        coord.call("session", "end", session)
-    sessions.forget(project, session)
+    if not (shown.get("ok") and (shown.get("data") or {}).get("status") == "active"):
+        sessions.forget(project, session)
+        return
+    ended = coord.call("session", "end", session)
+    error = ended.get("error") or {}
+    if not ended.get("ok") and error.get("code") == "session_has_active_claims":
+        for task_id in (error.get("details") or {}).get("tasks") or []:
+            task = coord.call("task", "show", task_id)
+            revision = str((task.get("data") or {}).get("revision", ""))
+            coord.call("--session", session, "task", "release", task_id, "--to", "todo", "--actor", role,
+                       "--if-revision", revision, "--note", "run ended with the task unfinished; claim it again")
+        ended = coord.call("session", "end", session)
+    if ended.get("ok"):
+        sessions.forget(project, session)
+    else:
+        print(f"softory: session {session} left open: {(ended.get('error') or {}).get('message', '')}",
+              file=sys.stderr)
 
 
 def harness_command(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str],
