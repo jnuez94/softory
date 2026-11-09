@@ -141,6 +141,7 @@ class AutonomyTest(unittest.TestCase):
         self.assertIn("Needs an unlocked Mac", prompt)  # past 2,000 characters: requirements arrive whole
 
         self.assertRegex(prompt, r"softory feasible STORY-1 --plan [0-9a-f]{12} --pass")
+        self.assertFalse((self.root / ".coordination/softory/manual-starts.jsonl").exists())  # the runner's own
 
     def test_a_ui_unit_needs_a_check_against_its_reference(self) -> None:
         softory(self.root, "feasible", "STORY-1", "--pass", "--actor", "quinn")

@@ -41,8 +41,10 @@ def start(project: Project, coord: Coordination, role_id: str, harness: str | No
     return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
 
 
-def open_session(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
-    """Start a session for a role, remember it for commands whose shell lost the exports, and return its ID."""
+def open_session(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str,
+                 by_runner: bool = False) -> str:
+    """Start a session for a role, remember it for commands whose shell lost the exports, and return its ID.
+    ``by_runner``: the runner opened it, so it isn't logged as a start by some other scheduler."""
     role = project.role(role_id)
     if not model or not harness:  # usage and reviews compare models, so a session always names one
         pick = (charter.load(project).get("models") or {}).get(role_id) or {}
@@ -57,7 +59,8 @@ def open_session(project: Project, coord: Coordination, role_id: str, harness: s
     if model:
         args += ["--model", model]
     coord.run(*args)
-    runstate.note_start(project, role_id, session_id)
+    if not by_runner:
+        runstate.note_start(project, role_id, session_id)
     sessions.remember(project, role_id, session_id)
     return session_id
 

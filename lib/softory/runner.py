@@ -152,7 +152,7 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     pid_file = state_dir(project) / f"{pid_name or role}.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
     try:
-        session = work.open_session(project, coord, role, pick["harness"], pick["model"]) if coord else None
+        session = work.open_session(project, coord, role, pick["harness"], pick["model"], by_runner=True) if coord else None
         cursor = usage.audit_cursor(coord) if coord else None
     except BaseException:
         pid_file.unlink(missing_ok=True)
