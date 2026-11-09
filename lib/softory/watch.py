@@ -47,7 +47,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         touched[task_id] = max(touched.get(task_id, ""), passed)
     for task_id, done in design.released(board, charter).items():  # so does a finished design
         touched[task_id] = max(touched.get(task_id, ""), done)
-    for task_id, freed in holds.released(project, coord).items():  # and the owner's answer, or a deferral lifted
+    freed_at = holds.released(project, coord)
+    for task_id, freed in freed_at.items():  # and the owner's answer, or a deferral lifted
         if task_id in touched:
             touched[task_id] = max(touched[task_id], freed)
     for task_id, retried in decide.retried_at(project).items():  # so is an extra round past the review cap
@@ -119,6 +120,12 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
+    # A hold keeps the tracker's status, so a blocked unit freed by the owner fits no list above: wake its builder.
+    freed = in_scope([i for i, at in sorted(freed_at.items()) if i in board.by_id and i not in on_hold
+                      and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
+                      and (since is None or at > since)])
+    if freed:
+        reasons.append({"why": "held work released: the owner answered, or the deferral ended", "ids": freed})
     # Capped units wait for a settlement, so a run that missed one retries it like any other waiting work.
     everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)

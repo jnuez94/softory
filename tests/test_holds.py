@@ -114,6 +114,24 @@ class HoldsTest(unittest.TestCase):
         softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
         self.assertEqual([a["id"] for a in self.queue()["assigned"]], ["TASK-1"])
 
+    def test_a_blocked_unit_wakes_its_builder_when_its_deferral_is_lifted(self) -> None:
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade",
+              "--if-revision", revision(self.root, "TASK-1"))
+        coord(self.root, "--session", session, "task", "release", "TASK-1", "--to", "blocked", "--actor", "jade",
+              "--if-revision", revision(self.root, "TASK-1"), "--note", "waits for the owner")
+        softory(self.root, "end", "--actor", "jade")
+        ruling = json.loads(softory(self.root, "ruling", "--title", "Park it", "--decision", "Wait", "--where", "x",
+                                    "--actor", "quinn").stdout)["decision"]
+        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--actor", "quinn")
+        self.assertFalse(self.pending()["pending"])
+        time.sleep(1.1)
+        softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
+        woke = self.pending()
+        self.assertTrue(woke["pending"], woke)
+        self.assertIn({"why": "held work released: the owner answered, or the deferral ended", "ids": ["TASK-1"]},
+                      woke["reasons"])
+
     def test_handoff_needs_the_reference_check_for_ui_work(self) -> None:
         sha = self.commit("web/a.js", "a\n")
         session = start(self.root, "jade")["COORDINATION_SESSION"]
@@ -121,6 +139,9 @@ class HoldsTest(unittest.TestCase):
               "--if-revision", revision(self.root, "TASK-1"))
         refused = softory(self.root, "handoff", "TASK-1", "--actor", "jade", check=False)
         self.assertIn("evidence_required", refused.stderr)
+        empty = softory(self.root, "coord", "task", "release", "TASK-1", "--to", "review", "--actor", "jade",
+                        "--if-revision", revision(self.root, "TASK-1"), check=False)
+        self.assertIn("evidence_required", empty.stderr)  # the passthrough asks the same as handoff
         softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
         refused = softory(self.root, "handoff", "TASK-1", "--actor", "jade", check=False)
         self.assertIn("ui_reference_missing", refused.stderr)

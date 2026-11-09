@@ -12,7 +12,6 @@ from typing import Any
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
 from .coordination import Coordination
 from .install import SKILL_ROOTS
-from .errors import SoftoryError
 from .project import Project
 
 
@@ -159,8 +158,8 @@ def coord(project: Project, args: list[str]) -> int:
 
 
 def _refuse_bare_handoff(project: Project, coord: Coordination, args: list[str]) -> None:
-    """``task release <ID> --to review`` through softory gets the same check as ``softory handoff``."""
-    from . import gate  # noqa: PLC0415
+    """``task release <ID> --to review`` through softory gets the same checks as ``softory handoff``."""
+    from .lifecycle import ready_for_review  # noqa: PLC0415
 
     at = args.index("release") if "release" in args else -1
     if at < 1 or args[at - 1] != "task" or at + 1 >= len(args) or "--to" not in args:
@@ -168,9 +167,8 @@ def _refuse_bare_handoff(project: Project, coord: Coordination, args: list[str])
     if args[args.index("--to") + 1:args.index("--to") + 2] != ["review"]:
         return
     shown = coord.call("task", "show", args[at + 1])
-    reference = gate.ui_reference_check(shown["data"], project.gates()) if shown.get("ok") else None
-    if reference and not reference["pass"]:
-        raise SoftoryError(f"{args[at + 1]}: {reference['detail']}", "ui_reference_missing")
+    if shown.get("ok"):  # an unknown task fails in the CLI itself, with its own error
+        ready_for_review(project, shown["data"])
 
 
 def tracker(project: Project, args: list[str]) -> int:
