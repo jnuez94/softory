@@ -208,7 +208,7 @@ Softory assumes nothing about a harness beyond its command line in `run.harnesse
 - **The runner owns the session.** It opens the role's session before starting the harness, passes `COORDINATION_SESSION` and `SOFTORY_ROLE` in the harness's environment, and ends the session when the run exits or times out. The run's prompt is the same for every harness.
 - **Sessions survive fresh shells.** Claude Code runs each command in a new shell, so exported variables are gone by the next one. `softory start` remembers the session for the role; any `softory` command with `--actor <role>`, and `softory coord` commands that name `--agent` or `--actor`, find it. An ended session is never reused.
 - **Runtime state lives in `.coordination/softory/`**, beside the database: the run log, verify ledger and logs, escalations, proposals, feedback, and sessions. Codex's `workspace-write` sandbox protects `.agents/`, so a Codex role couldn't record feedback there. Rules stay in `.agents/softory`, read-only for every harness. The installer moves an older install's files over; reload the runner afterwards (`softory setup --load-schedule`) so its log follows.
-- **Verify doesn't need to write `.git`.** If `git worktree add` is refused (Codex protects `.git` too), verify checks the commit out with `git archive` instead.
+- **Verify doesn't need to write `.git`.** If `git worktree add` is refused (Codex protects `.git` too), verify checks out every tracked file of the commit through a temporary index outside `.git`. It doesn't use `git archive`, which honors `export-ignore`.
 
 Adding a harness takes one template line in the charter's `run.harnesses`, plus a parser in `usage.py` if you want its token counts.
 
