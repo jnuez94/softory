@@ -21,7 +21,7 @@ from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
 
-#: Escalation holds older than this are no longer checked for a release: their builders woke long ago.
+#: A hold released longer ago than this is no longer news: its builders woke long ago.
 RELEASE_DAYS = 30
 
 
@@ -30,19 +30,19 @@ def _today() -> date:
 
 
 def _escalation_rows(project: Project) -> dict[str, dict[str, Any]]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=RELEASE_DAYS)).isoformat(timespec="seconds")
-    return {e: row for e, row in decide.recommendations(project).items()
-            if row.get("holds") and str(row.get("at") or "") >= cutoff}
+    return {e: row for e, row in decide.recommendations(project).items() if row.get("holds")}
 
 
 def _escalation_states(project: Project, coord: Coordination) -> dict[str, dict[str, Any]]:
-    """Each holding escalation's id -> its status and when it last changed."""
-    states = {}
-    for escalation_id in _escalation_rows(project):
-        shown = coord.call("escalation", "show", escalation_id)
-        if shown.get("ok"):
-            states[escalation_id] = shown["data"]
-    return states
+    """Each holding escalation that is open, however old, or that changed in the last ``RELEASE_DAYS``
+    -> its status and when it last changed. Two list calls, whatever the history."""
+    rows = _escalation_rows(project)
+    if not rows:
+        return {}
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=RELEASE_DAYS)).isoformat(timespec="seconds")
+    found = coord.all_rows("escalation", "list", "--status", "open")
+    found += coord.all_rows("escalation", "list", "--updated-since", cutoff)
+    return {str(e["id"]): e for e in found if str(e.get("id")) in rows}
 
 
 def held(project: Project, coord: Coordination) -> dict[str, str]:

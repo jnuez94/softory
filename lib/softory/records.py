@@ -11,6 +11,7 @@ length limit, and no words run together.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 from pathlib import Path
@@ -140,12 +141,12 @@ def report(project: Project, coord: Coordination, task_id: str, source: Path, ki
         raise SoftoryError(f"{task_id} can't name a folder", "invalid_arguments")
     folder = evidence_folder(project, task_id)
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / source.name
-    if target.exists() and target.resolve() != source:
-        target = folder / f"{source.stem}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}{source.suffix}"
     inside = source.is_relative_to(project.root.resolve())
     tracked = inside and is_tracked(project.root, str(source.relative_to(project.root.resolve())))
-    if target.resolve() != source:
+    if source.parent == folder.resolve():
+        target = source  # already filed: record it again, don't copy it over itself
+    else:
+        target = _reserve(folder, source.name)
         if keep or tracked or not inside:  # never take a tracked file, or one from outside the project
             shutil.copy2(source, target)
         else:
@@ -153,6 +154,19 @@ def report(project: Project, coord: Coordination, task_id: str, source: Path, ki
     uri = str(target.relative_to(project.root))
     coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", kind, "--actor", actor)
     return {"task": task_id, "uri": uri, "type": kind, "moved": not (keep or tracked or not inside)}
+
+
+def _reserve(folder: Path, name: str) -> Path:
+    """A new file in ``folder`` named after ``name``, created atomically, so no report overwrites another."""
+    stem, suffix = Path(name).stem, Path(name).suffix
+    for n in range(1, 10_000):
+        target = folder / (name if n == 1 else f"{stem}-{n}{suffix}")
+        try:
+            os.close(os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            return target
+        except FileExistsError:
+            continue
+    raise SoftoryError(f"Too many reports named {name} under {folder}", "invalid_arguments")
 
 
 def _full(project: Project, sha: str) -> str:

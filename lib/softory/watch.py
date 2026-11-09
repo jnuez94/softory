@@ -111,7 +111,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     unsettled: list[str] = []  # units at the review cap that Quinn may settle and hasn't yet
     if agent == "quinn":
         unsettled = in_scope([i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
-                              and decide.quinn_may_settle(project, charter, board.show(i))])
+                              and i not in on_hold and decide.quinn_may_settle(project, charter, board.show(i))])
         stuck = [i for i in unsettled if since is None or touched.get(i, "") > since]
         if stuck:
             reasons.append({"why": "units at the review cap: settle each with softory settle (retry, split, or drop)",

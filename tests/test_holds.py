@@ -66,6 +66,39 @@ class HoldsTest(unittest.TestCase):
                                            "--recommend", "a", "--reversible", "no", "--holds", "TASK-99",
                                            "--actor", "jade", check=False).stderr)
 
+    def test_an_unanswered_escalation_holds_however_old_it_is(self) -> None:
+        made = json.loads(softory(self.root, "escalate", "--issue", "The chat provider needs a paid key.",
+                                  "--ask", "Buy the provider key?", "--recommend", "Use a fake provider",
+                                  "--reversible", "no", "--holds", "TASK-1", "--actor", "jade").stdout)
+        rows_path = self.root / ".coordination/softory/escalations.json"
+        rows = json.loads(rows_path.read_text())
+        rows[made["escalation"]]["at"] = "2020-01-01T00:00:00+00:00"
+        rows_path.write_text(json.dumps(rows))
+        self.assertEqual([h["id"] for h in self.queue()["held"]], ["TASK-1"])
+
+    def test_reports_with_the_same_name_never_overwrite_each_other(self) -> None:
+        uris = []
+        for n in range(3):
+            report = self.root / "review.md"
+            report.write_text(f"pass {n}\n")
+            uris.append(json.loads(softory(self.root, "report", "TASK-1", str(report), "--actor", "gold").stdout)["uri"])
+        self.assertEqual(len(set(uris)), 3)
+        self.assertEqual([(self.root / u).read_text() for u in uris], ["pass 0\n", "pass 1\n", "pass 2\n"])
+
+    def test_an_owner_waiver_of_the_reference_check_counts_at_handoff(self) -> None:
+        sha = self.commit("web/a.js", "a\n")
+        start(self.root, "jade")
+        coord(self.root, "--session", json.loads((self.root / ".coordination/softory/sessions/jade.json").read_text())
+              ["session"], "task", "claim", "TASK-1", "--agent", "jade", "--if-revision", revision(self.root, "TASK-1"))
+        softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
+        self.assertIn("ui_reference_missing", softory(self.root, "handoff", "TASK-1", "--actor", "jade",
+                                                      check=False).stderr)
+        proposal = json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "ui_reference",
+                                      "--why", "a text-only fix", "--actor", "jade").stdout)
+        at_terminal(self.root, "approve", proposal["proposal"])
+        self.assertEqual(json.loads(softory(self.root, "handoff", "TASK-1", "--actor", "jade").stdout)["status"],
+                         "review")
+
     def test_an_owner_ruling_defers_a_unit_until_lifted(self) -> None:
         refused = softory(self.root, "defer", "TASK-1", "--decision", "nope", "--actor", "quinn", check=False)
         self.assertIn("not_found", refused.stderr)

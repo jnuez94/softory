@@ -313,17 +313,17 @@ def _waive(task_id: str, check: dict[str, Any], gates: dict[str, Any]) -> dict[s
 def ui_reference_check(task: dict[str, Any], gates: dict[str, Any]) -> dict[str, Any] | None:
     """A ui task or bug's rendered check against its design reference, or None where it doesn't apply.
     The gate needs it to close, and ``softory handoff`` needs it before review, so no reviewer sees the unit
-    without it."""
+    without it. An owner's waiver for it counts everywhere."""
     reference = gates.get("ui_reference") or {}
     unit, _ = spec_for(task, gates)
     if unit not in ("task", "bug") or not set(reference.get("tags") or []) & set(tags_of(task)):
         return None
     kinds = set(reference.get("evidence_types") or [])
     found = [r for r in live_evidence(task.get("evidence") or []) if str(r.get("evidence_type", "")).lower() in kinds]
-    return _check("ui_reference", bool(found),
+    return _waive(task.get("id", ""), _check("ui_reference", bool(found),
                   f"checked against its reference: {found[-1].get('uri')}" if found else
                   "a ui unit needs one check against its design reference before review: add evidence "
-                  f"of type {' or '.join(sorted(kinds))} (a screenshot beside the reference, or a visual diff)")
+                  f"of type {' or '.join(sorted(kinds))} (a screenshot beside the reference, or a visual diff)"), gates)
 
 
 def _check(name: str, passed: bool, detail: str) -> dict[str, Any]:
