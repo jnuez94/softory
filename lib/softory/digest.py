@@ -6,7 +6,7 @@ proposals, open escalations to the owner with their recommendations, defaults ap
 review cap that Quinn can't settle and what Quinn settled, provisioning requests from feasibility checks,
 unread messages to the owner, silent roles, and budget warnings. Each page
 goes once a day per item. With no paging command, the digest still lands in
-.agents/softory/run/digest.md and in the owner's inbox.
+.coordination/softory/digest.md and in the owner's inbox.
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import owner as owners
-from . import decide, feasibility, team, watch
+from . import decide, feasibility, team, usage, watch
 from .coordination import Coordination
 from .project import Project
-from .runstate import budget, paused, state_dir
+from .runstate import all_runs, budget, paused, state_dir
 from .gate import spec_for as gate_spec
 from .work import Board
 
@@ -138,8 +138,33 @@ def render(found: dict[str, list[dict[str, Any]]]) -> str:
 def build(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, Any]:
     found = items(project, coord, charter)
     path = state_dir(project) / "digest.md"
-    path.write_text(render(found), encoding="utf-8")
-    return {**found, "file": str(path)}
+    spent = week(project, coord)
+    path.write_text(render(found) + _week_lines(spent), encoding="utf-8")
+    return {**found, "week": spent, "file": str(path)}
+
+
+def week(project: Project, coord: Coordination, days: float = 7) -> dict[str, Any]:
+    """What the runner spent over ``days`` and what it bought: units closed, and runs that changed nothing."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    return usage.week(all_runs(project), len(closed_since(coord, since)), days)
+
+
+def closed_since(coord: Coordination, since: str) -> set[str]:
+    """Units moved to done at or after ``since``, from the audit log. A done task's ``updated_at`` also moves
+    when someone edits it, which would count old work as delivered."""
+    rows = coord.all_rows("audit", "list", "--object-type", "task", "--action", "status")
+    return {str(r["object_id"]) for r in rows
+            if str(r.get("created_at", "")) >= since and "-> done;" in f"{r.get('detail', '')};"}
+
+
+def _week_lines(spent: dict[str, Any]) -> str:
+    if not spent["runs"]:
+        return ""
+    idle = "not measured yet" if spent["idle_share"] is None else (
+        f"{int(spent['idle_share'] * 100)}% changed nothing (${spent['idle_usd']:g})")
+    per = "no units closed" if spent["usd_per_closed"] is None else f"${spent['usd_per_closed']:g} per closed unit"
+    return (f"\n## Last {spent['days']:g} days\n\n- {spent['runs']} runs, ${spent['usd']:g}: {per}, "
+            f"{spent['closed']} closed\n- Runs: {idle}\n")
 
 
 def page_due(project: Project, coord: Coordination, charter: dict[str, Any], clock: datetime | None = None,

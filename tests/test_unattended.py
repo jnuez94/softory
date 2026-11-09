@@ -88,7 +88,7 @@ class CharterUnitTest(unittest.TestCase):
 
     def test_effort_follows_the_job_and_empty_flags_drop(self) -> None:
         from softory import runner, runprompt
-        self.assertEqual(runprompt.job_of({"reasons": [{"why": "reviews waiting"}, {"why": "unread messages"}]}), "review")
+        self.assertEqual(runprompt.job_of({"reasons": [{"why": "reviews waiting"}, {"why": "messages that need you"}]}), "review")
         self.assertEqual(runprompt.job_of({"reasons": [{"why": "reviews waiting"}, {"why": "assigned work changed"}]}), "build")
         self.assertEqual(charters.effort_for(DEFAULTS, "toby", "review"), "medium")
         own = charters.merge(DEFAULTS, {"models": {"toby": {"effort": {"review": "high"}}}})
@@ -296,7 +296,7 @@ class UnattendedTest(unittest.TestCase):
         warnings = json.loads(softory(self.root, "doctor", check=False).stdout)["warnings"]
         self.assertTrue(any("outside the runner (jade)" in w for w in warnings), warnings)
         run([str(self.root / ".agents/softory/bin/softory"), "start", "gold"], self.root, {"SOFTORY_RUNNER": "1"})
-        rows = (self.root / ".agents/softory/run/manual-starts.jsonl").read_text().splitlines()
+        rows = (self.root / ".coordination/softory/manual-starts.jsonl").read_text().splitlines()
         self.assertEqual([json.loads(r)["role"] for r in rows], ["jade"])
 
     def test_a_setup_failure_is_not_a_test_failure_and_keeps_its_artifacts(self) -> None:
@@ -364,7 +364,7 @@ class UnattendedTest(unittest.TestCase):
         self.assertIn("paused", outside.stderr)
         at_terminal(self.root, "resume")
         at_terminal(self.root, "resume", "--role", "jade")
-        self.assertNotIn("allow", json.loads((self.root / ".agents/softory/run/paused.json").read_text()))
+        self.assertNotIn("allow", json.loads((self.root / ".coordination/softory/paused.json").read_text()))
 
     def test_a_scoped_retry_is_not_hidden_by_an_unrelated_message(self) -> None:
         softory(self.root, "pause", "--reason", "stop everything")
@@ -515,7 +515,8 @@ class UnattendedTest(unittest.TestCase):
     def test_a_run_gets_the_work_in_its_prompt_and_logs_tokens_and_effort(self) -> None:
         (self.root / ".git/report.json").write_text(json.dumps({"total_cost_usd": 0.5,
                                                                  "usage": {"input_tokens": 10, "output_tokens": 5}}))
-        script = 'printf %s "$1" > .git/prompt; echo {effort} > .git/effort; cat .git/report.json'
+        script = ('printf %s "$1" > .git/prompt; echo {effort} > .git/effort; echo "$COORDINATION_SESSION" > .git/session; '
+                  'cat .git/report.json')
         self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script, "sh", "{prompt}"]}},
                       "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}}})
         ran = json.loads(softory(self.root, "run-role", "jade").stdout)
@@ -523,5 +524,8 @@ class UnattendedTest(unittest.TestCase):
         self.assertEqual((self.root / ".git/effort").read_text().strip(), "high")
         prompt = (self.root / ".git/prompt").read_text()
         self.assertIn("TASK-1 [todo, parent STORY-1] List", prompt)
-        self.assertLess(prompt.index("End with softory end"), prompt.index("Waiting for you"))
+        self.assertLess(prompt.index("Your session is already open"), prompt.index("Waiting for you"))
+        self.assertNotIn("softory start", prompt)  # the runner opened it, whatever the harness does with shells
+        self.assertEqual(coord(self.root, "session", "list", "--agent", "jade", "--limit", "5")["data"][0]["status"], "ended")
+        self.assertTrue((self.root / ".git/session").read_text().strip().startswith("jade-fake-"))
         self.assertEqual(json.loads(softory(self.root, "usage").stdout)["jade"]["usd"], 0.5)

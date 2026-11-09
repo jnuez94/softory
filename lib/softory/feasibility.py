@@ -201,15 +201,14 @@ def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story
                 plan.append(f"  {label}: {text}")  # whole: the pass covers every word the hash does
     return (
         "You are Quinn (quinn) running softory's feasibility check, on a different model from the one that "
-        f"planned this work. Start with: eval \"$(.agents/softory/bin/softory start quinn --harness "
-        f"{charter['feasibility']['harness']} --model {charter['feasibility']['model']})\". Read only what is "
+        "planned this work. Your session is already open; pass --actor quinn to softory commands. Read only what is "
         "below; change no files and no tasks. Decide whether the team can do every step of this plan with "
         "only what the environment declares: networks, accounts, devices, and whether a desktop session is "
         "unlocked. Anything the plan assumes that isn't declared is missing, including sign-ins, paid tiers, "
         "private consoles, and checks that need a person at the machine. Then run exactly one of:\n"
         f"  .agents/softory/bin/softory feasible {story_id} --plan {plan_id} --pass\n"
         f"  .agents/softory/bin/softory feasible {story_id} --plan {plan_id} --needs \"<one missing thing>\" [--needs ...]\n"
-        "and softory end.\n\n"
+        "\n"
         f"Vision: {charter.get('vision') or '(not set)'}\n"
         f"Out of scope: {json.dumps(charter.get('out_of_scope') or [])}\n"
         f"Environment: {json.dumps(environment)}\n\n" + "\n".join(plan)

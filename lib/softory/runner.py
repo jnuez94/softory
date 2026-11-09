@@ -18,7 +18,7 @@ import sys
 from typing import Any
 
 from . import charter as charters
-from . import decide, digest, feasibility, perms, recovery, runprompt, usage, watch
+from . import decide, digest, feasibility, perms, recovery, runprompt, sessions, usage, watch, work
 from .runstate import RUNNER_ENV, allowed_tasks, budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -105,8 +105,11 @@ def spawn(project: Project, role: str, command: list[str] | None = None) -> None
                      start_new_session=True, env=_clean_env())
 
 
+SESSION_ENV, SOFTORY_ROLE = "COORDINATION_SESSION", "SOFTORY_ROLE"
+
+
 def _clean_env() -> dict[str, str]:
-    return {k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION", "SOFTORY_ROLE")}
+    return {k: v for k, v in os.environ.items() if k not in (SESSION_ENV, SOFTORY_ROLE)}
 
 
 # ---- one role's run ---------------------------------------------------------------------------
@@ -122,7 +125,8 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
     job = runprompt.job_of(wanted)
     effort = charters.effort_for(charter, role, job)
     text = runprompt.build(project, coord, charter, role, pick, wanted, job)
-    return _run(project, charter, role, pick, text, job, effort, escalated, [r["why"] for r in wanted["reasons"]])
+    return _run(project, charter, role, pick, text, job, effort, escalated, [r["why"] for r in wanted["reasons"]],
+                coord=coord)
 
 
 def run_check(project: Project, coord: Coordination, story_id: str) -> dict[str, Any]:
@@ -132,44 +136,124 @@ def run_check(project: Project, coord: Coordination, story_id: str) -> dict[str,
     pick = {"harness": settings["harness"], "model": settings["model"]}
     text = feasibility.prompt(project, coord, charter, story_id)
     return _run(project, charter, "quinn", pick, text, "feasibility", settings.get("effort") or "high", False,
-                [f"feasibility check of {story_id}"], pid_name=CHECK)
+                [f"feasibility check of {story_id}"], pid_name=CHECK, coord=coord)
 
 
 def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str], text: str, job: str,
-         effort: str, escalated: bool, reasons: list[str], pid_name: str | None = None) -> dict[str, Any]:
-    """Run the harness once with a time limit, and log the run where the budget counts it."""
+         effort: str, escalated: bool, reasons: list[str], pid_name: str | None = None,
+         coord: Coordination | None = None) -> dict[str, Any]:
+    """Run the harness once with a time limit, and log the run where the budget counts it.
+
+    The runner opens the role's session and hands it to the harness in its environment, and ends it when
+    the run exits or times out, so no harness has to keep shell state between commands.
+    """
     limits = limits_for(charter, role)
     command = harness_command(project, charter, role, pick, text, effort, limits.get("usd_per_run") or 0)
     pid_file = state_dir(project) / f"{pid_name or role}.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        session = work.open_session(project, coord, role, pick["harness"], pick["model"], by_runner=True) if coord else None
+        cursor = usage.audit_cursor(coord) if coord else None
+    except BaseException:
+        pid_file.unlink(missing_ok=True)
+        raise
     started = now()
     logs = state_dir(project) / "logs"
     logs.mkdir(exist_ok=True)
     out_path = logs / f"{pid_name or role}-{started.strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}.out"  # one per run
+    child: subprocess.Popen | None = None
     try:
         with out_path.open("w", encoding="utf-8") as out:
-            env = {**_clean_env(), RUNNER_ENV: "1"}  # sessions it starts aren't logged as manual
+            env = {**_clean_env(), RUNNER_ENV: "1", SOFTORY_ROLE: role}  # sessions it starts aren't logged as manual
+            if session:
+                env[SESSION_ENV] = session
             child = subprocess.Popen(command, cwd=project.root, env=env, start_new_session=True,  # noqa: S603
                                      stdout=out, stdin=subprocess.DEVNULL)
             try:
                 code = child.wait(timeout=float(limits["minutes_per_run"]) * 60)
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGTERM)
+                _stop(child)
                 code = 124
+            except BaseException:  # Ctrl-C or a kill of the runner: the harness has its own session, so stop it
+                _stop(child)
+                raise
     except FileNotFoundError as error:
         code = 127
         print(f"softory: {error}", file=sys.stderr)
     finally:
-        pid_file.unlink(missing_ok=True)
+        if child is not None and child.poll() is None:
+            # Stopping it was cut short. Leave its marker and session alone: handing its claims back now would
+            # let another run edit the same task while it still does. Stale-session recovery finishes it.
+            print(f"softory: {role}'s harness (pid {child.pid}) is still running; its session stays open",
+                  file=sys.stderr)
+        else:
+            pid_file.unlink(missing_ok=True)
+            if session:
+                _close_session(project, coord, session, role)
     spent = usage.parse(out_path.read_text(encoding="utf-8", errors="replace") if out_path.is_file() else "",
                         pick["model"], charter.get("prices") or {})
     row = {"role": role, "started": started.isoformat(timespec="seconds"), "harness": pick["harness"],
            "model": pick["model"], "escalated": escalated, "job": job, "effort": effort, "exit": code,
            "minutes": round((now() - started).total_seconds() / 60, 2), **spent,
            "prompt_chars": len(text), "reasons": reasons}
+    if coord:  # what the run changed besides bookkeeping; 0 means a run that bought nothing
+        row["changes"] = usage.changes_since(coord, role, cursor)
     with (state_dir(project) / "runs.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(row) + "\n")
     return {"ran": True, **row}
+
+
+#: Seconds a harness gets to exit after SIGTERM before its process group is killed.
+STOP_GRACE = 30.0
+
+
+def _stop(child: subprocess.Popen, grace: float = STOP_GRACE) -> None:
+    """Stop a timed-out harness and everything it started, and wait until it has. Its claims go back to todo
+    only after this, so a harness that ignores SIGTERM can't keep editing a task another run may claim."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(child.pid, sig)
+        except ProcessLookupError:
+            break  # the whole group is gone
+        try:
+            child.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            continue  # still running: kill it
+        if sig == signal.SIGTERM:  # the harness exited; take down anything it left running in its group
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        break
+    child.wait()
+
+
+def _close_session(project: Project, coord: Coordination, session: str, role: str) -> None:
+    """End the run's session unless the role already did.
+
+    The scaffold won't end a session that still owns claims, so a run that exited or timed out mid-task
+    hands each claim back to todo first: the role's next run claims it fresh instead of the task sitting
+    in progress until stale-session recovery blocks it. If the session still won't end, it stays
+    remembered so ``softory end --actor <role>`` or recovery can finish it.
+    """
+    shown = coord.call("session", "show", session)
+    if not (shown.get("ok") and (shown.get("data") or {}).get("status") == "active"):
+        sessions.forget(project, session)
+        return
+    ended = coord.call("session", "end", session)
+    error = ended.get("error") or {}
+    if not ended.get("ok") and error.get("code") == "session_has_active_claims":
+        for task_id in (error.get("details") or {}).get("tasks") or []:
+            task = coord.call("task", "show", task_id)
+            revision = str((task.get("data") or {}).get("revision", ""))
+            coord.call("--session", session, "task", "release", task_id, "--to", "todo", "--actor", role,
+                       "--if-revision", revision, "--note", "run ended with the task unfinished; claim it again")
+        ended = coord.call("session", "end", session)
+    if ended.get("ok"):
+        sessions.forget(project, session)
+    else:
+        print(f"softory: session {session} left open: {(ended.get('error') or {}).get('message', '')}",
+              file=sys.stderr)
 
 
 def harness_command(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str],

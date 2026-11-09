@@ -1,6 +1,7 @@
 """Local state for unattended runs: the pause switch and the run log the budget counts.
 
-All of it lives in .agents/softory/run/, hidden from git like the rest of softory.
+All of it lives in .coordination/softory/, beside the database and hidden from git like it, where any
+harness that may write the workspace may write.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from .project import Project
 
 
 def state_dir(project: Project) -> Path:
-    path = project.bundle / "run"
+    path = project.state
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -97,20 +98,23 @@ def scope_for(project: Project, role: str) -> set[str] | None:
 
 # ---- budget -----------------------------------------------------------------------------------
 
-def runs_today(project: Project, role: str) -> list[dict[str, Any]]:
-    day = now().date().isoformat()
+def all_runs(project: Project) -> list[dict[str, Any]]:
+    """Every run the runner logged, oldest first."""
     path = state_dir(project) / "runs.jsonl"
     if not path.is_file():
         return []
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
-            row = json.loads(line)
+            rows.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-        if row.get("role") == role and str(row.get("started", "")).startswith(day):
-            rows.append(row)
     return rows
+
+
+def runs_today(project: Project, role: str) -> list[dict[str, Any]]:
+    day = now().date().isoformat()
+    return [row for row in all_runs(project) if row.get("role") == role and str(row.get("started", "")).startswith(day)]
 
 
 def budget(project: Project, charter: dict[str, Any], role: str) -> dict[str, Any]:

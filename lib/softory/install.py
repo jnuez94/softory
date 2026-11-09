@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, __version__, gitlocal, instructions
+from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, STATE_DIR, __version__, gitlocal, instructions
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import PROTECTED_DIRS, Project, integrity_hashes, make_read_only, write_protected
@@ -53,6 +53,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         _install_scaffold(scaffold_src, target)
         bundle = target / BUNDLE_DIR
         _copy_bundle(source, bundle)
+        _move_state(bundle, target / STATE_DIR)
         _copy_tree(tracker_src / "coordination_ui", bundle / "tracker" / "coordination_ui")
         shutil.copy2(tracker_src / "LICENSE", bundle / "tracker" / "LICENSE")
         scaffold_block = _scaffold_block(scaffold_src)
@@ -189,6 +190,25 @@ def _copy_bundle(source: Path, bundle: Path) -> None:
         elif origin.is_file():
             shutil.copy2(origin, bundle / part)
     (bundle / "bin" / "softory").chmod(0o755)
+
+
+def _move_state(bundle: Path, state: Path) -> list[str]:
+    """Move what softory 0.5.3 and older wrote inside the bundle to the state folder, once.
+
+    Sandboxes protect .agents/ (Codex's workspace-write does), so a role there couldn't record feedback or
+    a verify result. The old run/ folder stays, empty, so a launchd job loaded before the upgrade can
+    still write its log until the owner reloads it.
+    """
+    state.mkdir(parents=True, exist_ok=True)
+    moved = []
+    old_run = bundle / "run"
+    pairs = [(old_run / entry.name, state / entry.name) for entry in sorted(old_run.iterdir())] if old_run.is_dir() else []
+    pairs += [(bundle / name, state / name) for name in ("feedback.jsonl", "proposals.json")]
+    for origin, destination in pairs:
+        if origin.exists() and not destination.exists():
+            shutil.move(str(origin), str(destination))
+            moved.append(origin.name)
+    return moved
 
 
 def _copy_tree(origin: Path, destination: Path) -> None:

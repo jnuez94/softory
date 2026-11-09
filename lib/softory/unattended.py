@@ -103,6 +103,7 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
         sessions = teamstats.sessions_by_role(coord, today)
         result = {role: {**runstate.budget(project, charter, role), "sessions_today": sessions.get(role, 0)}
                   for role in charter["run"]["roles"]}
+        result["last_7_days"] = digest.week(project, coord)
     print(ops.dumps(result), end="")
     return 0
 

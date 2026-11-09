@@ -25,7 +25,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     """Whether a role has anything to do.
 
     Work counts when it changed after the role's last finished session
-    started; unread messages and units ready to close always count. So that
+    started; messages that need the role and units ready to close always count, and other unread
+    messages once ``retry_hours`` pass without a run. So that
     a crashed or cut-short run can't strand work, any waiting work counts
     again once ``retry_hours`` pass without a run (0 turns that off). A role
     that is already running (a session seen in the last 30 minutes) is not
@@ -64,10 +65,14 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     # decides whether to run, so messages and other work wait for the full resume without hiding the retry.
     scope = allowed_tasks(project, agent) if hold else set()
     in_scope = (lambda ids: [i for i in ids if i in scope]) if scope else (lambda ids: ids)
-    inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
-    unread = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
-    if unread and not scope:
-        reasons.append({"why": "unread messages", "count": len(unread)})
+    if not scope:
+        wanted, rest = unread_messages(coord, agent, board, work)
+        if wanted:
+            reasons.append({"why": "messages that need you", "count": len(wanted)})
+        elif rest and retry_hours > 0 and min(m.get("created_at") or "" for m in rest) <= (
+                now - timedelta(hours=retry_hours)).isoformat(timespec="seconds") and (
+                last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)):
+            reasons.append({"why": "unread messages waiting", "hours": retry_hours, "count": len(rest)})
     if in_scope([t["id"] for t in work["ready_to_close"]]):
         reasons.append({"why": "ready to close", "ids": in_scope([t["id"] for t in work["ready_to_close"]])})
     accepting = set(board.gates["accepting_decisions"])
@@ -122,6 +127,48 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     if held:
         result["capped"] = held
     return result
+
+
+#: Message tags that ask the recipient for something. Anything else is news, read on the role's next run.
+ACTION_TAGS = {"request", "question", "ruling", "answer", "blocker", "urgent"}
+
+
+def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any],
+                    page: int = 100) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The role's unread messages, split as ``split_messages`` does. Pages run oldest first, so a page of
+    FYIs can't hide a later owner message: read on until one needs the role or the inbox runs out."""
+    wanted: list[dict[str, Any]] = []
+    rest: list[dict[str, Any]] = []
+    offset = 0
+    while not wanted:
+        inbox = coord.run("inbox", "list", "--agent", agent, "--limit", str(page), "--offset", str(offset))
+        messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
+        need, other = split_messages(messages, agent, board, work)
+        wanted += need
+        rest += other
+        if len(messages) < page:
+            break
+        offset += page
+    return wanted, rest
+
+
+def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
+                   work: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(messages that need the role, the rest). A message needs the role when the owner sent it, it carries an
+    action tag, or it names a unit the role builds, holds, reviewed, or owes a review or a close on.
+    Acknowledgements and news wake nobody: each woke a paid run in Tablet, and replies woke the sender back.
+    """
+    mine = {t["id"] for t in board.tasks if agent in (t.get("assignees") or []) or t.get("claimed_by") == agent}
+    mine |= {task_id for task_id, rows in board.reviews.items()
+             if any((r.get("reviewer_id") or r.get("reviewer")) == agent for r in rows)}
+    mine |= {row["id"] for key in ("reviews_waiting", "ready_to_close") for row in work.get(key) or []}
+    owner = board.project.roster()["owner"]["id"]
+    wanted, rest = [], []
+    for message in unread:
+        tags = {t.strip().lower() for t in str(message.get("tags") or "").split(",") if t.strip()}
+        needed = message.get("sender_id") == owner or tags & ACTION_TAGS or message.get("task_id") in mine
+        (wanted if needed else rest).append(message)
+    return wanted, rest
 
 
 def _live(sessions: list[dict[str, Any]], now: datetime) -> list[str]:

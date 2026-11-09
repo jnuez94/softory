@@ -144,8 +144,9 @@ def stack(project: Project, coord: Coordination, ids: list[str], actor: str) -> 
 def close_stack(project: Project, coord: Coordination, task_id: str, actor: str) -> dict[str, Any]:
     """Close every open member of the task's stack, or none of them.
 
-    Each member must pass its own gate when the other members count as done.
-    Members close bottom first: a member closes after every member it waits on.
+    Each member must pass its own gate, objective checks included (tests at its commit,
+    its lane), when the other members count as done. Members close bottom first: a member
+    closes after every member it waits on.
     """
     from . import work  # work imports this module
 
@@ -158,6 +159,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
     members = {t["id"]: coord.task(t["id"]) for t in everything if stack_of(t) == name and t["status"] != "done"}
     children = {i: [t for t in everything if f"parent:{i}" in tags_of(t)] for i in members}
     related = {i: work.related_live(coord, t, gates) for i, t in members.items()}
+    objective = {i: work.objective_checks(project, t, gates) for i, t in members.items()}
 
     passing = set(members)
     while True:
@@ -166,7 +168,8 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
             deps = {dep["depends_on_task_id"]: "done" if dep["depends_on_task_id"] in passing
                     else statuses.get(dep["depends_on_task_id"], "")
                     for dep in task.get("dependencies") or []}
-            reports[member_id] = gate_rules.evaluate(task, gates, deps, children[member_id], actor, related[member_id])
+            reports[member_id] = gate_rules.evaluate(task, gates, deps, children[member_id], actor, related[member_id],
+                                                     objective[member_id])
         now = {i for i, report in reports.items() if report["pass"]}
         if now == passing:
             break

@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 import secrets
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
-from . import charter, feasibility, lifecycle, runstate, verify, verifyenv
+from . import charter, feasibility, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
@@ -18,6 +18,7 @@ from .units import (
     check_parent,
     children_by_parent,
     lane_of,
+    live_evidence,
     next_id,
     parent_of,
     resolution_of,
@@ -36,6 +37,14 @@ def actor_of(explicit: str | None) -> str:
 
 def start(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str) -> str:
     """Start an execution session for a role and return shell exports."""
+    session_id = open_session(project, coord, role_id, harness, model)
+    return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
+
+
+def open_session(project: Project, coord: Coordination, role_id: str, harness: str | None, model: str,
+                 by_runner: bool = False) -> str:
+    """Start a session for a role, remember it for commands whose shell lost the exports, and return its ID.
+    ``by_runner``: the runner opened it, so it isn't logged as a start by some other scheduler."""
     role = project.role(role_id)
     if not model or not harness:  # usage and reviews compare models, so a session always names one
         pick = (charter.load(project).get("models") or {}).get(role_id) or {}
@@ -50,16 +59,20 @@ def start(project: Project, coord: Coordination, role_id: str, harness: str | No
     if model:
         args += ["--model", model]
     coord.run(*args)
-    runstate.note_start(project, role_id, session_id)
-    return f"export COORDINATION_SESSION={session_id}\nexport SOFTORY_ROLE={role_id}\n"
+    if not by_runner:
+        runstate.note_start(project, role_id, session_id)
+    sessions.remember(project, role_id, session_id)
+    return session_id
 
 
-def end(coord: Coordination, session: str | None) -> dict[str, Any]:
+def end(project: Project, coord: Coordination, session: str | None) -> dict[str, Any]:
     """End the session ``softory start`` opened, so its claims don't go stale."""
-    session = session or os.environ.get("COORDINATION_SESSION")
+    session = session or coord.session
     if not session:
-        raise SoftoryError("No session to end: pass --session or set COORDINATION_SESSION", "invalid_arguments")
+        raise SoftoryError("No session to end: pass --session or --actor, or set COORDINATION_SESSION",
+                           "invalid_arguments")
     coord.run("session", "end", session)
+    sessions.forget(project, session)
     return {"ended": session}
 
 
@@ -413,10 +426,15 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         latest = gate_rules.latest_reviews(task)
         built_by = gate_rules.builders(task)
         for requirement in gate_rules.required_reviews(task, gates):
-            if gate_rules.may_review(requirement, agent, built_by):
-                if latest.get(agent, {}).get("decision") not in gates["accepting_decisions"]:
-                    to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
-                break
+            if not gate_rules.may_review(requirement, agent, built_by):
+                continue
+            owed = review_owed(task, requirement, agent, built_by, latest, set(gates["accepting_decisions"]),
+                               lambda e, r: _audit_id(coord, "evidence", e) > _audit_id(coord, "review", r))
+            if owed is None:
+                continue  # another listed reviewer already covered it; maybe the next requirement is the agent's
+            if owed:
+                to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
+            break
     ready = ready_to_close(board, agent)
     scope = runstate.scope_for(project, agent)
     if scope is not None:  # paused, with the owner's leave to work on these tasks only
@@ -437,6 +455,42 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
     if scope is not None:
         result["scoped_to"] = sorted(scope)
     return result
+
+
+def review_owed(task: dict[str, Any], requirement: dict[str, Any], agent: str, built_by: set[str],
+                latest: dict[str, dict[str, Any]], accepting: set[str],
+                came_after: Callable[[str, str], bool] | None = None) -> bool | None:
+    """Whether ``agent`` owes ``task`` a review for ``requirement``: True, False (nothing to do now),
+    or None (someone else satisfied the requirement, so it isn't the agent's).
+
+    A reviewer who asked for changes owes a new pass only once new evidence lands after that request;
+    until then the builder has the move. Timestamps are whole seconds, so evidence in the same second as
+    the review is ordered by ``came_after(evidence_id, review_id)`` (the audit log); without it, a tie
+    counts as new, since an extra pass costs less than a review nobody is woken for.
+    """
+    mine = latest.get(agent)
+    if mine and mine.get("decision") in accepting:
+        return False
+    if mine:
+        asked = str(mine.get("created_at") or "")
+        rows = task.get("evidence") or []
+        retractions = [r for r in rows if str(r.get("uri", "")).startswith("softory-supersedes:")]
+        for row in [*live_evidence(rows), *retractions]:  # retracting a wrong row answers a request too
+            stamp = str(row.get("created_at") or "9")
+            if stamp > asked or (stamp == asked and (came_after is None
+                                                     or came_after(str(row.get("id")), str(mine.get("id"))))):
+                return True
+        return False
+    covered = any(latest.get(r, {}).get("decision") in accepting
+                  for r in gate_rules.eligible(requirement, built_by, latest) if r != agent)
+    return None if covered else True
+
+
+def _audit_id(coord: Coordination, kind: str, object_id: str) -> int:
+    """The audit row that recorded an evidence row or review: the order things happened in, to the row."""
+    rows = coord.call("audit", "list", "--object-type", kind, "--object-id", object_id, "--limit", "1")
+    found = (rows.get("data") or []) if rows.get("ok") else []
+    return int(found[0]["id"]) if found else 0
 
 
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:

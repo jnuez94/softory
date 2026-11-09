@@ -39,7 +39,7 @@ TAIL_LINES = 40
 
 
 def ledger_path(project: Project) -> Path:
-    return project.bundle / "run" / "verified.json"
+    return project.state / "verified.json"
 
 
 def ledger(project: Project) -> dict[str, Any]:
@@ -141,11 +141,11 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
                  scan: dict[str, Any] | None = None) -> dict[str, Any]:
     place = Path(tempfile.mkdtemp(prefix="softory-verify-"))
     tree = place / "tree"
-    added = git(project.root, "worktree", "add", "--detach", "--quiet", str(tree), sha)
-    if added.returncode != 0:
+    worktree = _checkout(project.root, sha, tree)
+    if worktree is None:
         shutil.rmtree(place, ignore_errors=True)
-        raise SoftoryError(f"git worktree add failed: {added.stderr.strip()[:300]}", "git_error")
-    out_dir = project.bundle / "run" / "verify"
+        raise SoftoryError(f"git could check out {sha[:12]} neither as a worktree nor as an archive", "git_error")
+    out_dir = project.state / "verify"
     out_dir.mkdir(parents=True, exist_ok=True)
     name = f"{task_id}-{sha[:12]}"
     shared, kept = {}, []
@@ -170,13 +170,39 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
         if code != 0:
             kept = verifyenv.keep_artifacts(tree, list(settings.get("keep") or []), out_dir / name)
     finally:
-        git(project.root, "worktree", "remove", "--force", str(tree))
+        if worktree:
+            git(project.root, "worktree", "remove", "--force", str(tree))
         shutil.rmtree(place, ignore_errors=True)
     log = out_dir / f"{name}.log"
     # A failure keeps the whole log for whoever has to fix it; a pass keeps the tail.
     log.write_text(output if code != 0 else output[-200_000:], encoding="utf-8")
     return {"stage": stage, "code": code, "output": output, "log": str(log), "shared": shared, "kept": kept,
             "started": started, "design": found}
+
+
+def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
+    """Check out ``sha`` at ``tree``: True for a git worktree, False for a plain archive, None if neither worked.
+
+    A worktree writes under .git, which some harness sandboxes protect (Codex's workspace-write does), so the
+    same verify falls back to a snapshot through a throwaway index kept outside .git: ``read-tree`` then
+    ``checkout-index`` writes every tracked file as a checkout would. Not ``git archive``: it honors
+    ``export-ignore`` and ``export-subst``, so a repository that keeps tests out of its archives would pass
+    with no tests run. Tests that need git history see no .git, but the files are the commit's either way.
+    """
+    if git(root, "worktree", "add", "--detach", "--quiet", str(tree), sha).returncode == 0:
+        return True
+    shutil.rmtree(tree, ignore_errors=True)
+    tree.mkdir(parents=True)
+    index = tree.parent / f"{tree.name}.index"
+    env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+    try:
+        for args in (["read-tree", sha], ["checkout-index", "--all", "--force", f"--prefix={tree}/"]):
+            done = subprocess.run(["git", *args], cwd=root, env=env, capture_output=True, check=False)  # noqa: S603, S607
+            if done.returncode != 0:
+                return None
+    finally:
+        index.unlink(missing_ok=True)
+    return False
 
 
 def _shell(command: str, cwd: Path, timeout: float) -> tuple[int, str]:

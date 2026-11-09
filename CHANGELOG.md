@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.4] - 2026-11-09
+
+From Tablet's logged feedback (29 notes, 303 runner runs from 5 to 9 November, $154.52). One operating loop for every harness, and fewer runs that buy nothing.
+
+- **A stack close runs every check.** `softory close <ID> --stack` evaluated each member's gate without the objective checks, so a stack could close code softory never saw pass its tests, or reach outside its lane (Quinn, REVIEW-248; BUG-50 and BUG-51 closed this way). Members now get `verified` and `lane_paths` like any close.
+- **The runner owns the session.** Unattended Claude runs lost `COORDINATION_SESSION` after the first command, because each Bash call is a fresh shell, so `softory close` failed with `session_required` even when the gate passed (REVIEW-242, REVIEW-256). The runner now opens the role's session, passes it to the harness in its environment, and ends it after the run. The prompt no longer asks the agent to start or end one.
+- **Sessions survive fresh shells.** `softory start` remembers the session per role. Commands with `--actor`, and `softory coord` commands naming `--agent` or `--actor`, use it when no session is set. `close`, `drop`, `stack`, and `end` take `--session`.
+- **Runtime state moved to `.coordination/softory/`.** Codex's `workspace-write` sandbox refuses writes under `.agents/` (confirmed on Tablet: "Operation not permitted"), so Codex roles couldn't record feedback, and their notes were lost. The run log, verify ledger and logs, escalations, decisions state, proposals, feedback, and sessions now live beside the database. The installer moves them; reload the runner after upgrading so launchd's log follows.
+- **Verify falls back to a snapshot** when `git worktree add` is refused, since the same sandboxes protect `.git`. It checks out every tracked file through a throwaway index outside `.git`, not `git archive`, which honors `export-ignore` and could drop a repository's tests.
+- **Messages wake a role only when they need it.** Unread messages started 199 of Tablet's 303 runs ($83) and 109 of those changed nothing, largely acknowledgements that woke the sender back. A role now wakes for a message from the owner, one with an action tag (`request`, `question`, `ruling`, `answer`, `blocker`, `urgent`), or one naming a unit it builds, holds, reviewed, or owes. Other messages wait for the next run, or wake it after `retry_hours` with no run. The instructions say not to send acknowledgements.
+- **The queue lists only reviews a reviewer owes.** A requirement another listed reviewer already accepted no longer shows on every stand-in's queue (Avery saw 15, BUG-113), and a reviewer who asked for changes isn't woken again until new evidence lands or wrong evidence is retracted (TASK-63).
+- **A run that stops mid-task hands its claim back.** The scaffold won't end a session that owns claims, so a harness that exited or timed out holding a task left it in progress until stale-session recovery blocked it. The runner now waits for a timed-out or interrupted harness to exit (SIGTERM, then SIGKILL to its process group after 30 seconds), releases each claim to `todo` with a note, then ends the session; if it still won't end, the session stays remembered for `softory end --actor <role>`.
+- **Evidence in the same second as a review** is ordered by the audit log, so a builder's fix that lands within a second of a changes-requested review still puts the task back on the reviewer's queue.
+- **An actionable message past the first 100 unread** still wakes the role: `pending` reads on, page by page, until a message needs the role or the inbox runs out.
+- **Spend per closed unit.** Each run logs how many records it changed besides bookkeeping. `softory usage` adds `last_7_days` and the digest adds a section: runs, dollars, units moved to done (from the audit log, so edits to old work don't count), dollars per closed unit, and the share of runs that changed nothing.
+
 ## [0.5.3] - 2026-11-06
 
 Phase 3 of the design standard: the machine gates. Taste reviews should argue about taste, not about a missing focus ring.

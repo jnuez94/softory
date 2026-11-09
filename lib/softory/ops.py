@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from . import SCAFFOLD_DIR, gitlocal, instructions
+from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
 from .coordination import Coordination
 from .install import SKILL_ROOTS
 from .project import Project
@@ -142,9 +142,16 @@ def _stale_instruction_files(project: Project) -> list[str]:
 
 def coord(project: Project, args: list[str]) -> int:
     """Run the coordination CLI from the main checkout, so it finds the database
-    from any worktree. Arguments pass through unchanged."""
+    from any worktree. Arguments pass through unchanged, except that a command naming
+    a role (``--agent`` or ``--actor``) with no session gets the session softory opened
+    for that role, for harnesses whose shells drop ``COORDINATION_SESSION``."""
     os.chdir(project.root)
     binary = str(project.coordination_bin)
+    if "--session" not in args and not os.environ.get("COORDINATION_SESSION"):
+        role = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--agent", "--actor")), None)
+        found = sessions.recall(project, role, sessions.open_check(Coordination(binary, project.root)))
+        if found:
+            args = ["--session", found, *args]
     os.execv(binary, [binary, *args])
     return 0  # unreachable
 
@@ -190,9 +197,7 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
         else:
             path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
         removed.append(name)
-    notes = project.bundle / "feedback.jsonl"
-    if notes.is_file() and not purge and (root / ".coordination").is_dir():
-        shutil.move(str(notes), root / ".coordination" / "softory-feedback.jsonl")  # keep agents' notes with the history
+    # Agents' feedback, the run log and the verify ledger live in .coordination/softory, kept with the history.
     keep_scaffold = manifest.get("scaffold_preexisting", True)
     for directory in ([] if keep_scaffold else [SCAFFOLD_DIR]) + [".agents/softory"]:
         shutil.rmtree(root / directory, ignore_errors=True)

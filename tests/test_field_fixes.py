@@ -176,6 +176,7 @@ class ReviewFollowUpTest(unittest.TestCase):
         class Fake:
             root = Path(tempfile.mkdtemp())
             bundle = root
+            state = root
 
         runner.subprocess.run = missing
         try:

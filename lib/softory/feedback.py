@@ -22,7 +22,7 @@ MAX_NOTE = 2000
 
 
 def path(project: Project):
-    return project.bundle / "feedback.jsonl"
+    return project.state / "feedback.jsonl"
 
 
 def add(project: Project, note: str, kind: str, task: str | None, actor: str | None) -> dict[str, Any]:
