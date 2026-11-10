@@ -38,7 +38,7 @@ These are the rules Sage holds every role to, and reviews against:
 
 ## The operating loop
 
-The runner wakes Sage for a **check-in** at most once every `simplify.checkin_hours` (24). It does so only when the team ran, filed feedback, or left clutter since the last check-in, so an idle team costs nothing. `process` reviews wake Sage like any other review. Each check-in:
+The runner wakes Sage for a **check-in** at most once every `simplify.checkin_hours` (24) after the last `softory flow --record`. It does so only when the team ran, filed feedback, or left clutter since the last check-in, so an idle team costs nothing. `process` reviews wake Sage like any other review. Each check-in:
 
 1. **Measure.** Run `softory flow --record`. It shows the numbers below for the last 7 days, compared with the last check-in, and its `worse` list names whatever got worse:
    - time to delivery and review rounds

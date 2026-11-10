@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import datetime, timezone
 import unittest
 
@@ -94,9 +95,9 @@ class SimplifyTest(unittest.TestCase):
         def pending() -> dict:
             return json.loads(softory(self.root, "pending", "sage", check=False).stdout)
 
-        start(self.root, "sage")
-        softory(self.root, "end", "--actor", "sage")
+        softory(self.root, "flow", "--record")  # a check-in
         self.assertFalse(pending()["pending"])  # checked in just now, and nothing since
+        time.sleep(1.1)
         state = self.root / ".coordination/softory"
         (state / "runs.jsonl").write_text(json.dumps({"role": "jade", "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                                       "minutes": 5, "input_tokens": 100, "changes": 0}) + "\n")
@@ -107,9 +108,12 @@ class SimplifyTest(unittest.TestCase):
         woke = pending()
         self.assertTrue(woke["pending"], woke)
         self.assertIn("softory flow --record", woke["reasons"][-1]["why"])
-        start(self.root, "sage")  # the check-in: Sage records what it saw
-        softory(self.root, "flow", "--record")
+        start(self.root, "sage")  # a process review in between doesn't count as a check-in
         softory(self.root, "end", "--actor", "sage")
+        self.assertTrue(pending()["pending"])
+        time.sleep(1.1)
+        softory(self.root, "flow", "--record")  # the check-in
+        self.assertFalse(pending()["pending"])
         (self.root / "loose.md").write_text("x\n")  # clutter that appeared since
         self.assertTrue(pending()["pending"])
         softory(self.root, "flow", "--record")

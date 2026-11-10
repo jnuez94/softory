@@ -142,7 +142,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
     simplify = charter.get("simplify") or {}
     if agent == simplify.get("role") and not scope:
-        sweep = _sweep_due(project, simplify, last_start, now)
+        sweep = _sweep_due(project, simplify, now)
         if sweep:
             reasons.append(sweep)
     if scope:
@@ -165,25 +165,26 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     return result
 
 
-def _sweep_due(project: Project, simplify: dict[str, Any], last_start: str | None,
-               now: datetime) -> dict[str, Any] | None:
-    """Sage's check-in: once per ``checkin_hours``, when the team ran since the last one, filed feedback, or left
-    clutter. An idle team costs nothing."""
-    if last_start and now - parse_time(last_start) < timedelta(hours=float(simplify.get("checkin_hours", 24))):
+def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime) -> dict[str, Any] | None:
+    """Sage's check-in: once per ``checkin_hours`` after the last one (the last ``softory flow --record``, not
+    Sage's last session, so process reviews never put it off), when the team ran, filed feedback, or left new
+    clutter since. An idle team costs nothing."""
+    last = flow.last_snapshot(project)
+    checked = last.get("at") if last else None
+    if checked and now - parse_time(checked) < timedelta(hours=float(simplify.get("checkin_hours", 24))):
         return None
     role = simplify.get("role")
-    ran = [r for r in all_runs(project) if r.get("role") != role
-           and (last_start is None or parse_time(str(r.get("started") or last_start)) > parse_time(last_start))]
+    ran = [r for r in all_runs(project) if r.get("role") != role and r.get("started")
+           and (checked is None or parse_time(str(r["started"])) > parse_time(checked))]
     notes = [e for e in feedback.entries(project)
-             if last_start is None or (e.get("at") and parse_time(e["at"]) > parse_time(last_start))]
+             if checked is None or (e.get("at") and parse_time(e["at"]) > parse_time(checked))]
     found = clutter.report(project)
-    last = flow.last_snapshot(project)  # the clutter Sage already saw at its last check-in doesn't count again
-    fresh = not found["clean"] and not (last and last.get("clutter_key") == found["key"])
+    fresh = not found["clean"] and not (last and last.get("clutter_key") == found["key"])  # seen already
     if not fresh and not notes and not ran:
         return None
     seen = [f"{len(ran)} team run(s)" if ran else "", f"{len(notes)} feedback note(s)" if notes else "",
             ", ".join(f"{n} {kind}" for kind, n in found["counts"].items() if n) if fresh else ""]
-    return {"why": f"process check-in ({'; '.join(p for p in seen if p)} since your last): run softory flow "
+    return {"why": f"process check-in ({'; '.join(p for p in seen if p)} since the last): run softory flow "
                    f"--record, softory clutter and softory feedback --list, then simplify",
             "runs": len(ran), "clutter": found["counts"], "feedback": len(notes)}
 
