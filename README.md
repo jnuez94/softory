@@ -118,6 +118,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
 | `softory gc [--days 14] [--dry-run]` | Removes workspaces unused for that long, old run and verify logs, and verify trees a crashed run left in the temp folder |
+| `softory attach` | Watch attended runs: attaches to the tmux session where each running role has a window, or says where they open |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
 `softory <command> --help` gives each command's options. The CLI lives at `.agents/softory/bin/softory` inside the project. You can alias it as `softory`.
@@ -132,6 +133,15 @@ Softory runs the team without you up to a pull request. You merge and deploy. Fr
 4. Load the runner: turn off any other scheduler for the project first, such as an app's scheduled check-ins, then run `softory setup --load-schedule` and type yes. It loads a launchd job that runs `softory run` every five minutes (`softory schedule` prints a cron line for other systems). The runner should be the only thing that starts roles; otherwise roles run twice and the budget can't see half of them. `softory doctor` warns while no scheduler is loaded, when the runner has stopped ticking, and when sessions started outside the runner in the last day.
 
 Each tick starts a role only when it has work, is under today's budget, and isn't paused or already running. The budget counts runs and minutes, not dollars, so it holds whatever a model costs: by default 24 runs and 120 minutes a day per role, 30 minutes a run, and tighter for the reviewing roles (Greg 15 minutes a run and 60 a day, Darwin and Toby 20 and 60). `budget.roles` overrides any cap for one role. At 80% you see it in the digest; at 100% the role stops until tomorrow and you're paged. Optional dollar caps sit beside them: `usd_per_run` (Claude Code stops itself there) and `usd_per_role_per_day`, counted from the cost each run reports; both are off at 0.
+
+### Watching runs (attended mode)
+
+By default the runner starts each role headless (`claude -p`, `codex exec`), so runs don't show in the Claude or Codex apps and you can't step in while one works. To watch them, set `run.mode` to `attended` in the charter (`softory charter approve --merge` a file with `{"run": {"mode": "attended"}}`). The runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`) where you can see it:
+
+- **tmux**, if it is installed: one window per running role in the session `softory-<project>`. `softory attach` attaches to it; `Ctrl-b w` lists the roles and `Ctrl-b d` leaves them running.
+- **Terminal**, on a Mac without tmux: one window per role. macOS asks once to let softory control Terminal.
+
+Type into any window to steer the role. A run ends when the role runs `softory end`, when you quit the harness or close the window, or at `minutes_per_run`; the runner then hands back unfinished claims as usual. Interactive harnesses don't report tokens or cost, so in attended mode the budget counts runs and minutes only. The run's log keeps a copy of the window. Set `run.mode` back to `unattended` to return to headless runs.
 
 Each run is shaped to waste as little as possible:
 
