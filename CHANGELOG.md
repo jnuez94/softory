@@ -4,7 +4,8 @@
 
 The tracker console can act again in a project with more than 500 sessions.
 
-- **The tracker moves to `83bd876`** (from `ee3dee6`). Its header read only the project's 500 oldest sessions, so in Tablet (937 sessions) the console's own session never loaded: the header said "No active session is selected for local-operator" and offered nothing to pick, and every action stayed disabled. The console now loads active sessions only (tracker UI-84). The new pin also brings the tracker's other changes since `ee3dee6`: an escalation can be resolved from its inspector, a blocked task shows what blocks it, a refused stale change shows what changed, the row-action column appears only when a row qualifies, and the Export page is gone. Softory used none of the Export page.
+- **The tracker moves to `e3b37cc`** (from `ee3dee6`). Its header read only the project's 500 oldest sessions, so in Tablet (937 sessions) the console's own session never loaded: the header said "No active session is selected for local-operator" and offered nothing to pick, and every action stayed disabled. The console now loads active sessions only (tracker UI-84). The new pin also brings the tracker's other changes since `ee3dee6`: an escalation can be resolved from its inspector, a blocked task shows what blocks it, a refused stale change shows what changed, the row-action column appears only when a row qualifies, and the Export page is gone. Softory used none of the Export page.
+- **Two fixes in what the new pin brings** (tracker UI-85, from review of this release). "Since you loaded it" no longer counts changes from before the load when a record revisited a status (draft -> review -> draft). Resolving an escalation looks up a follow-up id the loaded list doesn't hold, so a real task past the first 500, or one created since, is no longer refused.
 
 ## [0.5.6] - 2026-11-10
 
