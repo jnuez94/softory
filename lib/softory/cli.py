@@ -363,7 +363,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "queue":
         print(ops.dumps(work.queue(project, coord, args.agent)), end="")
     elif args.command == "pending":
-        result = watch.pending(project, coord, args.agent, args.since, args.retry_hours)
+        result = watch.pending(project, coord, args.agent, args.since, args.retry_hours, from_own_run=True)
         print(ops.dumps(result), end="")
         return 0 if result["pending"] else 3
     elif args.command == "silent":

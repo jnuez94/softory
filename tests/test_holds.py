@@ -74,6 +74,11 @@ class HoldsTest(unittest.TestCase):
         self.assertTrue(inside["pending"], inside)  # from inside her own run, the work is still hers to do
         fresh = json.loads(softory(self.root, "pending", "--actor", "jade", check=False).stdout)
         self.assertTrue(fresh["pending"], fresh)  # a fresh shell without the export finds her session itself
+        for extra, env in (([], {"COORDINATION_SESSION": session}), (["--actor", "jade"], {})):
+            declined = json.loads(softory(self.root, "run-role", "jade", *extra, env=env, check=False).stdout)
+            self.assertFalse(declined["ran"], declined)  # the runner never starts a second harness beside hers
+        remembered = json.loads((self.root / ".coordination/softory/sessions/jade.json").read_text())["session"]
+        self.assertEqual(remembered, session)
         for command in (["queue"], ["inbox"], ["pending"], ["charter", "show"]):
             ran = softory(self.root, *command, "--actor", "jade", check=False)
             self.assertNotIn("unrecognized arguments", ran.stderr, command)
