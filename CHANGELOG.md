@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6] - 2026-11-10
+
+Two fixes from Tablet's first ticks on 0.5.5, where every runner run stopped within a minute without doing anything.
+
+- **A runner run sees its own work.** The instructions told a check-in to run `softory pending <role>` first and stop on exit 3. A run the runner started did so too, saw its own session as "already running", and stopped. `pending` now leaves out the session it is called from, and the instructions say a runner run goes straight to the work its prompt lists.
+- **Every command takes `--actor`.** The operating loop tells harnesses that run each command in a fresh shell to pass `--actor <role>`, but `queue`, `inbox`, `pending`, `charter show` and others refused it, so Codex runs got usage errors. Every command except `install` now takes it, as the acting role.
+
 ## [0.5.5] - 2026-11-09
 
 The rest of the Tablet review's fixes that don't wait on more data: work waiting on the owner stops waking roles, reviewers stop copying the tree, and evidence leaves the main checkout.

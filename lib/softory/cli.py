@@ -219,7 +219,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("uninstall", help="Remove softory (keeps .coordination unless --purge)")
     p.add_argument("--purge", action="store_true", help="Also delete the coordination database")
+    _actor_everywhere(parser)
     return parser
+
+
+def _actor_everywhere(parser: argparse.ArgumentParser) -> None:
+    """Let every command take ``--actor``. The operating loop tells harnesses that run each command in a fresh
+    shell to pass ``--actor <role>`` to softory, and Tablet's Codex runs stopped when queue, inbox, pending
+    and charter show refused it. Where a command has no option of its own, it names the role as
+    $SOFTORY_ROLE does."""
+    for action in parser._actions:  # noqa: SLF001 - argparse keeps subcommands only here
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            for name, command in action.choices.items():
+                if name != "install" and "--actor" not in command._option_string_actions:  # noqa: SLF001
+                    command.add_argument("--actor", dest="role_flag", help="Acting role (default: $SOFTORY_ROLE)")
+                _actor_everywhere(command)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -238,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"ok": False, "error": {"code": error.code, "message": error.message}}), file=sys.stderr)
             return 1
     args = build_parser().parse_args(argv)
+    if getattr(args, "role_flag", None):
+        os.environ["SOFTORY_ROLE"] = args.role_flag
     try:
         return _dispatch(args)
     except SoftoryError as error:
@@ -347,7 +363,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "queue":
         print(ops.dumps(work.queue(project, coord, args.agent)), end="")
     elif args.command == "pending":
-        result = watch.pending(project, coord, args.agent, args.since, args.retry_hours)
+        result = watch.pending(project, coord, args.agent, args.since, args.retry_hours, from_own_run=True)
         print(ops.dumps(result), end="")
         return 0 if result["pending"] else 3
     elif args.command == "silent":

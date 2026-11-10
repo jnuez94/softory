@@ -6,6 +6,7 @@ for free.
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,8 +22,11 @@ from .work import Board, actor_of, queue
 
 
 def pending(project: Project, coord: Coordination, agent: str | None, since: str | None = None,
-            retry_hours: float = 4.0) -> dict[str, Any]:
+            retry_hours: float = 4.0, from_own_run: bool = False) -> dict[str, Any]:
     """Whether a role has anything to do.
+
+    ``from_own_run`` is for ``softory pending`` run by the role itself: its own session doesn't count as
+    another run. The runner leaves it off, so a live session always stops a second harness.
 
     Work counts when it changed after the role's last finished session
     started; messages that need the role and units ready to close always count, and other unread
@@ -35,7 +39,10 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     agent = actor_of(agent)
     sessions = coord.run("session", "list", "--agent", agent, "--order-by", "started_at:desc", "--limit", "20")
     now = datetime.now(timezone.utc)
-    running = _live(sessions, now)
+    # A run that checks its own queue isn't another run: leave out the session it is working in.
+    # That is the session the command runs in: exported, or remembered for the role when a fresh shell lost it.
+    own = (getattr(coord, "session", None) or os.environ.get("COORDINATION_SESSION")) if from_own_run else None
+    running = [s for s in _live(sessions, now) if s != own]
     last_start = max((s["started_at"] for s in sessions if s.get("status") != "active"), default=None)
     since = last_start if since is None else since
     board = Board(project, coord)

@@ -66,6 +66,24 @@ class HoldsTest(unittest.TestCase):
                                            "--recommend", "a", "--reversible", "no", "--holds", "TASK-99",
                                            "--actor", "jade", check=False).stderr)
 
+    def test_a_run_sees_its_own_work_and_every_command_takes_actor(self) -> None:
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        self.assertFalse(self.pending()["pending"])  # from outside, Jade is busy: don't start her twice
+        inside = json.loads(softory(self.root, "pending", "jade", env={"COORDINATION_SESSION": session},
+                                    check=False).stdout)
+        self.assertTrue(inside["pending"], inside)  # from inside her own run, the work is still hers to do
+        fresh = json.loads(softory(self.root, "pending", "--actor", "jade", check=False).stdout)
+        self.assertTrue(fresh["pending"], fresh)  # a fresh shell without the export finds her session itself
+        for extra, env in (([], {"COORDINATION_SESSION": session}), (["--actor", "jade"], {})):
+            declined = json.loads(softory(self.root, "run-role", "jade", *extra, env=env, check=False).stdout)
+            self.assertFalse(declined["ran"], declined)  # the runner never starts a second harness beside hers
+        remembered = json.loads((self.root / ".coordination/softory/sessions/jade.json").read_text())["session"]
+        self.assertEqual(remembered, session)
+        for command in (["queue"], ["inbox"], ["pending"], ["charter", "show"]):
+            ran = softory(self.root, *command, "--actor", "jade", check=False)
+            self.assertNotIn("unrecognized arguments", ran.stderr, command)
+        self.assertEqual(json.loads(softory(self.root, "queue", "--actor", "jade").stdout)["agent"], "jade")
+
     def test_an_unanswered_escalation_holds_however_old_it_is(self) -> None:
         made = json.loads(softory(self.root, "escalate", "--issue", "The chat provider needs a paid key.",
                                   "--ask", "Buy the provider key?", "--recommend", "Use a fake provider",
