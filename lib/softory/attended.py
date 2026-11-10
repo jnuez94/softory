@@ -27,9 +27,11 @@ from .errors import SoftoryError
 from .project import Project
 from .runstate import state_dir
 
-#: Seconds between checks on an attended run, and the grace a stopped harness gets before SIGKILL.
+#: Seconds between checks on an attended run, the grace a stopped harness gets before SIGKILL, and how long
+#: a new window may take to start the run.
 POLL = 5.0
 GRACE = 30.0
+START_WAIT = 60.0
 
 
 def surface() -> str | None:
@@ -47,10 +49,12 @@ def session_name(project: Project) -> str:
 
 
 def run(project: Project, role: str, command: list[str], env: dict[str, str], out_path: Path,
-        minutes: float, finished: Callable[[], bool]) -> int:
-    """Open ``command`` where the owner can see it, wait for the run to end, and return its exit code.
+        minutes: float, finished: Callable[[], bool]) -> tuple[int, bool]:
+    """Open ``command`` where the owner can see it, wait for the run to end, and return its exit code and
+    whether everything it started has stopped.
 
-    ``finished`` says whether the role has ended its session. 124 means the time limit stopped it.
+    ``finished`` says whether the role has ended its session. 124 means the time limit stopped it, 129 that
+    the window closed, and 127 that it never ran.
     """
     where = surface()
     if where is None:
@@ -73,26 +77,34 @@ def run(project: Project, role: str, command: list[str], env: dict[str, str], ou
     ]), encoding="utf-8")
     window = _open_tmux(project, role, script, out_path) if where == "tmux" else _open_terminal(script, out_path)
     go.touch()
-    deadline = time.monotonic() + minutes * 60
+    began = time.monotonic()
+    deadline = began + minutes * 60
+    code = None
     try:
-        while True:
+        while code is None:
+            pid = _pid(pid_file)
             if exit_file.is_file():
-                return _exit_code(exit_file)
-            if finished():  # the role ended its session: its work is done
-                _stop(pid_file, exit_file)
-                return 0
-            if time.monotonic() >= deadline:
-                _stop(pid_file, exit_file)
-                return 124
-            time.sleep(POLL)
+                code = _exit_code(exit_file)  # the harness exited
+            elif pid is None and time.monotonic() - began > START_WAIT:
+                code = 127  # the window never ran the script
+            elif pid is not None and not _alive(pid):
+                code = 129  # the owner closed the window, or tmux lost it
+            elif finished():
+                code = 0  # the role ended its session: its work is done
+            elif time.monotonic() >= deadline:
+                code = 124
+            else:
+                time.sleep(POLL)
     except BaseException:  # Ctrl-C or a kill of the runner: stop the harness before its claims go back
-        _stop(pid_file, exit_file)
+        _stop(pid_file)
         raise
     finally:
         if window:
             subprocess.run(["tmux", "kill-window", "-t", window], capture_output=True, check=False)
-        for path in (pid_file, exit_file, script, go):
-            path.unlink(missing_ok=True)
+    stopped = _stop(pid_file)  # whatever the window started, even after a clean exit
+    for path in (exit_file, script, go, *([pid_file] if stopped else [])):
+        path.unlink(missing_ok=True)
+    return code, stopped
 
 
 #: What the harness's window gets from the runner's environment: the session, the role, and enough to run.
@@ -101,13 +113,20 @@ _PASSED = {"COORDINATION_SESSION", "SOFTORY_ROLE", "SOFTORY_RUNNER", "PATH", "HO
 
 
 def _open_tmux(project: Project, role: str, script: Path, out_path: Path) -> str:
+    """A window in the project's tmux session, creating the session if needed. The runner starts roles side
+    by side, so two of them may both find no session: whichever loses the race to create it adds a window."""
     name = session_name(project)
-    exists = subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True, check=False)
-    where = ["new-window", "-t", f"={name}:"] if exists.returncode == 0 else ["new-session", "-d", "-s", name]
-    made = subprocess.run(["tmux", *where, "-P", "-F", "#{window_id}", "-n", role, "-c", str(project.root),
-                           "sh", str(script)], capture_output=True, text=True, check=False)
-    if made.returncode != 0:
-        raise SoftoryError(f"tmux couldn't open a window for {role}: {made.stderr.strip()}", "harness_error")
+    made = None
+    for _ in range(3):
+        exists = subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True, check=False)
+        where = ["new-window", "-t", f"={name}:"] if exists.returncode == 0 else ["new-session", "-d", "-s", name]
+        made = subprocess.run(["tmux", *where, "-P", "-F", "#{window_id}", "-n", role, "-c", str(project.root),
+                               "sh", str(script)], capture_output=True, text=True, check=False)
+        if made.returncode == 0:
+            break
+    if made is None or made.returncode != 0:
+        raise SoftoryError(f"tmux couldn't open a window for {role}: {made.stderr.strip() if made else ''}",
+                           "harness_error")
     window = made.stdout.strip()
     subprocess.run(["tmux", "pipe-pane", "-t", window, f"cat >> {shlex.quote(str(out_path))}"],
                    capture_output=True, check=False)
@@ -133,25 +152,46 @@ def _exit_code(exit_file: Path) -> int:
         return 1
 
 
-def _stop(pid_file: Path, exit_file: Path) -> None:
-    """Stop the window's shell and the harness under it: SIGTERM to its process group, then SIGKILL."""
+def _pid(pid_file: Path) -> int | None:
     try:
-        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        return int(pid_file.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
-        return  # it never started, or already cleaned up
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+        return None
+
+
+def _stop(pid_file: Path) -> bool:
+    """Stop everything in the window's process group: SIGTERM, then SIGKILL, until no member is left.
+
+    The window's shell leads the group, so a worker that ignores SIGTERM outlives it; the group is checked,
+    not the shell. False means something survived even SIGKILL: its claims must stay where they are.
+    """
+    pid = _pid(pid_file)
+    if pid is None:
+        return True
+    for sig, grace in ((signal.SIGTERM, GRACE), (signal.SIGKILL, GRACE)):
+        if not _group_alive(pid):
+            return True
         try:
             os.killpg(pid, sig)
         except ProcessLookupError:
-            return
+            return True
         except PermissionError:
-            os.kill(pid, sig)
+            return False
         waited = 0.0
-        while waited < GRACE and _alive(pid) and not exit_file.is_file():
-            time.sleep(0.5)
-            waited += 0.5
-        if not _alive(pid):
-            return
+        while waited < grace and _group_alive(pid):
+            time.sleep(0.2)
+            waited += 0.2
+    return not _group_alive(pid)
+
+
+def _group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def _alive(pid: int) -> bool:

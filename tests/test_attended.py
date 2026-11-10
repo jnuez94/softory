@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from types import SimpleNamespace
 
-from tests.helpers import git_project, install, needs_sources, softory
+from tests.helpers import REPO, git_project, install, needs_sources, softory
 from tests.test_unattended import at_terminal
+
+sys.path.insert(0, str(REPO / "lib"))
+from softory import attended  # noqa: E402
 
 
 @needs_sources
@@ -30,11 +38,12 @@ class AttendedTest(unittest.TestCase):
         self.addCleanup(subprocess.run, ["tmux", "kill-server"], env={**self.env, "PATH": "/usr/bin:/bin"},
                         capture_output=True, check=False)
 
-    def attended(self, script: str, minutes: float = 5) -> None:
+    def attended(self, script: str, minutes: float = 5, headless: str = "exit 9") -> None:
         path = self.root / ".git" / "charter.json"
         path.write_text(json.dumps({
             "run": {"mode": "attended", "roles": ["jade"], "attended": {"fake": ["sh", "-c", script]},
-                    "harnesses": {"fake": ["sh", "-c", "exit 9"]}},
+                    "harnesses": {"fake": ["sh", "-c", headless]}},
+            "feasibility": {"harness": "fake", "model": "m2"},
             "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
             "budget": {"minutes_per_run": minutes}}))
         self.assertTrue(at_terminal(self.root, "charter", "approve", str(path))["approved"])
@@ -73,3 +82,49 @@ class AttendedTest(unittest.TestCase):
         self.assertEqual(ran["exit"], 124)
         self.assertNotIn("jade", self.windows())
         self.assertEqual(json.loads(softory(self.root, "run", "--dry-run", env=self.env).stdout)["attended"], "tmux")
+
+    def test_a_worker_that_ignores_sigterm_is_stopped_before_claims_go_back(self) -> None:
+        self.attended("(trap '' TERM HUP; exec sleep 600) & echo $! > .git/worker; "
+                      ".agents/softory/bin/softory end --actor jade; wait")
+        self.assertEqual(self.run_role()["exit"], 0)
+        worker = int((self.root / ".git/worker").read_text())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(worker, 0)
+
+    def test_closing_the_window_ends_the_run(self) -> None:
+        self.attended("sleep 600")
+        running = subprocess.Popen([str(self.root / ".agents/softory/bin/softory"), "run-role", "jade"],
+                                   cwd=self.root, env={**os.environ, **self.env}, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(running.kill)
+        for _ in range(100):
+            if "jade" in self.windows():
+                break
+            time.sleep(0.2)
+        subprocess.run(["tmux", "kill-window", "-t", "jade"], env={**self.env, "PATH": "/usr/bin:/bin"}, check=False)
+        out, _ = running.communicate(timeout=60)
+        self.assertEqual(json.loads(out)["exit"], 129)
+
+    def test_a_feasibility_check_stays_headless(self) -> None:
+        self.attended("touch .git/attended-check", headless="touch .git/headless-check")
+        softory(self.root, "run-check", "STORY-1", env=self.env, check=False)
+        self.assertTrue((self.root / ".git/headless-check").exists())
+        self.assertFalse((self.root / ".git/attended-check").exists())
+
+
+@unittest.skipUnless(shutil.which("tmux"), "tmux isn't installed")
+class TmuxRaceTest(unittest.TestCase):
+    def test_roles_starting_together_each_get_a_window(self) -> None:
+        sockets = tempfile.TemporaryDirectory(prefix="tmux-")
+        self.addCleanup(sockets.cleanup)
+        before = os.environ.get("TMUX_TMPDIR")
+        os.environ["TMUX_TMPDIR"] = sockets.name
+        self.addCleanup(lambda: os.environ.pop("TMUX_TMPDIR") if before is None else os.environ.update(TMUX_TMPDIR=before))
+        self.addCleanup(subprocess.run, ["tmux", "kill-server"], capture_output=True, check=False)
+        script = Path(sockets.name) / "idle.sh"
+        script.write_text("sleep 30\n")
+        project = SimpleNamespace(root=Path(sockets.name) / "race")
+        project.root.mkdir()
+        with ThreadPoolExecutor(6) as pool:
+            windows = list(pool.map(lambda n: attended._open_tmux(project, f"role{n}", script,
+                                                                  Path(sockets.name) / f"{n}.out"), range(6)))
+        self.assertEqual(len(set(windows)), 6)

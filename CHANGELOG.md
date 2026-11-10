@@ -6,6 +6,7 @@ Runs the owner can watch and step into. Tablet's owner couldn't see headless run
 
 - **Attended mode.** With `run.mode` set to `attended`, the runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`: `claude` and `codex` with the run's prompt, model, effort, and settings) in a tmux window, or in a Terminal window on a Mac without tmux. `softory attach` attaches to the tmux session. The prompt tells the role the owner may type to it and to run `softory end` when done.
 - **How an attended run ends.** An interactive harness doesn't exit on its own, so the run ends when the role ends its session, the harness exits or its window closes, or at `minutes_per_run`. The runner stops what is left, closes the window, and hands back unfinished claims, as for a headless run. The run's log keeps a copy of the window. Budgets count runs and minutes only, since interactive harnesses don't report cost.
+- A feasibility check stays headless in attended mode: it is a one-shot verdict that wouldn't end its own window.
 - `softory charter` checks `run.mode`, and that attended mode has an interactive command for every harness the models use. `softory run` reports where attended runs open.
 
 ## [0.5.6] - 2026-11-10

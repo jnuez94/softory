@@ -151,7 +151,8 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     the run exits or times out, so no harness has to keep shell state between commands.
     """
     limits = limits_for(charter, role)
-    watched = charter["run"].get("mode") == "attended"
+    # A feasibility check stays headless: it is a one-shot verdict on the plan, not a role's work to watch.
+    watched = charter["run"].get("mode") == "attended" and pid_name is None
     command = harness_command(project, charter, role, pick, text, effort, limits.get("usd_per_run") or 0,
                               attended_run=watched)
     pid_file = state_dir(project) / f"{pid_name or role}.pid"
@@ -167,14 +168,15 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     logs.mkdir(exist_ok=True)
     out_path = logs / f"{pid_name or role}-{started.strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}.out"  # one per run
     child: subprocess.Popen | None = None
+    stopped = not watched  # an attended run says whether its window left nothing running
     env = {**_clean_env(), RUNNER_ENV: "1", SOFTORY_ROLE: role}  # sessions it starts aren't logged as manual
     if session:
         env[SESSION_ENV] = session
     try:
         if watched:  # in a window the owner can see and type into; it ends when the role ends its session
             out_path.touch()
-            code = attended.run(project, role, command, env, out_path, float(limits["minutes_per_run"]),
-                                lambda: bool(session) and _ended(coord, session))
+            code, stopped = attended.run(project, role, command, env, out_path, float(limits["minutes_per_run"]),
+                                         lambda: bool(session) and _ended(coord, session))
         else:
             with out_path.open("w", encoding="utf-8") as out:
                 child = subprocess.Popen(command, cwd=project.root, env=env, start_new_session=True,  # noqa: S603
@@ -188,14 +190,13 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
                     _stop(child)
                     raise
     except (FileNotFoundError, SoftoryError) as error:  # no harness, or no window to open it in
-        code = 127
+        code, stopped = 127, True
         print(f"softory: {error}", file=sys.stderr)
     finally:
-        if child is not None and child.poll() is None:
+        if (child is not None and child.poll() is None) or not stopped:
             # Stopping it was cut short. Leave its marker and session alone: handing its claims back now would
             # let another run edit the same task while it still does. Stale-session recovery finishes it.
-            print(f"softory: {role}'s harness (pid {child.pid}) is still running; its session stays open",
-                  file=sys.stderr)
+            print(f"softory: {role}'s harness is still running; its session stays open", file=sys.stderr)
         else:
             pid_file.unlink(missing_ok=True)
             if session:
