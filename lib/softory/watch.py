@@ -37,7 +37,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     sessions = coord.run("session", "list", "--agent", agent, "--order-by", "started_at:desc", "--limit", "20")
     now = datetime.now(timezone.utc)
     # A run that checks its own queue isn't another run: leave out the session it is working in.
-    own = os.environ.get("COORDINATION_SESSION")
+    # That is the session the command runs in: exported, or remembered for the role when a fresh shell lost it.
+    own = getattr(coord, "session", None) or os.environ.get("COORDINATION_SESSION")
     running = [s for s in _live(sessions, now) if s != own]
     last_start = max((s["started_at"] for s in sessions if s.get("status") != "active"), default=None)
     since = last_start if since is None else since

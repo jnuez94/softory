@@ -72,6 +72,8 @@ class HoldsTest(unittest.TestCase):
         inside = json.loads(softory(self.root, "pending", "jade", env={"COORDINATION_SESSION": session},
                                     check=False).stdout)
         self.assertTrue(inside["pending"], inside)  # from inside her own run, the work is still hers to do
+        fresh = json.loads(softory(self.root, "pending", "--actor", "jade", check=False).stdout)
+        self.assertTrue(fresh["pending"], fresh)  # a fresh shell without the export finds her session itself
         for command in (["queue"], ["inbox"], ["pending"], ["charter", "show"]):
             ran = softory(self.root, *command, "--actor", "jade", check=False)
             self.assertNotIn("unrecognized arguments", ran.stderr, command)
