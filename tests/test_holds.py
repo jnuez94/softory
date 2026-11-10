@@ -66,6 +66,17 @@ class HoldsTest(unittest.TestCase):
                                            "--recommend", "a", "--reversible", "no", "--holds", "TASK-99",
                                            "--actor", "jade", check=False).stderr)
 
+    def test_a_run_sees_its_own_work_and_every_command_takes_actor(self) -> None:
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        self.assertFalse(self.pending()["pending"])  # from outside, Jade is busy: don't start her twice
+        inside = json.loads(softory(self.root, "pending", "jade", env={"COORDINATION_SESSION": session},
+                                    check=False).stdout)
+        self.assertTrue(inside["pending"], inside)  # from inside her own run, the work is still hers to do
+        for command in (["queue"], ["inbox"], ["pending"], ["charter", "show"]):
+            ran = softory(self.root, *command, "--actor", "jade", check=False)
+            self.assertNotIn("unrecognized arguments", ran.stderr, command)
+        self.assertEqual(json.loads(softory(self.root, "queue", "--actor", "jade").stdout)["agent"], "jade")
+
     def test_an_unanswered_escalation_holds_however_old_it_is(self) -> None:
         made = json.loads(softory(self.root, "escalate", "--issue", "The chat provider needs a paid key.",
                                   "--ask", "Buy the provider key?", "--recommend", "Use a fake provider",
