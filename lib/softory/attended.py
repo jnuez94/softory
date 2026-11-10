@@ -12,6 +12,7 @@ runner then stops what is left and closes the window, as it does for a headless 
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shlex
@@ -44,8 +45,10 @@ def surface() -> str | None:
 
 
 def session_name(project: Project) -> str:
-    """The project's tmux session. tmux refuses '.' and ':' in names."""
-    return "softory-" + re.sub(r"[^A-Za-z0-9_-]", "-", project.root.name.lower())
+    """The project's tmux session: its folder's name, and a short hash of its path so two projects in folders
+    of the same name never share one. tmux refuses '.' and ':' in names."""
+    digest = hashlib.sha1(str(Path(project.root).resolve()).encode("utf-8")).hexdigest()[:6]
+    return f"softory-{re.sub(r'[^A-Za-z0-9_-]', '-', project.root.name.lower())}-{digest}"
 
 
 def run(project: Project, role: str, command: list[str], env: dict[str, str], out_path: Path,
@@ -73,6 +76,7 @@ def run(project: Project, role: str, command: list[str], env: dict[str, str], ou
     # from the tmux server's environment, which may be older. Only the runner reads the script (0600).
     exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(env.items())
                        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k) and k not in _KEPT)
+    kept = " ".join(f'${{{k}:+"{k}=${k}"}}' for k in sorted(_KEPT))
     script.unlink(missing_ok=True)
     os.close(os.open(script, os.O_CREAT | os.O_WRONLY, 0o600))
     script.write_text("\n".join([
@@ -80,7 +84,9 @@ def run(project: Project, role: str, command: list[str], env: dict[str, str], ou
         f"cd {shlex.quote(str(project.root))} || exit 1",
         f"echo $$ > {shlex.quote(str(pid_file))}",
         *([f"while [ ! -f {shlex.quote(str(go))} ]; do sleep 0.1; done"] if where == "tmux" else []),
-        f"env {exports} {shlex.join(command)}",
+        # env -i: exactly the runner's environment, so a variable the runner dropped (an old API key the tmux
+        # server still holds) doesn't reach the harness; only the pane's own terminal variables carry over.
+        f"env -i {kept} {exports} {shlex.join(command)}",
         f"echo $? > {shlex.quote(str(exit_file))}",
         "",
     ]), encoding="utf-8")

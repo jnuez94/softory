@@ -138,7 +138,7 @@ Each tick starts a role only when it has work, is under today's budget, and isn'
 
 By default the runner starts each role headless (`claude -p`, `codex exec`), so runs don't show in the Claude or Codex apps and you can't step in while one works. To watch them, set `run.mode` to `attended` in the charter (`softory charter approve --merge` a file with `{"run": {"mode": "attended"}}`). The runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`) where you can see it:
 
-- **tmux**, if it is installed: one window per running role in the session `softory-<project>`. `softory attach` attaches to it; `Ctrl-b w` lists the roles and `Ctrl-b d` leaves them running.
+- **tmux**, if it is installed: one window per running role in the session `softory-<project>-<hash>`. `softory attach` attaches to it; `Ctrl-b w` lists the roles and `Ctrl-b d` leaves them running.
 - **Terminal**, on a Mac without tmux: one window per role. macOS asks once to let softory control Terminal.
 
 Type into any window to steer the role. A run ends when the role runs `softory end`, when you quit the harness or close the window, or at `minutes_per_run`; the runner then hands back unfinished claims as usual. Interactive harnesses don't report tokens or cost, so in attended mode the budget counts runs and minutes only. The run's log keeps a copy of the window. Set `run.mode` back to `unattended` to return to headless runs.

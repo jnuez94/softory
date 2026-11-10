@@ -129,6 +129,15 @@ class AttendedTest(unittest.TestCase):
         self.assertEqual(ran["exit"], 0)
         self.assertEqual((self.root / ".git/signin").read_text().strip(), "token-1")
 
+    def test_the_window_drops_what_the_runner_dropped(self) -> None:
+        subprocess.run(["tmux", "new-session", "-d", "-s", "older", "sleep 600"], check=True,
+                       env={**self.env, "PATH": "/usr/bin:/bin", "FAKE_OLD_KEY": "stale"})  # the server holds it
+        self.attended('echo "x$FAKE_OLD_KEY $TERM" > .git/old-key')  # braces would be read as a placeholder
+        self.assertEqual(self.run_role()["exit"], 0)
+        old, term = (self.root / ".git/old-key").read_text().split()
+        self.assertEqual(old, "x")
+        self.assertTrue(term)  # the pane's own terminal type still carries over
+
     def test_a_feasibility_check_stays_headless(self) -> None:
         self.attended("touch .git/attended-check", headless="touch .git/headless-check")
         softory(self.root, "run-check", "STORY-1", env=self.env, check=False)
@@ -164,3 +173,9 @@ class AttendedCharterTest(unittest.TestCase):
             "models": {"jade": {"harness": "claude", "model": "m", "escalate": {"harness": "esc", "model": "big"}}}})
         self.assertIn("run.mode is attended, but run.attended has no interactive command for esc",
                       charters.validate(project, charter))
+
+    def test_projects_in_folders_of_the_same_name_get_their_own_tmux_session(self) -> None:
+        one = SimpleNamespace(root=Path("/work/client-a/app"))
+        two = SimpleNamespace(root=Path("/work/client-b/app"))
+        self.assertNotEqual(attended.session_name(one), attended.session_name(two))
+        self.assertTrue(attended.session_name(one).startswith("softory-app-"))
