@@ -12,10 +12,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import decide, design, feasibility, grants, holds, verify
+from . import clutter, decide, flow, design, feasibility, feedback, grants, holds, verify
 from .coordination import Coordination
 from .project import Project
-from .runstate import allowed_tasks, is_paused
+from .runstate import all_runs, allowed_tasks, is_paused
 from .gate import latest_reviews
 from .gate import spec_for as gate_spec
 from .work import Board, actor_of, queue
@@ -140,6 +140,11 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
+    simplify = charter.get("simplify") or {}
+    if agent == simplify.get("role") and not scope:
+        sweep = _sweep_due(project, simplify, now)
+        if sweep:
+            reasons.append(sweep)
     if scope:
         hold = None
     ids = {i for r in reasons for i in r.get("ids", [])}
@@ -158,6 +163,30 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     if held:
         result["capped"] = held
     return result
+
+
+def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime) -> dict[str, Any] | None:
+    """Sage's check-in: once per ``checkin_hours`` after the last one (the last ``softory flow --record``, not
+    Sage's last session, so process reviews never put it off), when the team ran, filed feedback, or left new
+    clutter since. An idle team costs nothing."""
+    last = flow.last_snapshot(project)
+    checked = last.get("at") if last else None
+    if checked and now - parse_time(checked) < timedelta(hours=float(simplify.get("checkin_hours", 24))):
+        return None
+    role = simplify.get("role")
+    ran = [r for r in all_runs(project) if r.get("role") != role and r.get("started")
+           and (checked is None or parse_time(str(r["started"])) > parse_time(checked))]
+    notes = [e for e in feedback.entries(project)
+             if checked is None or (e.get("at") and parse_time(e["at"]) > parse_time(checked))]
+    found = clutter.report(project)
+    fresh = not found["clean"] and not (last and last.get("clutter_key") == found["key"])  # seen already
+    if not fresh and not notes and not ran:
+        return None
+    seen = [f"{len(ran)} team run(s)" if ran else "", f"{len(notes)} feedback note(s)" if notes else "",
+            ", ".join(f"{n} {kind}" for kind, n in found["counts"].items() if n) if fresh else ""]
+    return {"why": f"process check-in ({'; '.join(p for p in seen if p)} since the last): run softory flow "
+                   f"--record, softory clutter and softory feedback --list, then simplify",
+            "runs": len(ran), "clutter": found["counts"], "feedback": len(notes)}
 
 
 #: Message tags that ask the recipient for something. Anything else is news, read on the role's next run.

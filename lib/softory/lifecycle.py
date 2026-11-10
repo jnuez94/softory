@@ -58,6 +58,36 @@ def ready_for_review(project: Project, task: dict[str, Any]) -> None:
     reference = gate_rules.ui_reference_check(task, project.gates())
     if reference and not reference["pass"]:
         raise SoftoryError(f"{task['id']}: {reference['detail']}", "ui_reference_missing")
+    left = left_behind(project, task)
+    if left:
+        listed = ", ".join(left[:5]) + (f" and {len(left) - 5} more" if len(left) > 5 else "")
+        raise SoftoryError(f"{task['id']}: untracked files appeared in the main checkout during this claim ({listed}). "
+                           f"Commit what belongs in the repository, file a report with softory report {task['id']} "
+                           f"<file>, and delete the rest: keep the process simple", "untracked_files")
+
+
+def left_behind(project: Project, task: dict[str, Any]) -> list[str]:
+    """Untracked files in the main checkout changed since the unit was claimed: what this run left lying around.
+    Off when the charter's simplify.clean_handoff is false."""
+    from . import charter as charters  # noqa: PLC0415
+    from .clutter import untracked_files  # noqa: PLC0415
+
+    if not (charters.load(project).get("simplify") or {}).get("clean_handoff", True) or not task.get("claimed_at"):
+        return []
+    try:
+        since = datetime.fromisoformat(str(task["claimed_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return []
+    since = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+    root = project.root.resolve()
+    found = []
+    for relative in untracked_files(root):
+        try:
+            if datetime.fromtimestamp((root / relative).stat().st_mtime, timezone.utc) >= since:
+                found.append(relative)
+        except OSError:
+            continue
+    return found
 
 
 def move_to_done(coord: Coordination, task_id: str, actor: str, note: str, because: str | None = None) -> None:

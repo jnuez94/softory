@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, external, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
+from . import __version__, clutter, external, flow, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -103,6 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("gc", help="Remove unused workspaces, old logs, and verify trees a crashed run left")
     p.add_argument("--days", type=float, default=14.0, help="Older than this many days (default 14)")
     p.add_argument("--dry-run", action="store_true", help="Only list what would go")
+
+    p = sub.add_parser("clutter", help="List untracked files, archives, extra worktrees, and merged or idle branches")
+    p.add_argument("--idle-days", type=float, help="A branch with no commit for this long is idle (charter default 14)")
+
+    p = sub.add_parser("flow", help="Time to delivery, runs, minutes, and tokens per unit, idle runs, and disk, against the last snapshot")
+    p.add_argument("--days", type=float, default=7.0, help="Window in days (default 7)")
+    p.add_argument("--record", action="store_true", help="Keep this as the snapshot the next report compares with")
 
     p = sub.add_parser("standin", help="Let an existing agent act for a softory role (owner only, at a terminal)")
     standin = p.add_subparsers(dest="standin_command", required=True)
@@ -317,6 +324,12 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(workspace.workspace(project, args.role, args.commit)), end="")
     elif args.command == "gc":
         print(ops.dumps(workspace.gc(project, args.days, args.dry_run)), end="")
+    elif args.command == "flow":
+        print(ops.dumps(flow.report(project, coord, args.days, args.record)), end="")
+    elif args.command == "clutter":
+        found = clutter.report(project, args.idle_days)
+        print(ops.dumps(found), end="")
+        return 0 if found["clean"] else 2
     elif args.command == "standin":
         if args.standin_command == "list":
             print(ops.dumps(owner.stand_in_rows(project)), end="")

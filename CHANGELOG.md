@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.9] - 2026-11-10
+## [0.5.11] - 2026-11-10
 
 The tracker console can act again in a project with more than 500 sessions, and every list shows its newest rows first.
 
@@ -11,6 +11,18 @@ The tracker console can act again in a project with more than 500 sessions, and 
 - **Previews that are complete or say they aren't** (tracker UI-88). The open-task read behind session recovery, End session and agent retirement no longer skips a task when another is finished mid-read, and a read that can't be made whole is refused: the sheet then says the claims or assignments could not be checked, not that there are none. "Since you loaded it" takes its audit position with each record as it is read, so a form opened on a stale row keeps the position of what was shown.
 - **"Load older" stays exact under change, and an unread reason isn't an absent one** (tracker UI-89). When the list moves while older rows load, every page of the re-read is checked against the last row read, so no row is skipped or shown twice. "Why this is blocked" says the reason could not be read, with a retry, when its history fails to load; it used to say no reason was recorded.
 - **A list read across pages is checked against the audit log** (tracker UI-90, UI-91). Two changes that cancel each other out, such as a completion and a reorder, could pass the page checks and drop a row. Every multi-page read, "Load older" and re-read is now accepted only when nothing but heartbeats was written while it ran, and is retried otherwise. When the audit log is too long to check to its end, the console treats that as unknown, not as quiet. The same holds when the audit position cannot be read at all: the list is read again, and is never shown as complete unverified (tracker UI-92).
+
+## [0.5.10] - 2026-11-10
+
+Simplification becomes a rule every role must follow, and a new role owns it. In Tablet, agents made their own process: 11 copies of the same plugin zip under `dist/releases` (one folder per commit, 28 MB), 66 untracked review documents in the main checkout, four leftover worktrees, a backup branch, a zip of cleanup records in evidence, and a 390-line untracked installer.
+
+- **Rule 10, a MUST:** no zip, bundle, backup branch, or copy of the tree, and no new script, workflow, or kind of document, unless a unit's acceptance criteria need it. Proof is evidence rows plus `softory verify`. One checkout per role, and one release artifact that each build overwrites.
+- **Sage, Software Development Manager** (`sage`, Claude), owns the delivery process, with simplification as its main job. Sage decides whether a new workflow, script, packaging step, generated artifact, or kind of document exists, reviews the new `process` tag (Quinn backs up), and checks in on the team's process, filing `simplify` units that remove the cause. Profile, roster, RACI (a new Delivery process table and a Sage column), boundaries (process versus architecture), and sources are updated.
+- **`softory clutter`** lists untracked files, archives (ignored folders included), duplicate archive names, extra worktrees, and merged or idle branches. It is read-only, and the digest shows a line when it finds anything.
+- **Sage's operating loop.** The runner wakes Sage for a check-in at most every `simplify.checkin_hours` (24), and only when the team ran, filed feedback, or left clutter since the last one, so an idle team costs nothing. Each check-in measures, looks for causes, files `simplify` units with a number to move, and cleans up. Its budget is 4 runs and 40 minutes a day.
+- **`softory flow [--days 7] [--record]`** reports the process's numbers: median time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk used by logs, verify, workspaces, evidence, and archives. `--record` keeps a snapshot, and the next report lists what got `worse`.
+- **`process_paths` gate check:** a unit whose own commits change `simplify.process_paths` (scripts, `bin/`, CI, Makefiles, Dockerfiles) must carry the `process` tag. A unit with no recorded commit (a PR link only) fails it until `softory commit` records one or it carries the tag; design units are exempt. The owner can waive it.
+- **Clean handoff:** `softory handoff` refuses while untracked files that changed during the claim sit in the main checkout. Commit them, file them with `softory report`, or delete them. Set `simplify.clean_handoff` to false to turn this off.
 
 ## [0.5.8] - 2026-11-10
 

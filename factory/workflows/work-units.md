@@ -9,7 +9,7 @@ Softory works in three sizes. All three are tasks in the coordination database. 
 | **Task** | A function: one change by one engineer | `TASK-n` | `unit:task`, `parent:STORY-n`, one `lane:*` | Lane owner | One pull request |
 | **Bug** | A bug fix: a task that restores intended behavior | `BUG-n` | `unit:bug`, one `lane:*`, `parent:` optional | Lane owner | One pull request |
 
-Review tags add required reviewers: `arch` (Quinn), `ui` (Darwin), and `security`, `auth`, `data`, or `deps` (Toby).
+Review tags add required reviewers: `arch` (Quinn), `ui` (Darwin), and `security`, `auth`, `data`, or `deps` (Toby), and `process` (Sage) for a new or changed workflow, script, packaging step, or generated artifact.
 
 ## Hierarchy
 

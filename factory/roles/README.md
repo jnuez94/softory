@@ -8,6 +8,7 @@
 | `jade` | Jade | Senior Software Engineer | frontend | Claude | [profile](jade-senior-software-engineer.md) |
 | `gold` | Gold | Senior Software Engineer | backend, infra | Claude | [profile](gold-senior-software-engineer.md) |
 | `toby` | Toby | Security Engineer | security | Codex | [profile](toby-security-engineer.md) |
+| `sage` | Sage | Software Development Manager | process | Claude | [profile](sage-software-development-manager.md) |
 | `owner` | (you) | Project Owner, human | – | – | [roster.json](roster.json) |
 
 Jade and Gold share one craft bar: [Senior Software Engineer](senior-software-engineer.md).
