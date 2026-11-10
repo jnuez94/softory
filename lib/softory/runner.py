@@ -175,8 +175,12 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     try:
         if watched:  # in a window the owner can see and type into; it ends when the role ends its session
             out_path.touch()
-            code, stopped = attended.run(project, role, command, env, out_path, float(limits["minutes_per_run"]),
-                                         lambda: bool(session) and _ended(coord, session))
+            outcome: dict[str, Any] = {}
+            try:
+                code, stopped = attended.run(project, role, command, env, out_path, float(limits["minutes_per_run"]),
+                                             lambda: bool(session) and _ended(coord, session), outcome)
+            finally:
+                stopped = bool(outcome.get("stopped"))  # set even when Ctrl-C cut the run short
         else:
             with out_path.open("w", encoding="utf-8") as out:
                 child = subprocess.Popen(command, cwd=project.root, env=env, start_new_session=True,  # noqa: S603

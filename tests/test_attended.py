@@ -14,11 +14,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
-from tests.helpers import REPO, git_project, install, needs_sources, softory
+import signal
+
+from tests.helpers import REPO, coord, git_project, install, needs_sources, softory
 from tests.test_unattended import at_terminal
 
 sys.path.insert(0, str(REPO / "lib"))
 from softory import attended  # noqa: E402
+from softory import charter as charters  # noqa: E402
 
 
 @needs_sources
@@ -93,16 +96,38 @@ class AttendedTest(unittest.TestCase):
 
     def test_closing_the_window_ends_the_run(self) -> None:
         self.attended("sleep 600")
+        running = self.start_in_background()
+        subprocess.run(["tmux", "kill-window", "-t", "jade"], env={**self.env, "PATH": "/usr/bin:/bin"}, check=False)
+        out, _ = running.communicate(timeout=60)
+        self.assertEqual(json.loads(out)["exit"], 129)
+
+    def start_in_background(self, extra_env: dict | None = None) -> subprocess.Popen:
         running = subprocess.Popen([str(self.root / ".agents/softory/bin/softory"), "run-role", "jade"],
-                                   cwd=self.root, env={**os.environ, **self.env}, stdout=subprocess.PIPE, text=True)
+                                   cwd=self.root, env={**os.environ, **self.env, **(extra_env or {})},
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.addCleanup(running.kill)
         for _ in range(100):
             if "jade" in self.windows():
                 break
             time.sleep(0.2)
-        subprocess.run(["tmux", "kill-window", "-t", "jade"], env={**self.env, "PATH": "/usr/bin:/bin"}, check=False)
-        out, _ = running.communicate(timeout=60)
-        self.assertEqual(json.loads(out)["exit"], 129)
+        time.sleep(1)  # the window has started its script
+        return running
+
+    def test_an_interrupted_run_still_hands_its_session_back(self) -> None:
+        self.attended("sleep 600")
+        running = self.start_in_background()
+        running.send_signal(signal.SIGINT)
+        running.communicate(timeout=60)
+        active = coord(self.root, "session", "list", "--agent", "jade", "--status", "active")["data"]
+        self.assertEqual(active, [])
+
+    def test_the_window_gets_the_runners_environment_not_the_tmux_servers(self) -> None:
+        subprocess.run(["tmux", "new-session", "-d", "-s", "older", "sleep 600"],
+                       env={**self.env, "PATH": "/usr/bin:/bin"}, check=True)  # a server started without it
+        self.attended('echo "$FAKE_SIGNIN" > .git/signin')
+        ran = json.loads(softory(self.root, "run-role", "jade", env={**self.env, "FAKE_SIGNIN": "token-1"}).stdout)
+        self.assertEqual(ran["exit"], 0)
+        self.assertEqual((self.root / ".git/signin").read_text().strip(), "token-1")
 
     def test_a_feasibility_check_stays_headless(self) -> None:
         self.attended("touch .git/attended-check", headless="touch .git/headless-check")
@@ -128,3 +153,14 @@ class TmuxRaceTest(unittest.TestCase):
             windows = list(pool.map(lambda n: attended._open_tmux(project, f"role{n}", script,
                                                                   Path(sockets.name) / f"{n}.out"), range(6)))
         self.assertEqual(len(set(windows)), 6)
+
+
+class AttendedCharterTest(unittest.TestCase):
+    def test_attended_mode_needs_a_command_for_each_escalation_harness(self) -> None:
+        defaults = json.loads((REPO / "factory/governance/charter.json").read_text())
+        project = SimpleNamespace(role_ids=lambda: ["greg", "darwin", "quinn", "jade", "gold", "toby"])
+        charter = charters.merge(defaults, {
+            "run": {"mode": "attended", "harnesses": {"esc": ["esc", "{prompt}"]}},
+            "models": {"jade": {"harness": "claude", "model": "m", "escalate": {"harness": "esc", "model": "big"}}}})
+        self.assertIn("run.mode is attended, but run.attended has no interactive command for esc",
+                      charters.validate(project, charter))

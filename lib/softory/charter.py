@@ -127,7 +127,8 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
     if mode not in ("unattended", "attended"):
         problems.append(f"run.mode is {mode!r}: use unattended or attended")
     elif mode == "attended":
-        used = {c.get("harness") for r, c in charter["models"].items() if r != "description"}
+        used = {pick.get("harness") for r, c in charter["models"].items() if r != "description"
+                for pick in (c, c.get("escalate")) if pick}
         for harness in sorted(h for h in used if h and h not in (charter["run"].get("attended") or {})):
             problems.append(f"run.mode is attended, but run.attended has no interactive command for {harness}")
     for role in ["", *(charter["budget"].get("roles") or {})]:

@@ -49,9 +49,11 @@ def session_name(project: Project) -> str:
 
 
 def run(project: Project, role: str, command: list[str], env: dict[str, str], out_path: Path,
-        minutes: float, finished: Callable[[], bool]) -> tuple[int, bool]:
+        minutes: float, finished: Callable[[], bool], outcome: dict[str, Any] | None = None) -> tuple[int, bool]:
     """Open ``command`` where the owner can see it, wait for the run to end, and return its exit code and
     whether everything it started has stopped.
+
+    ``outcome["stopped"]`` says the same even when the run is interrupted and this raises.
 
     ``finished`` says whether the role has ended its session. 124 means the time limit stopped it, 129 that
     the window closed, and 127 that it never ran.
@@ -65,7 +67,14 @@ def run(project: Project, role: str, command: list[str], env: dict[str, str], ou
     stem = out_path.stem
     pid_file, exit_file, script = folder / f"{stem}.pid", folder / f"{stem}.exit", folder / f"{stem}.sh"
     go = folder / f"{stem}.go"  # tmux: the harness waits until the window's output is being logged
-    exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(env.items()) if k in _PASSED)
+    outcome = {} if outcome is None else outcome
+    outcome["stopped"] = False
+    # The runner's whole environment, so sign-ins and settings that work headless work here too: a pane starts
+    # from the tmux server's environment, which may be older. Only the runner reads the script (0600).
+    exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(env.items())
+                       if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k) and k not in _KEPT)
+    script.unlink(missing_ok=True)
+    os.close(os.open(script, os.O_CREAT | os.O_WRONLY, 0o600))
     script.write_text("\n".join([
         "#!/bin/sh",
         f"cd {shlex.quote(str(project.root))} || exit 1",
@@ -96,20 +105,19 @@ def run(project: Project, role: str, command: list[str], env: dict[str, str], ou
             else:
                 time.sleep(POLL)
     except BaseException:  # Ctrl-C or a kill of the runner: stop the harness before its claims go back
-        _stop(pid_file)
+        outcome["stopped"] = _stop(pid_file)
         raise
     finally:
         if window:
             subprocess.run(["tmux", "kill-window", "-t", window], capture_output=True, check=False)
-    stopped = _stop(pid_file)  # whatever the window started, even after a clean exit
+    stopped = outcome["stopped"] = _stop(pid_file)  # whatever the window started, even after a clean exit
     for path in (exit_file, script, go, *([pid_file] if stopped else [])):
         path.unlink(missing_ok=True)
     return code, stopped
 
 
-#: What the harness's window gets from the runner's environment: the session, the role, and enough to run.
-_PASSED = {"COORDINATION_SESSION", "SOFTORY_ROLE", "SOFTORY_RUNNER", "PATH", "HOME", "LANG", "TERM", "USER",
-           "SHELL", "TMPDIR"}
+#: The window's own: tmux sets these for the pane, and the runner's would point at the wrong pane or server.
+_KEPT = {"TMUX", "TMUX_PANE", "TERM", "TERM_PROGRAM", "COLUMNS", "LINES"}
 
 
 def _open_tmux(project: Project, role: str, script: Path, out_path: Path) -> str:
