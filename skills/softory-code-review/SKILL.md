@@ -21,6 +21,8 @@ The goal of review is that the codebase is **better after the change than before
 
 ## As the reviewer: the order to look
 
+Read the code in `softory workspace <your role> <commit>`, your reusable checkout. Never copy the tree to /tmp. `softory verify`'s result is the test proof: don't rerun the suite or install dependencies, and only run a check the verify can't, naming it in the review. File your report with `softory report <ID> <file>`.
+
 1. **Context.** Read the task's criteria and the parent story. What should this change do?
 2. **Design.** Does the approach make sense here? Is it in the right place?
 3. **Correctness.** Does it do what the criteria say, including the edge and error cases? Look for off-by-one errors, nulls, races, and unhandled failures.

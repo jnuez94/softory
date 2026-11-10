@@ -28,6 +28,7 @@ from .coordination import Coordination
 from .errors import SoftoryError
 from .gate import builders, with_stand_ins
 from .gitlocal import git
+from .gitlocal import status_entries as gitlocal_status
 from .project import Project
 from .units import CODE_EVIDENCE, lane_of, live_evidence, tags_of, unit_of
 
@@ -132,6 +133,11 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
               "shared": outcome["shared"]}
     if outcome["kept"]:
         result["kept"] = outcome["kept"]
+    loose = sorted(gitlocal_status(project.root))
+    if loose:  # verify tests the commit, so these never count; they make the checkout unsafe to review in
+        result["warning"] = (f"{len(loose)} changed or untracked path(s) in the main checkout, e.g. "
+                             f"{', '.join(e[3:] for e in loose[:3])}. Commit code on your branch; file reports "
+                             "with softory report.")
     if found:
         result["design"] = found
     return result

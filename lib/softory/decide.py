@@ -60,11 +60,13 @@ def _now() -> datetime:
 
 # ---- escalations that default -------------------------------------------------------------------
 
-def note(project: Project, escalation_id: str, recommend: str, reversible: bool, raised_by: str) -> None:
-    """Keep the escalation's recommendation beside it; the scaffold's record has no field for it."""
+def note(project: Project, escalation_id: str, recommend: str, reversible: bool, raised_by: str,
+         holds: list[str] | None = None) -> None:
+    """Keep the escalation's recommendation, and the units it holds, beside it; the scaffold's record has
+    no field for either."""
     with _editing(project, "escalations.json") as rows:
         rows[escalation_id] = {"recommend": recommend, "reversible": reversible, "raised_by": raised_by,
-                               "at": _now().isoformat(timespec="seconds")}
+                               "at": _now().isoformat(timespec="seconds"), **({"holds": holds} if holds else {})}
 
 
 def recommendations(project: Project) -> dict[str, dict[str, Any]]:

@@ -11,20 +11,23 @@ length limit, and no words run together.
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import shutil
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
 from . import charter as charters
-from . import decide, feasibility, ops
+from . import decide, feasibility, holds as unit_holds, ops
 from .coordination import Coordination
 from .errors import SoftoryError
-from .gitlocal import git
+from .gitlocal import git, is_tracked
 from .owner import record_decision
 from .project import Project
 from .work import actor_of
 
-COMMANDS = ("commit", "supersede", "escalate", "answer", "settle", "feasible")
+COMMANDS = ("commit", "supersede", "escalate", "answer", "settle", "feasible", "defer", "report")
 ISSUE_LIMIT = 600
 ASK_LIMIT = 300
 # "contain9", "runnerusage0", "atthe186": a word fused with a number reads as noise to the owner.
@@ -38,6 +41,13 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("sha")
     p.add_argument("--base", help="The commit it was built on, if reviewers need it")
     p.add_argument("--actor")
+    p = sub.add_parser("report", help="File a report or other evidence file with a unit, outside the checkout, "
+                                      "and record it")
+    p.add_argument("id")
+    p.add_argument("file", help="The file; an untracked one is moved, so the main checkout stays clean")
+    p.add_argument("--type", default="report", help="Evidence type (default: report; screenshot, reference, test...)")
+    p.add_argument("--keep", action="store_true", help="Copy instead of moving")
+    p.add_argument("--actor")
     p = sub.add_parser("supersede", help="Retract a wrong evidence row; it stays in the audit, and softory reads past it")
     p.add_argument("id", help="The task the evidence is on")
     p.add_argument("evidence", help="The evidence row's number, from task show")
@@ -47,10 +57,18 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--issue", required=True, help=f"What happened, in plain sentences (up to {ISSUE_LIMIT} characters)")
     p.add_argument("--ask", required=True, help=f"The one question for the owner (up to {ASK_LIMIT} characters)")
     p.add_argument("--tasks", help="Related task IDs, comma-separated")
+    p.add_argument("--holds", help="Units that can't move until the answer, comma-separated: they leave every "
+                   "queue and wake their builders when it comes")
     p.add_argument("--recommend", required=True, help="The option you'd take, in one line")
     p.add_argument("--reversible", required=True, choices=("yes", "no"),
                    help="yes if it can be undone: then it applies after the charter's timeout with no answer")
     p.add_argument("--owner", help="Who decides; default the project owner")
+    p.add_argument("--actor")
+    p = sub.add_parser("defer", help="Hide a unit from every queue on the owner's decision, or --lift it")
+    p.add_argument("id")
+    p.add_argument("--decision", help="The owner's decision: an answer, or a ruling from softory ruling")
+    p.add_argument("--until", help="Last day it stays hidden, YYYY-MM-DD (default: until lifted)")
+    p.add_argument("--lift", action="store_true", help="Bring it back now")
     p.add_argument("--actor")
     p = sub.add_parser("answer", help="Answer an escalation, or replace one that defaulted (owner, at a terminal)")
     p.add_argument("id", help="The escalation")
@@ -83,11 +101,18 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
     elif args.command == "settle":
         into = [i.strip() for i in (args.into or "").split(",") if i.strip()]
         result = decide.settle(project, coord, charters.load(project), args.id, args.action, args.reason, actor, into)
+    elif args.command == "defer":
+        if args.lift == bool(args.decision):
+            raise SoftoryError("Give --decision to defer, or --lift to bring it back", "invalid_arguments")
+        result = unit_holds.lift(project, args.id, actor) if args.lift else unit_holds.defer(
+            project, coord, args.id, args.decision, args.until, actor)
+    elif args.command == "report":
+        result = report(project, coord, args.id, Path(args.file), args.type, args.keep, actor)
     elif args.command == "supersede":
         result = supersede(project, coord, args.id, args.evidence, args.reason, actor)
     else:
         result = escalate(project, coord, args.issue, args.ask, args.tasks, args.owner, actor,
-                          args.recommend, args.reversible == "yes")
+                          args.recommend, args.reversible == "yes", args.holds)
     print(ops.dumps(result), end="")
     return 0
 
@@ -98,6 +123,52 @@ def commit(project: Project, coord: Coordination, task_id: str, sha: str, base: 
     uri = f"commit:{head}" + (f";base={_full(project, base)}" if base else "")
     coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", "commit", "--actor", actor)
     return {"task": task_id, "commit": head, "uri": uri}
+
+
+def evidence_folder(project: Project, task_id: str) -> Path:
+    return project.state / "evidence" / task_id
+
+
+def report(project: Project, coord: Coordination, task_id: str, source: Path, kind: str, keep: bool,
+           actor: str) -> dict[str, Any]:
+    """Put a report beside softory's state, under the unit, and record it as evidence. Tablet's main checkout
+    held 66 untracked reports, which made it unsafe to review in and pushed agents into copies in /tmp."""
+    coord.task(task_id)  # must exist
+    source = source.expanduser().resolve()
+    if not source.is_file():
+        raise SoftoryError(f"{source} is not a file", "not_found")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", task_id):
+        raise SoftoryError(f"{task_id} can't name a folder", "invalid_arguments")
+    folder = evidence_folder(project, task_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    inside = source.is_relative_to(project.root.resolve())
+    tracked = inside and is_tracked(project.root, str(source.relative_to(project.root.resolve())))
+    filed = source.is_relative_to((project.state / "evidence").resolve())  # another unit's evidence: keep it
+    keep = keep or tracked or not inside or filed
+    if source.parent == folder.resolve():
+        target = source  # already filed: record it again, don't copy it over itself
+    else:
+        target = _reserve(folder, source.name)
+        if keep:  # never take a tracked file, one from outside the project, or one already filed
+            shutil.copy2(source, target)
+        else:
+            shutil.move(str(source), target)
+    uri = str(target.relative_to(project.root))
+    coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", kind, "--actor", actor)
+    return {"task": task_id, "uri": uri, "type": kind, "moved": not keep and target != source}
+
+
+def _reserve(folder: Path, name: str) -> Path:
+    """A new file in ``folder`` named after ``name``, created atomically, so no report overwrites another."""
+    stem, suffix = Path(name).stem, Path(name).suffix
+    for n in range(1, 10_000):
+        target = folder / (name if n == 1 else f"{stem}-{n}{suffix}")
+        try:
+            os.close(os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            return target
+        except FileExistsError:
+            continue
+    raise SoftoryError(f"Too many reports named {name} under {folder}", "invalid_arguments")
 
 
 def _full(project: Project, sha: str) -> str:
@@ -145,7 +216,7 @@ def text_problems(issue: str, ask: str) -> list[str]:
 
 
 def escalate(project: Project, coord: Coordination, issue: str, ask: str, tasks: str | None, owner: str | None,
-             actor: str, recommend: str = "", reversible: bool = False) -> dict[str, Any]:
+             actor: str, recommend: str = "", reversible: bool = False, holds: str | None = None) -> dict[str, Any]:
     problems = text_problems(issue.strip(), ask.strip())
     if not recommend.strip():
         problems.append("--recommend names the option you'd take, so the work doesn't wait on the answer")
@@ -154,17 +225,19 @@ def escalate(project: Project, coord: Coordination, issue: str, ask: str, tasks:
     if problems:
         raise SoftoryError("Rewrite the escalation so the owner can read it at a glance: " + "; ".join(problems),
                            "invalid_arguments")
+    held = unit_holds.check_units(coord, [h.strip() for h in (holds or "").split(",") if h.strip()])
     decider = owner or project.roster()["owner"]["id"]
     escalation_id = f"ESC-{actor.upper()}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
     args = ["escalation", "add", "--id", escalation_id, "--raised-by", actor, "--owner", decider,
             "--issue", issue.strip(), "--requested-decision", ask.strip()]
-    if tasks:
-        args += ["--related-tasks", tasks]
+    related = list(dict.fromkeys([t.strip() for t in (tasks or "").split(",") if t.strip()] + held))
+    if related:
+        args += ["--related-tasks", ",".join(related)]
     coord.run(*args)
-    decide.note(project, escalation_id, recommend.strip(), reversible, actor)
+    decide.note(project, escalation_id, recommend.strip(), reversible, actor, held)
     charter = charters.load(project)
     when = decide.due_at(decide.recommendations(project)[escalation_id], charter)
-    return {"escalation": escalation_id, "owner": decider, "recommend": recommend.strip(),
+    return {"escalation": escalation_id, "owner": decider, "recommend": recommend.strip(), "holds": held,
             "defaults_at": when.isoformat(timespec="minutes") if when else None,
             "next": ("Carry on as if the recommendation applies, keeping it easy to undo." if when else
                      "It can't be undone, so it waits for the owner. Split off and carry on with work that "

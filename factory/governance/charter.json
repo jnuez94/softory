@@ -114,12 +114,12 @@
     "gpt-6.1-sol": {"input": 2, "cached": 0.1, "output": 10}
   },
   "models": {
-    "description": "Per role: the default harness and model, and an optional stronger one used once a task has had escalate_model_after rounds of requested changes. Chosen on 2026-10-24 from benchmarks that fit each role's work; see docs/models.md.",
-    "greg": {"harness": "codex", "model": "gpt-6-astra", "escalate": null},
-    "darwin": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null},
-    "quinn": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null},
-    "jade": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null},
-    "gold": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null},
-    "toby": {"harness": "codex", "model": "gpt-6-astra", "escalate": null}
+    "description": "Per role: the default harness and model, and an optional stronger one used once a task has had escalate_model_after rounds of requested changes. Chosen on 2026-10-24 from benchmarks that fit each role's work; see docs/models.md. also lists other harnesses the owner lets the role start on (softory start refuses the rest).",
+    "greg": {"harness": "codex", "model": "gpt-6-astra", "escalate": null, "also": []},
+    "darwin": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
+    "quinn": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
+    "jade": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
+    "gold": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
+    "toby": {"harness": "codex", "model": "gpt-6-astra", "escalate": null, "also": []}
   }
 }

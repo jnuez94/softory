@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.5] - 2026-11-09
+
+The rest of the Tablet review's fixes that don't wait on more data: work waiting on the owner stops waking roles, reviewers stop copying the tree, and evidence leaves the main checkout.
+
+- **Holds.** `softory escalate --holds TASK-n,...` takes the named units off every queue, ready-to-close and `pending` while the escalation is open (TASK-59 to TASK-71 kept waking roles on an open owner question). The answer, or the default for an undoable escalation, releases them, and their builders wake on it. `softory defer <ID> --decision <id> [--until YYYY-MM-DD]` does the same on an owner's decision, until the date or `softory defer <ID> --lift`. `softory queue` lists held units under `held`, with why. The tracker isn't touched: status and claims stay.
+- **Review workspaces.** `softory workspace <role> [commit]` keeps one checkout per role under `.coordination/softory/workspaces/`, moved to the commit asked for, with the charter's `verify.share` folders linked. It is a worktree where git allows one and a snapshot where a sandbox protects `.git`. The code-review skill says the verify result is the test proof: don't rerun the suite or copy the tree to /tmp (Jade, 9 Nov).
+- **Reports outside the checkout.** `softory report <ID> <file>` files a report or screenshot under `.coordination/softory/evidence/<ID>/` and records it as evidence; an untracked file is moved. `softory verify` warns when the main checkout has changed or untracked paths (Tablet's had 66).
+- **The reference check at handoff.** `softory handoff <ID>` moves a claimed unit to review only with evidence and, for a `ui` unit, its rendered check against the design reference; `softory coord task release <ID> --to review` applies the same check. A `ui` unit already in review without one wakes its builder, not its reviewers (Greg, 9 Nov: five fixes stalled at close).
+- **The charter names each role's harness.** `softory start <role> --harness X` refuses a harness the charter doesn't run that role on (a Codex Jade review after the owner ruled Jade runs on Claude, TASK-72). The owner allows more in `models.<role>.also`. Runner-started runs aren't affected.
+- **`softory gc [--days 14] [--dry-run]`** removes workspaces unused for that long, run and verify logs older than that, and verify trees a crashed run left in the temp folder. Evidence files stay.
+- **Amending a story's criteria** is written down in work-units.md: record the decision, then a revision-checked `task update`, no claim (STORY-16).
+
 ## [0.5.4] - 2026-11-09
 
 From Tablet's logged feedback (29 notes, 303 runner runs from 5 to 9 November, $154.52). One operating loop for every harness, and fewer runs that buy nothing.

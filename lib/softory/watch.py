@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import decide, design, feasibility, grants, verify
+from . import decide, design, feasibility, grants, holds, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import allowed_tasks, is_paused
@@ -46,6 +46,10 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         touched[task_id] = max(touched.get(task_id, ""), passed)
     for task_id, done in design.released(board, charter).items():  # so does a finished design
         touched[task_id] = max(touched.get(task_id, ""), done)
+    freed_at = holds.released(project, coord)
+    for task_id, freed in freed_at.items():  # and the owner's answer, or a deferral lifted
+        if task_id in touched:
+            touched[task_id] = max(touched[task_id], freed)
     for task_id, retried in decide.retried_at(project).items():  # so is an extra round past the review cap
         if task_id in touched:
             touched[task_id] = max(touched[task_id], retried)
@@ -83,11 +87,21 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     # A reviewer waits until softory saw the tests pass; the builder is woken to run or fix them instead.
     untested = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
                 and tests.get(t["id"]) in ("not run", "failed", "setup failed") and t["id"] not in sent_back]
-    reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")]
+    # A ui unit that reached review without its reference check goes back to its builder, not to reviewers.
+    unreferenced = board.awaiting_reference
+    no_reference = [i for i in sorted(unreferenced) if agent in (board.by_id[i].get("assignees") or [])
+                    and i not in sent_back]
+    reviews = [t["id"] for t in work["reviews_waiting"] if tests.get(t["id"], "n/a") in ("passed", "n/a")
+               and t["id"] not in unreferenced]
     batching = _batch_hold(charter, reviews, touched, now)
+    on_hold = board.held  # waiting on the owner: nothing for the role to do yet
+    sent_back = [i for i in sent_back if i not in on_hold]
+    untested = [i for i in untested if i not in on_hold]
+    no_reference = [i for i in no_reference if i not in on_hold]
     waiting = {why: in_scope(ids) for why, ids in {
         "changes requested": sent_back,
         "tests not passed at the commit (run softory verify, fix if it fails)": untested,
+        "ui unit in review without its reference check (add one; reviewers wait for it)": no_reference,
         "reviews waiting": [] if batching else reviews,
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"
@@ -96,7 +110,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     unsettled: list[str] = []  # units at the review cap that Quinn may settle and hasn't yet
     if agent == "quinn":
         unsettled = in_scope([i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
-                              and decide.quinn_may_settle(project, charter, board.show(i))])
+                              and i not in on_hold and decide.quinn_may_settle(project, charter, board.show(i))])
         stuck = [i for i in unsettled if since is None or touched.get(i, "") > since]
         if stuck:
             reasons.append({"why": "units at the review cap: settle each with softory settle (retry, split, or drop)",
@@ -104,8 +118,18 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
+    # A hold keeps the tracker's status, so a blocked unit freed by the owner fits no list above: wake its builder.
+    # Until the unit changes after its release, a run that missed it retries it like other waiting work.
+    # A unit at its review cap still waits for Quinn or the owner, released or not.
+    unhandled = in_scope([i for i, at in sorted(freed_at.items()) if i in board.by_id and i not in on_hold
+                          and i not in capped
+                          and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
+                          and str(board.by_id[i].get("updated_at") or "") <= at])
+    freed = [i for i in unhandled if since is None or freed_at[i] > since]
+    if freed:
+        reasons.append({"why": "held work released: the owner answered, or the deferral ended", "ids": freed})
     # Capped units wait for a settlement, so a run that missed one retries it like any other waiting work.
-    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled
+    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled + unhandled
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
@@ -157,7 +181,11 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     """(messages that need the role, the rest). A message needs the role when the owner sent it, it carries an
     action tag, or it names a unit the role builds, holds, reviewed, or owes a review or a close on.
     Acknowledgements and news wake nobody: each woke a paid run in Tablet, and replies woke the sender back.
+    A message about a held unit wakes the role only when the owner sent it; otherwise it counts for neither
+    list, so it can't start a run, even on the retry, while the unit waits for the owner. The same goes for a
+    ui unit in review without its reference check, except for its builder, who owes the check.
     """
+    on_hold = getattr(board, "held", {})
     mine = {t["id"] for t in board.tasks if agent in (t.get("assignees") or []) or t.get("claimed_by") == agent}
     mine |= {task_id for task_id, rows in board.reviews.items()
              if any((r.get("reviewer_id") or r.get("reviewer")) == agent for r in rows)}
@@ -165,8 +193,14 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     owner = board.project.roster()["owner"]["id"]
     wanted, rest = [], []
     for message in unread:
+        from_owner = message.get("sender_id") == owner
+        if message.get("task_id") in on_hold and not from_owner:
+            continue
+        if (message.get("task_id") in getattr(board, "awaiting_reference", set()) and not from_owner
+                and agent not in (board.by_id[message["task_id"]].get("assignees") or [])):
+            continue  # reviewers wait for the reference check, so "ready for review" can't wake them yet
         tags = {t.strip().lower() for t in str(message.get("tags") or "").split(",") if t.strip()}
-        needed = message.get("sender_id") == owner or tags & ACTION_TAGS or message.get("task_id") in mine
+        needed = from_owner or tags & ACTION_TAGS or message.get("task_id") in mine
         (wanted if needed else rest).append(message)
     return wanted, rest
 

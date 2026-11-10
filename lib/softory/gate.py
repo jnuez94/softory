@@ -203,14 +203,9 @@ def evaluate(
     ]
     checks.append(_check("blocks_resolved", not open_deps, "open: " + ", ".join(open_deps) if open_deps else "no open blocking dependencies"))
 
-    reference = gates.get("ui_reference") or {}
-    if unit in ("task", "bug") and set(reference.get("tags") or []) & set(tags_of(task)):
-        kinds = set(reference.get("evidence_types") or [])
-        found = [r for r in live_evidence(rows) if str(r.get("evidence_type", "")).lower() in kinds]
-        checks.append(_check("ui_reference", bool(found),
-                             f"checked against its reference: {found[-1].get('uri')}" if found else
-                             "a ui unit needs one check against its design reference before review: add evidence "
-                             f"of type {' or '.join(sorted(kinds))} (a screenshot beside the reference, or a visual diff)"))
+    reference = ui_reference_check(task, gates)
+    if reference:
+        checks.append(reference)
 
     if spec.get("children_must_be_done"):
         undone = [child["id"] for child in children if child.get("status") != "done"]
@@ -313,6 +308,22 @@ def _waive(task_id: str, check: dict[str, Any], gates: dict[str, Any]) -> dict[s
     return _check(check["check"], True,
                   f"waived by the owner ({waiver.get('decision') or 'no decision id'}): {waiver['reason']}. "
                   f"Without the waiver: {check['detail']}")
+
+
+def ui_reference_check(task: dict[str, Any], gates: dict[str, Any]) -> dict[str, Any] | None:
+    """A ui task or bug's rendered check against its design reference, or None where it doesn't apply.
+    The gate needs it to close, and ``softory handoff`` needs it before review, so no reviewer sees the unit
+    without it. An owner's waiver for it counts everywhere."""
+    reference = gates.get("ui_reference") or {}
+    unit, _ = spec_for(task, gates)
+    if unit not in ("task", "bug") or not set(reference.get("tags") or []) & set(tags_of(task)):
+        return None
+    kinds = set(reference.get("evidence_types") or [])
+    found = [r for r in live_evidence(task.get("evidence") or []) if str(r.get("evidence_type", "")).lower() in kinds]
+    return _waive(task.get("id", ""), _check("ui_reference", bool(found),
+                  f"checked against its reference: {found[-1].get('uri')}" if found else
+                  "a ui unit needs one check against its design reference before review: add evidence "
+                  f"of type {' or '.join(sorted(kinds))} (a screenshot beside the reference, or a visual diff)"), gates)
 
 
 def _check(name: str, passed: bool, detail: str) -> dict[str, Any]:
