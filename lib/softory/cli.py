@@ -204,6 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("roles", help="List the roles and their recommended harnesses")
     sub.add_parser("doctor", help="Check the installation, registration, and that nothing leaks into git")
+    sub.add_parser("attach", help="Watch attended runs: attach to their tmux session, or say where they open")
     sub.add_parser("tracker", help="Run the tracker web console; options after it go to the console (--port, --open)")
     sub.add_parser("sync", help="Rewrite the instruction files (after AGENTS.md changes)")
 
@@ -376,6 +377,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(messages.message(coord, args.id)), end="")
     elif args.command == "roles":
         print(ops.roles_table(project), end="")
+    elif args.command == "attach":
+        from .attended import attach  # noqa: PLC0415
+
+        print(ops.dumps(attach(project)), end="")
     elif args.command == "doctor":
         result = ops.doctor(project, coord)
         print(ops.dumps(result), end="")
