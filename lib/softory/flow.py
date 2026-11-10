@@ -17,7 +17,8 @@ from . import clutter
 from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, state_dir
-from .units import tags_of
+from .gate import spec_for
+from .units import resolution_of, tags_of
 from .work import Board
 
 #: The numbers a snapshot keeps and a report compares. Lower is better for every one of them.
@@ -29,10 +30,10 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat(timespec="seconds")
     board = Board(project, coord)
-    done_at = _done_at(coord, since)
+    done_at = {i: at for i, at in _done_at(coord, since).items() if _delivered(board, i)}
     lead = [_hours(board.by_id[i].get("created_at"), at) for i, at in done_at.items() if i in board.by_id]
     lead = [h for h in lead if h is not None]
-    from .watch import review_rounds  # noqa: PLC0415 - watch imports this module's neighbours
+    from .watch import review_rounds  # noqa: PLC0415 - watch imports this module
 
     rounds = review_rounds(board, 1)
     runs = [r for r in all_runs(project) if str(r.get("started", "")) >= since]
@@ -53,6 +54,7 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
         "process_mib": round(_mib(project) + found["archive_mib"], 1),
         "untracked": found["counts"]["untracked"],
         "archives": found["counts"]["archives"],
+        "clutter_key": found["key"],
     }
     by_role: dict[str, dict[str, Any]] = {}
     for run in runs:
@@ -86,6 +88,12 @@ def _done_at(coord: Coordination, since: str) -> dict[str, str]:
     return found
 
 
+def _delivered(board: Board, task_id: str) -> bool:
+    """Work that shipped: not a review record, and not dropped as won't do or superseded."""
+    task = board.by_id.get(task_id)
+    return bool(task) and not spec_for(task, board.gates)[1].get("record") and not resolution_of(task)
+
+
 def _hours(start: Any, end: str) -> float | None:
     try:
         a = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
@@ -109,6 +117,11 @@ def _storage(project: Project) -> dict[str, float]:
 
 def _mib(project: Project) -> float:
     return sum(_storage(project).values())
+
+
+def last_snapshot(project: Project) -> dict[str, Any] | None:
+    """The snapshot Sage's last check-in recorded, if any."""
+    return _last(state_dir(project) / "flow.jsonl")
 
 
 def _last(path: Any) -> dict[str, Any] | None:

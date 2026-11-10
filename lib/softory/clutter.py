@@ -9,13 +9,14 @@ a simplify unit or asks the owner, and ``softory gc`` cleans what is softory's o
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import os
 import time
 from pathlib import Path
 from typing import Any
 
 from . import charter as charters
-from .gitlocal import git, status_entries
+from .gitlocal import git
 from .project import Project
 
 ARCHIVES = ("*.zip", "*.tar", "*.tar.gz", "*.tgz", "*.tar.bz2", "*.tar.xz", "*.7z", "*.rar", "*.bundle")
@@ -39,7 +40,8 @@ def report(project: Project, idle_days: float | None = None) -> dict[str, Any]:
     branches = _branches(root, charter["git"]["base"], idle_days)
     counts = {"untracked": len(untracked), "archives": len(archives), "worktrees": len(worktrees),
               "branches": len(branches)}
-    return {"clean": not any(counts.values()), "counts": counts,
+    seen = [*untracked, *archives, *(w["path"] for w in worktrees), *(b["branch"] for b in branches)]
+    return {"clean": not any(counts.values()), "counts": counts, "key": hashlib.sha256("\0".join(seen).encode()).hexdigest()[:16],
             "archive_mib": round(sum(_size(root / p) for p in archives) / 1048576, 1),
             "copies": {name: n for name, n in sorted(names.items()) if n > 1},
             "untracked": untracked[:LIST_LIMIT], "archives": archives[:LIST_LIMIT],
@@ -49,8 +51,10 @@ def report(project: Project, idle_days: float | None = None) -> dict[str, Any]:
 
 
 def untracked_files(root: Path) -> list[str]:
-    """Files git would show as untracked, not ignored. Softory's own are hidden by the exclude file."""
-    return sorted(line[3:] for line in status_entries(root) if line.startswith("?? "))
+    """Files git would show as untracked, not ignored. Softory's own are hidden by the exclude file.
+    NUL-separated, so a name with spaces or non-ASCII characters comes back as itself, not quoted."""
+    listed = git(root, "ls-files", "--others", "--exclude-standard", "-z")
+    return sorted(name for name in listed.stdout.split("\0") if name)
 
 
 def _archives(root: Path) -> list[str]:

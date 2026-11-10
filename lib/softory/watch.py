@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import clutter, decide, design, feasibility, feedback, grants, holds, verify
+from . import clutter, decide, flow, design, feasibility, feedback, grants, holds, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, allowed_tasks, is_paused
@@ -177,10 +177,12 @@ def _sweep_due(project: Project, simplify: dict[str, Any], last_start: str | Non
     notes = [e for e in feedback.entries(project)
              if last_start is None or (e.get("at") and parse_time(e["at"]) > parse_time(last_start))]
     found = clutter.report(project)
-    if found["clean"] and not notes and not ran:
+    last = flow.last_snapshot(project)  # the clutter Sage already saw at its last check-in doesn't count again
+    fresh = not found["clean"] and not (last and last.get("clutter_key") == found["key"])
+    if not fresh and not notes and not ran:
         return None
     seen = [f"{len(ran)} team run(s)" if ran else "", f"{len(notes)} feedback note(s)" if notes else "",
-            ", ".join(f"{n} {kind}" for kind, n in found["counts"].items() if n)]
+            ", ".join(f"{n} {kind}" for kind, n in found["counts"].items() if n) if fresh else ""]
     return {"why": f"process check-in ({'; '.join(p for p in seen if p)} since your last): run softory flow "
                    f"--record, softory clutter and softory feedback --list, then simplify",
             "runs": len(ran), "clutter": found["counts"], "feedback": len(notes)}

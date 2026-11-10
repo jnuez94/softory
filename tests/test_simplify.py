@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 import unittest
 
 from tests.helpers import coord, git_project, install, needs_sources, revision, run, softory
@@ -63,10 +64,13 @@ class SimplifyTest(unittest.TestCase):
         self.claim()
         softory(self.root, "commit", "TASK-1", sha, "--actor", "gold")
         (self.root / "proof.md").write_text("it works\n")
+        (self.root / "review notes é.md").write_text("quoted by git status\n")
         refused = softory(self.root, "handoff", "TASK-1", "--actor", "gold", check=False)
         self.assertIn("untracked_files", refused.stderr)
         self.assertIn("proof.md", refused.stderr)
-        softory(self.root, "report", "TASK-1", str(self.root / "proof.md"), "--actor", "gold")
+        self.assertIn("review notes é.md", json.loads(refused.stderr)["error"]["message"])  # a name git quotes still counts
+        for name in ("proof.md", "review notes é.md"):
+            softory(self.root, "report", "TASK-1", str(self.root / name), "--actor", "gold")
         softory(self.root, "handoff", "TASK-1", "--actor", "gold")
 
     def test_a_unit_that_changes_scripts_needs_the_process_tag(self) -> None:
@@ -93,7 +97,7 @@ class SimplifyTest(unittest.TestCase):
         softory(self.root, "end", "--actor", "sage")
         self.assertFalse(pending()["pending"])  # checked in just now, and nothing since
         state = self.root / ".coordination/softory"
-        (state / "runs.jsonl").write_text(json.dumps({"role": "jade", "started": "2999-01-01T00:00:00+00:00",
+        (state / "runs.jsonl").write_text(json.dumps({"role": "jade", "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                                       "minutes": 5, "input_tokens": 100, "changes": 0}) + "\n")
         self.assertFalse(pending()["pending"])  # the team ran, but the check-in isn't due yet
         path = self.root / ".git" / "charter.json"
@@ -102,6 +106,19 @@ class SimplifyTest(unittest.TestCase):
         woke = pending()
         self.assertTrue(woke["pending"], woke)
         self.assertIn("softory flow --record", woke["reasons"][-1]["why"])
+        start(self.root, "sage")  # the check-in: Sage records what it saw
+        softory(self.root, "flow", "--record")
+        softory(self.root, "end", "--actor", "sage")
+        (self.root / "loose.md").write_text("x\n")  # clutter that appeared since
+        self.assertTrue(pending()["pending"])
+        softory(self.root, "flow", "--record")
+        self.assertFalse(pending()["pending"])  # seen, unchanged, and the team hasn't run: no paid run for it
+
+    def test_flow_counts_only_delivered_work(self) -> None:
+        start(self.root, "quinn")
+        softory(self.root, "drop", "TASK-1", "--reason", "Not needed", "--actor", "quinn")
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["status"], "done")
+        self.assertEqual(json.loads(softory(self.root, "flow").stdout)["closed"], 0)
 
     def test_flow_reports_and_compares_with_the_last_snapshot(self) -> None:
         first = json.loads(softory(self.root, "flow", "--record").stdout)
