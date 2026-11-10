@@ -44,7 +44,7 @@ def unknown_keys(base: Any, overrides: Any, prefix: str = "") -> list[str]:
     """Override keys the defaults don't have. Lane names and model roles may be added."""
     if not isinstance(overrides, dict) or not isinstance(base, dict):
         return []
-    open_maps = {"lanes", "models", "run.harnesses", "budget.roles", "prices"}
+    open_maps = {"lanes", "models", "run.harnesses", "run.attended", "budget.roles", "prices"}
     found = []
     for key, value in overrides.items():
         path = f"{prefix}{key}"
@@ -123,6 +123,14 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
         for pick in (choice, choice.get("escalate")):
             if pick and pick.get("harness") not in charter["run"]["harnesses"]:
                 problems.append(f"models.{role} uses harness {pick.get('harness')!r}, which run.harnesses doesn't define")
+    mode = charter["run"].get("mode", "unattended")
+    if mode not in ("unattended", "attended"):
+        problems.append(f"run.mode is {mode!r}: use unattended or attended")
+    elif mode == "attended":
+        used = {pick.get("harness") for r, c in charter["models"].items() if r != "description"
+                for pick in (c, c.get("escalate")) if pick}
+        for harness in sorted(h for h in used if h and h not in (charter["run"].get("attended") or {})):
+            problems.append(f"run.mode is attended, but run.attended has no interactive command for {harness}")
     for role in ["", *(charter["budget"].get("roles") or {})]:
         limits = limits_for(charter, role)
         if min(limits["runs_per_role_per_day"], limits["minutes_per_role_per_day"], limits["minutes_per_run"]) <= 0:

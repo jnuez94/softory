@@ -103,7 +103,14 @@
     "quiet_hours": [22, 8]
   },
   "run": {
+    "description": "mode unattended runs each role headless (harnesses). mode attended opens each role's interactive harness (attended) in a tmux window, or a Terminal window on a Mac without tmux, so the owner can watch and type to it; softory attach shows them. An attended run ends when the role ends its session, the window closes, or minutes_per_run passes.",
+    "mode": "unattended",
     "roles": ["greg", "darwin", "quinn", "jade", "gold", "toby", "sage"],
+    "attended": {
+      "claude": ["claude", "--model", "{model}", "--effort", "{effort}", "--settings", "{settings}", "{prompt}"],
+      "codex": ["codex", "--model", "{model}", "-c", "model_reasoning_effort=\"{effort}\"", "--sandbox", "workspace-write",
+                "--ask-for-approval", "never", "{prompt}"]
+    },
     "harnesses": {
       "claude": ["claude", "-p", "{prompt}", "--model", "{model}", "--effort", "{effort}", "--settings", "{settings}",
                  "--output-format", "json", "--max-budget-usd", "{usd_per_run}"],

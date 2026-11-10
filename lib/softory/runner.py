@@ -17,6 +17,7 @@ import subprocess
 import sys
 from typing import Any
 
+from . import attended
 from . import charter as charters
 from . import decide, digest, feasibility, perms, recovery, runprompt, sessions, usage, watch, work
 from .runstate import RUNNER_ENV, allowed_tasks, budget, is_paused, limits_for, now, state_dir
@@ -33,6 +34,8 @@ CHECK = "feasibility"  # the pid file of a running feasibility check
 def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[str, Any]:
     charter = charters.load(project)
     report: dict[str, Any] = {"at": now().isoformat(timespec="seconds"), "started": [], "skipped": {}}
+    if charter["run"].get("mode") == "attended":
+        report["attended"] = attended.surface() or "unavailable: install tmux"
     if not dry_run:  # doctor reads this to tell a loaded scheduler from one that never fires
         (state_dir(project) / "last-tick.json").write_text(json.dumps({"at": report["at"]}) + "\n", encoding="utf-8")
     if not dry_run:
@@ -148,7 +151,10 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     the run exits or times out, so no harness has to keep shell state between commands.
     """
     limits = limits_for(charter, role)
-    command = harness_command(project, charter, role, pick, text, effort, limits.get("usd_per_run") or 0)
+    # A feasibility check stays headless: it is a one-shot verdict on the plan, not a role's work to watch.
+    watched = charter["run"].get("mode") == "attended" and pid_name is None
+    command = harness_command(project, charter, role, pick, text, effort, limits.get("usd_per_run") or 0,
+                              attended_run=watched)
     pid_file = state_dir(project) / f"{pid_name or role}.pid"
     pid_file.write_text(str(os.getpid()), encoding="utf-8")
     try:
@@ -162,30 +168,39 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     logs.mkdir(exist_ok=True)
     out_path = logs / f"{pid_name or role}-{started.strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}.out"  # one per run
     child: subprocess.Popen | None = None
+    stopped = not watched  # an attended run says whether its window left nothing running
+    env = {**_clean_env(), RUNNER_ENV: "1", SOFTORY_ROLE: role}  # sessions it starts aren't logged as manual
+    if session:
+        env[SESSION_ENV] = session
     try:
-        with out_path.open("w", encoding="utf-8") as out:
-            env = {**_clean_env(), RUNNER_ENV: "1", SOFTORY_ROLE: role}  # sessions it starts aren't logged as manual
-            if session:
-                env[SESSION_ENV] = session
-            child = subprocess.Popen(command, cwd=project.root, env=env, start_new_session=True,  # noqa: S603
-                                     stdout=out, stdin=subprocess.DEVNULL)
+        if watched:  # in a window the owner can see and type into; it ends when the role ends its session
+            out_path.touch()
+            outcome: dict[str, Any] = {}
             try:
-                code = child.wait(timeout=float(limits["minutes_per_run"]) * 60)
-            except subprocess.TimeoutExpired:
-                _stop(child)
-                code = 124
-            except BaseException:  # Ctrl-C or a kill of the runner: the harness has its own session, so stop it
-                _stop(child)
-                raise
-    except FileNotFoundError as error:
-        code = 127
+                code, stopped = attended.run(project, role, command, env, out_path, float(limits["minutes_per_run"]),
+                                             lambda: bool(session) and _ended(coord, session), outcome)
+            finally:
+                stopped = bool(outcome.get("stopped"))  # set even when Ctrl-C cut the run short
+        else:
+            with out_path.open("w", encoding="utf-8") as out:
+                child = subprocess.Popen(command, cwd=project.root, env=env, start_new_session=True,  # noqa: S603
+                                         stdout=out, stdin=subprocess.DEVNULL)
+                try:
+                    code = child.wait(timeout=float(limits["minutes_per_run"]) * 60)
+                except subprocess.TimeoutExpired:
+                    _stop(child)
+                    code = 124
+                except BaseException:  # Ctrl-C or a kill of the runner: the harness has its own session, so stop it
+                    _stop(child)
+                    raise
+    except (FileNotFoundError, SoftoryError) as error:  # no harness, or no window to open it in
+        code, stopped = 127, True
         print(f"softory: {error}", file=sys.stderr)
     finally:
-        if child is not None and child.poll() is None:
+        if (child is not None and child.poll() is None) or not stopped:
             # Stopping it was cut short. Leave its marker and session alone: handing its claims back now would
             # let another run edit the same task while it still does. Stale-session recovery finishes it.
-            print(f"softory: {role}'s harness (pid {child.pid}) is still running; its session stays open",
-                  file=sys.stderr)
+            print(f"softory: {role}'s harness is still running; its session stays open", file=sys.stderr)
         else:
             pid_file.unlink(missing_ok=True)
             if session:
@@ -201,6 +216,11 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     with (state_dir(project) / "runs.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps(row) + "\n")
     return {"ran": True, **row}
+
+
+def _ended(coord: Coordination, session: str) -> bool:
+    shown = coord.call("session", "show", session)
+    return bool(shown.get("ok")) and (shown.get("data") or {}).get("status") != "active"
 
 
 #: Seconds a harness gets to exit after SIGTERM before its process group is killed.
@@ -257,11 +277,13 @@ def _close_session(project: Project, coord: Coordination, session: str, role: st
 
 
 def harness_command(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str],
-                    text: str, effort: str = "", usd_per_run: float = 0) -> list[str]:
-    """The harness's template with values filled in. A flag whose value comes out empty is left out."""
-    template = charter["run"]["harnesses"].get(pick["harness"])
+                    text: str, effort: str = "", usd_per_run: float = 0, attended_run: bool = False) -> list[str]:
+    """The harness's template with values filled in. A flag whose value comes out empty is left out.
+    An attended run uses the interactive template in run.attended."""
+    table = "attended" if attended_run else "harnesses"
+    template = (charter["run"].get(table) or {}).get(pick["harness"])
     if not template:
-        raise SoftoryError(f"run.harnesses has no command for {pick['harness']}", "configuration_error")
+        raise SoftoryError(f"run.{table} has no command for {pick['harness']}", "configuration_error")
     settings = perms.write_settings(project, charter, role) if pick["harness"] == "claude" else ""
     values = {"prompt": text, "model": pick["model"], "settings": str(settings), "role": role, "effort": effort,
               "usd_per_run": f"{float(usd_per_run):g}" if float(usd_per_run or 0) > 0 else ""}

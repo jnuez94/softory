@@ -39,12 +39,21 @@ def build(project: Project, coord: Coordination, charter: dict[str, Any], role: 
     if wanted.get("scoped_to"):
         rule = (f"The team is paused. The owner let you work on {', '.join(wanted['scoped_to'])} only: review, "
                 f"fix, or close those and nothing else, even if other work is waiting. " + rule.replace("every", "the"))
-    stable = (f"You are {name} ({role}) in a softory project, running unattended: nobody is watching. "
-              f"Your session is already open; don't start or end one. Pass --actor {role} to softory commands. "
-              f"Follow the softory-operating-loop skill. "
-              f"{rule} If you need the owner, raise an escalation with --owner owner and move on; never wait "
-              f"for an answer. The details below were current when this run started; "
-              f"look up more only when you need it.")
+    if charter["run"].get("mode") == "attended":
+        stable = (f"You are {name} ({role}) in a softory project. The owner can watch this window and may type "
+                  f"to you; follow what they say. Your session is already open; don't start one. Pass --actor "
+                  f"{role} to softory commands. Follow the softory-operating-loop skill. "
+                  f"{rule} If you need the owner and they haven't answered here, raise an escalation with "
+                  f"--owner owner and move on. When you're done, run `.agents/softory/bin/softory end --actor "
+                  f"{role}`: that ends this run and closes the window. The details below were current when this "
+                  f"run started; look up more only when you need it.")
+    else:
+        stable = (f"You are {name} ({role}) in a softory project, running unattended: nobody is watching. "
+                  f"Your session is already open; don't start or end one. Pass --actor {role} to softory commands. "
+                  f"Follow the softory-operating-loop skill. "
+                  f"{rule} If you need the owner, raise an escalation with --owner owner and move on; never wait "
+                  f"for an answer. The details below were current when this run started; "
+                  f"look up more only when you need it.")
     lines = ["", "Waiting for you:"]
     for reason in wanted["reasons"]:
         ids = reason.get("ids") or []

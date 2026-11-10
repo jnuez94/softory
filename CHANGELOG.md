@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.9] - 2026-11-10
+## [0.5.10] - 2026-11-10
 
 Simplification becomes a rule every role must follow, and a new role owns it. In Tablet, agents made their own process: 11 copies of the same plugin zip under `dist/releases` (one folder per commit, 28 MB), 66 untracked review documents in the main checkout, four leftover worktrees, a backup branch, a zip of cleanup records in evidence, and a 390-line untracked installer.
 
@@ -9,8 +9,17 @@ Simplification becomes a rule every role must follow, and a new role owns it. In
 - **`softory clutter`** lists untracked files, archives (ignored folders included), duplicate archive names, extra worktrees, and merged or idle branches. It is read-only, and the digest shows a line when it finds anything.
 - **Sage's operating loop.** The runner wakes Sage for a check-in at most every `simplify.checkin_hours` (24), and only when the team ran, filed feedback, or left clutter since the last one, so an idle team costs nothing. Each check-in measures, looks for causes, files `simplify` units with a number to move, and cleans up. Its budget is 4 runs and 40 minutes a day.
 - **`softory flow [--days 7] [--record]`** reports the process's numbers: median time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk used by logs, verify, workspaces, evidence, and archives. `--record` keeps a snapshot, and the next report lists what got `worse`.
-- **`process_paths` gate check:** a unit whose own commits change `simplify.process_paths` (scripts, `bin/`, CI, Makefiles, Dockerfiles) must carry the `process` tag. The owner can waive it.
+- **`process_paths` gate check:** a unit whose own commits change `simplify.process_paths` (scripts, `bin/`, CI, Makefiles, Dockerfiles) must carry the `process` tag. A unit with no recorded commit (a PR link only) fails it until `softory commit` records one or it carries the tag; design units are exempt. The owner can waive it.
 - **Clean handoff:** `softory handoff` refuses while untracked files that changed during the claim sit in the main checkout. Commit them, file them with `softory report`, or delete them. Set `simplify.clean_handoff` to false to turn this off.
+
+## [0.5.8] - 2026-11-10
+
+Runs the owner can watch and step into. Tablet's owner couldn't see headless runs in either app, or interject while one worked.
+
+- **Attended mode.** With `run.mode` set to `attended`, the runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`: `claude` and `codex` with the run's prompt, model, effort, and settings) in a tmux window, or in a Terminal window on a Mac without tmux. `softory attach` attaches to the tmux session. The prompt tells the role the owner may type to it and to run `softory end` when done.
+- **How an attended run ends.** An interactive harness doesn't exit on its own, so the run ends when the role ends its session, the harness exits or its window closes, or at `minutes_per_run`. The runner stops what is left, closes the window, and hands back unfinished claims, as for a headless run. The run's log keeps a copy of the window. Budgets count runs and minutes only, since interactive harnesses don't report cost.
+- A feasibility check stays headless in attended mode: it is a one-shot verdict that wouldn't end its own window.
+- `softory charter` checks `run.mode`, and that attended mode has an interactive command for every harness the models use. `softory run` reports where attended runs open.
 
 ## [0.5.6] - 2026-11-10
 
