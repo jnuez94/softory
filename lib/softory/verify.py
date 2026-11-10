@@ -347,15 +347,20 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
             result.append(_check("verified", passed, f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
     if globs:
         result.append(_lane_check(project, charter, task, sha, globs, gates))
-    if process and sha:
+    if process and lane_of(task) not in NO_TEST_LANES:
         result.append(_process_check(project, charter, task, sha, process))
     return result
 
 
-def _process_check(project: Project, charter: dict[str, Any], task: dict[str, Any], sha: str,
+def _process_check(project: Project, charter: dict[str, Any], task: dict[str, Any], sha: str | None,
                    globs: list[str]) -> dict[str, Any]:
     """A unit that changes how work is built or delivered (scripts, CI, packaging) carries the process tag,
     so Sage reviews it. Tablet grew a 390-line installer and a zip per commit with nobody asked."""
+    if "process" in tags_of(task):
+        return _check("process_paths", True, "tagged process: Sage reviews it")
+    if not sha:  # a PR link alone doesn't say which files changed
+        return _check("process_paths", False, f"no commit to check for process paths: record it with softory commit "
+                      f"{task['id']} <sha>, or tag it process if it changes scripts, CI, or packaging")
     files = unit_files(project, charter, task["id"], sha)
     if files is None:  # on by default, so a project whose git.base is off isn't stopped by it
         return _check("process_paths", True, f"git can't diff {sha[:12]} against {charter['git']['base']}; not checked")
@@ -363,8 +368,6 @@ def _process_check(project: Project, charter: dict[str, Any], task: dict[str, An
     if not touched:
         return _check("process_paths", True, "changes no process paths")
     listed = ", ".join(touched[:5]) + (f" and {len(touched) - 5} more" if len(touched) > 5 else "")
-    if "process" in tags_of(task):
-        return _check("process_paths", True, f"tagged process: {listed}")
     return _check("process_paths", False, f"changes process paths ({listed}): tag it process so Sage reviews it")
 
 

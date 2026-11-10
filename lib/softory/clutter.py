@@ -50,6 +50,13 @@ def report(project: Project, idle_days: float | None = None) -> dict[str, Any]:
                     "file a simplify unit for whatever keeps making copies."}
 
 
+def archive_bytes(project: Project) -> int:
+    """Bytes in archives outside softory's state folder, which flow already counts as state."""
+    root = project.root.resolve()
+    state = project.state.resolve()
+    return sum(_size(root / p) for p in _archives(root) if not (root / p).resolve().is_relative_to(state))
+
+
 def untracked_files(root: Path) -> list[str]:
     """Files git would show as untracked, not ignored. Softory's own are hidden by the exclude file.
     NUL-separated, so a name with spaces or non-ASCII characters comes back as itself, not quoted."""

@@ -51,7 +51,7 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
         "tokens_per_unit": per(sum(_tokens(r) for r in runs)),
         "usd_per_unit": per(sum(float(r.get("usd") or 0) for r in runs)),
         "idle_share": round(sum(1 for r in measured if not r["changes"]) / len(measured), 2) if measured else None,
-        "process_mib": round(_mib(project) + found["archive_mib"], 1),
+        "process_mib": round(_mib(project) + clutter.archive_bytes(project) / 1048576, 1),  # each byte once
         "untracked": found["counts"]["untracked"],
         "archives": found["counts"]["archives"],
         "clutter_key": found["key"],

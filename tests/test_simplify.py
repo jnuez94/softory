@@ -119,6 +119,20 @@ class SimplifyTest(unittest.TestCase):
         softory(self.root, "flow", "--record")
         self.assertFalse(pending()["pending"])  # seen, unchanged, and the team hasn't run: no paid run for it
 
+    def test_pr_only_evidence_still_needs_the_process_check(self) -> None:
+        coord(self.root, "evidence", "add", "--task", "TASK-1", "--uri", "https://github.com/o/r/pull/7",
+              "--type", "pr", "--actor", "gold")
+        check = next(c for c in gate(self.root, "TASK-1", "gold")["checks"] if c["check"] == "process_paths")
+        self.assertFalse(check["pass"])
+        self.assertIn("softory commit", check["detail"])
+
+    def test_an_archive_in_softorys_state_counts_once(self) -> None:
+        before = json.loads(softory(self.root, "flow").stdout)["process_mib"]
+        folder = self.root / ".coordination/softory/evidence/TASK-1"
+        folder.mkdir(parents=True)
+        (folder / "records.zip").write_bytes(b"0" * 1048576)
+        self.assertEqual(json.loads(softory(self.root, "flow").stdout)["process_mib"], round(before + 1.0, 1))
+
     def test_flow_counts_only_delivered_work(self) -> None:
         start(self.root, "quinn")
         softory(self.root, "drop", "TASK-1", "--reason", "Not needed", "--actor", "quinn")

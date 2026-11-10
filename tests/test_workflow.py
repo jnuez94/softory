@@ -45,6 +45,10 @@ class WorkflowTest(unittest.TestCase):
         self.holder, self.root = git_project()
         self.addCleanup(self.holder.cleanup)
         install(self.root)
+        # These tests record placeholder evidence ("commit:1") that no git commit backs; process paths need one.
+        charter = self.root / ".git" / "charter.json"
+        charter.write_text(json.dumps({"simplify": {"process_paths": []}}))
+        at_terminal(self.root, "charter", "approve", str(charter), "--merge")
         softory(self.root, "new", "epic", "--title", "Radar", "--actor", "greg")
         softory(self.root, "new", "story", "--parent", "EPIC-1", "--title", "See today", "--tags", "ui", "--actor", "greg")
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "List", "--actor", "quinn")
