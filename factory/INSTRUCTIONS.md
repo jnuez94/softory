@@ -16,6 +16,7 @@ eval "$(.agents/softory/bin/softory start <role> --harness <claude|codex> --mode
 | `jade` | Sr. Software Engineer | `lane:frontend` tasks |
 | `gold` | Sr. Software Engineer | `lane:backend` and `lane:infra` tasks |
 | `toby` | Security Engineer | threat models, security reviews, severity |
+| `sage` | Software Development Manager | the delivery process: keeps it simple; reviews `process` units |
 
 If your harness drops shell variables between commands, pass `--actor <role>` to softory commands: softory finds the session it opened for you.
 
@@ -32,7 +33,8 @@ Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per sessi
 7. **The rules are the owner's.** Never edit files under `.agents/softory`; the gate fails closed if they change. Stand-ins and waivers come only from the owner: ask with `softory propose ... --why "..."`.
 8. **Older tasks** (no `unit:` tag) keep this project's own process and still close with `softory close`. `softory triage` lists old tasks that are probably done.
 9. **Unattended, nobody is watching.** Never wait for an answer: raise `softory escalate` with your `--recommend` and `--reversible yes|no` (and `--holds <IDs>` for units that can't move until the answer), carry on as if it applies when it can be undone, and otherwise take other work. A check-in the runner didn't start runs `softory pending <role>` first and stops if it exits 3; a runner run goes straight to the work its prompt lists. Follow `softory charter show`. Run `softory verify <ID>`, then hand a task or bug to review with `softory handoff <ID>`.
-10. **Feedback on softory itself:** `softory feedback "<what happened, what you expected>" --task <ID>`, then carry on. No secrets or personal data.
+10. **Keep the process simple. This is a MUST.** Never make a zip, bundle, backup branch, or copy of the tree, and never add a script, workflow, or kind of document unless a unit's acceptance criteria need it. Proof is evidence rows plus `softory verify`. Use one checkout per role, and one release artifact that each build overwrites. A unit that changes scripts, CI, or packaging is tagged `process`, and Sage reviews it. `softory handoff` refuses while untracked files from your claim remain in the main checkout.
+11. **Feedback on softory itself:** `softory feedback "<what happened, what you expected>" --task <ID>`, then carry on. No secrets or personal data.
 
 ### Spend tokens on the work
 

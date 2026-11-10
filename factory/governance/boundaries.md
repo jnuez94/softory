@@ -16,6 +16,7 @@ A role that steps outside a boundary stops and routes the work to the owner name
 | **Jade**, Sr. SWE (frontend) | Implementation details inside a claimed task | Peer review of Gold's tasks | Frontend lane code and its tests | Architecture changes, criteria or design changes, backend tasks without assignment, own review |
 | **Gold**, Sr. SWE (backend/infra) | Implementation details inside a claimed task | Peer review of Jade's tasks | Backend and infra lane code, CI and deploy tooling, and their tests | Architecture changes, criteria changes, frontend tasks without assignment, own review |
 | **Toby**, Security Engineer | Security and privacy acceptance, vulnerability severity, must-fix-before-release | Security (`security`, `auth`, `data`, `deps` tags, every epic, every release) | Threat models under `docs/security/`, security findings, dependency policy | Priority, acceptance, architecture beyond security, UX, own review |
+| **Sage**, Software Development Manager | Whether a workflow, script, packaging step, generated artifact, or kind of document exists, and its shape; how many copies a process makes and when they go | Process (`process` tag) | Simplify units, `docs/process/**`, softory feedback and proposals | Architecture or product tools, task assignment, priority, acceptance, dropping a security step, product code, own review |
 | **Owner** (human) | Vision, epic go/no-go, production release, cross-domain deadlocks, factory changes | Anything | Anything | Nothing is off-limits, but every ruling is recorded as a decision |
 
 ## Lanes
@@ -37,7 +38,8 @@ Quinn records the paths each lane owns for the project in the epic's design doc.
 2. **One builder per path.** Before editing a path outside your lane, post intent with `message send` to the lane owner and wait for an answer or a reassignment from Quinn.
 3. **One A per decision.** If two roles both think they own a call, neither makes it. Raise an escalation naming both, and the owner of the matching RACI row decides.
 4. **No self-review.** The builder of a change never counts as its reviewer, even when they hold a reviewing role. When the specialist a tag names built the work, a named backup reviews it instead: Quinn for Toby's own `security`, `auth`, `data`, or `deps` work (threat models included), Jade or Gold for Quinn's own `arch` work, and the owner for Darwin's own `ui` work. `gates.json` holds these as `if_builder`. The backup applies only when the specialist alone built the work. If Toby is one of several builders, Toby still can't review it, so take Toby off the task or have the owner grant a stand-in for that task; adding Toby as a co-assignee never moves the review to Quinn.
-5. **Decisions are records.** A call that changes scope, architecture, design, or security posture is a `decision add`, not a chat message.
+5. **Process versus architecture.** Quinn decides how the product is built. Sage decides how many steps, copies, and artifacts it takes to deliver it. A tool that is both, such as a build system, is Quinn's call, and the unit also carries `process` so Sage can block extra copies or steps. A security step Toby requires stays; a dispute goes to the owner.
+6. **Decisions are records.** A call that changes scope, architecture, design, or security posture is a `decision add`, not a chat message.
 
 ## Flex rules
 
@@ -65,4 +67,5 @@ Outside these cases, a role that wants to help files a task or sends a message i
 | Two engineers disagree on approach | Quinn decides | Owner only if it changes scope |
 | A unit stops at the review-round cap | Quinn settles it: one more round (once), split, or drop | Owner if Quinn built it or its extra round is spent |
 | A security block is disputed | Toby states the risk and the fix | Owner. A block is never waived silently. |
+| A new workflow or artifact is disputed (a builder vs Sage) | Sage decides; Quinn if it changes architecture | Owner |
 | Nobody owns it | Quinn files a task and proposes an owner | Owner |

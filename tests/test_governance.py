@@ -31,11 +31,12 @@ class RosterTest(unittest.TestCase):
         self.assertTrue(names["jade"][1].startswith("Senior Software Engineer"))
         self.assertTrue(names["gold"][1].startswith("Senior Software Engineer"))
         self.assertEqual(names["toby"], ("Toby", "Security Engineer"))
+        self.assertEqual(names["sage"], ("Sage", "Software Development Manager"))
 
     def test_recommended_harnesses(self) -> None:
         harness = {role["id"]: role["recommended_harness"] for role in ROSTER["roles"]}
         self.assertEqual({r for r, h in harness.items() if h == "codex"}, {"greg", "toby"})
-        self.assertEqual({r for r, h in harness.items() if h == "claude"}, {"darwin", "quinn", "jade", "gold"})
+        self.assertEqual({r for r, h in harness.items() if h == "claude"}, {"darwin", "quinn", "jade", "gold", "sage"})
 
     def test_every_role_has_all_three_boundaries(self) -> None:
         for role in ROSTER["roles"]:
@@ -56,7 +57,7 @@ class RaciTest(unittest.TestCase):
 
     def test_columns_cover_every_role_and_owner(self) -> None:
         header = next(line for line in RACI.splitlines() if line.startswith("| Activity"))
-        for name in ("Greg", "Darwin", "Quinn", "Jade", "Gold", "Toby", "Owner"):
+        for name in ("Greg", "Darwin", "Quinn", "Jade", "Gold", "Toby", "Sage", "Owner"):
             self.assertIn(name, header)
 
 
