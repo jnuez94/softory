@@ -71,7 +71,7 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
               "storage_mib": _storage(project), "open_process_units": process_units}
     if previous:
         result["previous"] = {"at": previous["at"], **{k: previous.get(k) for k in COMPARED}}
-        result["worse"] = [k for k in COMPARED if _worse(numbers.get(k), previous.get(k))]
+        result["worse"] = [k for k in COMPARED if _worse(k, numbers.get(k), previous.get(k))]
     if record:
         with path.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"at": now.isoformat(timespec="seconds"), "days": days, **numbers}) + "\n")
@@ -135,5 +135,11 @@ def _last(path: Any) -> dict[str, Any] | None:
     return None
 
 
-def _worse(now: Any, before: Any) -> bool:
-    return isinstance(now, (int, float)) and isinstance(before, (int, float)) and now > before * 1.1 and now - before > 0.5
+#: The smallest rise that counts as worse, besides 10%: a share moves in hundredths, counts and hours in units.
+MIN_RISE = {"idle_share": 0.05}
+
+
+def _worse(key: str, now: Any, before: Any) -> bool:
+    if not isinstance(now, (int, float)) or not isinstance(before, (int, float)):
+        return False
+    return now > before * 1.1 and now - before > MIN_RISE.get(key, 0.5)

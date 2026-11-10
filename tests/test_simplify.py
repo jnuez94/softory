@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 import unittest
 
-from tests.helpers import coord, git_project, install, needs_sources, revision, run, softory
+from tests.helpers import REPO, coord, git_project, install, needs_sources, revision, run, softory
 from tests.test_workflow import at_terminal, gate, start
 
 
@@ -130,6 +131,16 @@ class SimplifyTest(unittest.TestCase):
         self.assertEqual(second["previous"]["untracked"], 0)
         self.assertEqual(second["untracked"], 1)
         self.assertIn("untracked", second["worse"])
+
+
+class WorseTest(unittest.TestCase):
+    def test_a_rise_in_idle_runs_counts_as_worse(self) -> None:
+        sys.path.insert(0, str(REPO / "lib"))
+        from softory import flow  # noqa: PLC0415
+
+        self.assertTrue(flow._worse("idle_share", 0.6, 0.2))  # tripled
+        self.assertFalse(flow._worse("idle_share", 0.21, 0.2))
+        self.assertFalse(flow._worse("runs_per_unit", 4.3, 4.0))
 
 
 if __name__ == "__main__":
