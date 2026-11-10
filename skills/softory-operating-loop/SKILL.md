@@ -15,7 +15,7 @@ eval "$($S start <role> --harness <claude|codex> --model <model>)"   # exports C
 
 Every harness gets the same loop. If yours runs each command in a fresh shell, pass `--actor <role>` to `$S` commands and run coordination commands as `$S coord ...` instead of `$C ...`: softory adds the session it opened for the role the command names.
 
-Started by the runner? Your session is already open, so skip `start` and `end`. The prompt lists what is waiting, with each unit's criteria, requested changes, and changed files. Go straight to the work. Otherwise orient in one pass:
+Started by the runner? Your session is already open, so skip `start`, and skip `end` unless your prompt says the owner is watching. The prompt lists what is waiting, with each unit's criteria, requested changes, and changed files. Go straight to the work. Otherwise orient in one pass:
 
 ```sh
 $S inbox                 # unread messages to you or to "team"; then $S inbox --mark-read <N> with the number it printed

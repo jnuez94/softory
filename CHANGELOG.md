@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.7] - 2026-11-10
+## [0.5.9] - 2026-11-10
 
 The tracker console can act again in a project with more than 500 sessions, and every list shows its newest rows first.
 
@@ -11,6 +11,14 @@ The tracker console can act again in a project with more than 500 sessions, and 
 - **Previews that are complete or say they aren't** (tracker UI-88). The open-task read behind session recovery, End session and agent retirement no longer skips a task when another is finished mid-read, and a read that can't be made whole is refused: the sheet then says the claims or assignments could not be checked, not that there are none. "Since you loaded it" takes its audit position with each record as it is read, so a form opened on a stale row keeps the position of what was shown.
 - **"Load older" stays exact under change, and an unread reason isn't an absent one** (tracker UI-89). When the list moves while older rows load, every page of the re-read is checked against the last row read, so no row is skipped or shown twice. "Why this is blocked" says the reason could not be read, with a retry, when its history fails to load; it used to say no reason was recorded.
 - **A list read across pages is checked against the audit log** (tracker UI-90, UI-91). Two changes that cancel each other out, such as a completion and a reorder, could pass the page checks and drop a row. Every multi-page read, "Load older" and re-read is now accepted only when nothing but heartbeats was written while it ran, and is retried otherwise. When the audit log is too long to check to its end, the console treats that as unknown, not as quiet.
+## [0.5.8] - 2026-11-10
+
+Runs the owner can watch and step into. Tablet's owner couldn't see headless runs in either app, or interject while one worked.
+
+- **Attended mode.** With `run.mode` set to `attended`, the runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`: `claude` and `codex` with the run's prompt, model, effort, and settings) in a tmux window, or in a Terminal window on a Mac without tmux. `softory attach` attaches to the tmux session. The prompt tells the role the owner may type to it and to run `softory end` when done.
+- **How an attended run ends.** An interactive harness doesn't exit on its own, so the run ends when the role ends its session, the harness exits or its window closes, or at `minutes_per_run`. The runner stops what is left, closes the window, and hands back unfinished claims, as for a headless run. The run's log keeps a copy of the window. Budgets count runs and minutes only, since interactive harnesses don't report cost.
+- A feasibility check stays headless in attended mode: it is a one-shot verdict that wouldn't end its own window.
+- `softory charter` checks `run.mode`, and that attended mode has an interactive command for every harness the models use. `softory run` reports where attended runs open.
 
 ## [0.5.6] - 2026-11-10
 
