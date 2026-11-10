@@ -12,7 +12,7 @@
   "tracker": {
     "repository": "https://github.com/jnuez94/agentic-scaffold-project-task-tracker",
     "version": "1.0.0",
-    "commit": "bc38048abd78eaf5cb5f704ae7c477c68686edac",
+    "commit": "62911bd1acf743ff73c81568cc0d20e34c2c7109",
     "requires_cli": ">=1.4.0,<2.0.0"
   }
 }
