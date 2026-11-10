@@ -23,6 +23,7 @@ ROLE_DOCS = {
     "darwin": ["docs/design/**"],
     "quinn": ["docs/adr/**", "docs/**"],
     "toby": ["docs/security/**"],
+    "sage": ["docs/process/**"],
 }
 ROLE_LANES = {"jade": ["frontend"], "gold": ["backend", "infra"], "darwin": ["design"]}
 #: Lanes whose role already has a docs folder: with no paths set, the role keeps just that folder.

@@ -12,6 +12,7 @@ Chosen on 2026-10-24. Each role is matched to the benchmark that measures its ow
 | Quinn (architecture) | Claude Code, `claude-opus-5-5` | Terminal-Bench 4.0 and SWE-bench Pro (above) | Architecture and task breakdown decide everyone's rework, so it gets the strongest engineering model. |
 | Toby (security) | Codex, `gpt-6-astra` | SEC-Bench Pro: Astra 85.4%, Sol 78.8%. CWE-bench defensive patching: Astra 68%, Opus 5.5 67%. ExploitGym: Astra 42.4%, Sol 35.1% | Leads or ties the defensive-security benchmarks, Codex is the stronger security harness, and every builder runs on Claude, so each security review is a different model's view. |
 | Greg (product) | Codex, `gpt-6-astra` | AA-Briefcase, long-horizon knowledge work: Astra about 90 Elo above GPT-5.6 Sol; hallucination rate down from 92% to 51% | Acceptance decides "done", so it gets a strong, careful model on a different family from the builders. |
+| Sage (process) | Claude Code, `claude-opus-5-5` | Terminal-Bench 4.0 (above) | Its work is reading the repository, git, and the runs log and judging what to cut. One run a day, at most four, so the model's price barely shows. |
 
 This matches the 2026-10-21 split (Claude for Darwin, Quinn, Jade, and Gold; Codex for Greg and Toby), now with the strongest model in each harness.
 

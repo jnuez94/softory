@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import owner as owners
-from . import decide, feasibility, team, usage, watch
+from . import clutter, decide, feasibility, team, usage, watch
 from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, budget, paused, state_dir
@@ -96,6 +96,9 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     for row in watch.silent(project, coord)["silent"]:
         later.append({"key": f"silent-{row['agent']}", "text": f"{row['agent']} has had no run since "
                       f"{row['last_seen'] or 'ever'} with work waiting"})
+    found = clutter.report(project)
+    if not found["clean"]:
+        later.append({"key": "clutter", "text": clutter.summary(found)})
     for who, why in paused(project).items():
         if who == "allow":
             continue

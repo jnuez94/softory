@@ -39,6 +39,14 @@ Where the role profiles and skills come from. Agents don't load this page; it's 
 - [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/): the four questions.
 - OWASP, [Software Assurance Maturity Model](https://owaspsamm.org/).
 
+## Sage, Software Development Manager
+
+- Mary and Tom Poppendieck, [Lean Software Development](https://www.oreilly.com/library/view/lean-software-development/0321150783/): eliminate waste, the seven wastes of software (extra processes, extra features, handoffs, task switching, waiting, motion, defects).
+- DORA, [Capabilities](https://dora.dev/capabilities/): working in small batches, trunk-based development, streamlining change approval.
+- Will Larson, [An Elegant Puzzle](https://lethain.com/elegant-puzzle/): engineering managers own the process and remove what slows the team.
+- Amazon, [Leadership Principles](https://www.amazon.jobs/content/en/our-workplace/leadership-principles): Invent and Simplify, and Frugality.
+- Tablet pilot feedback (softory 0.4.2 to 0.5.6): per-commit release zips, untracked review docs, review copies in /tmp, and acknowledgement messages that each woke a paid run.
+
 ## Skill: softory-architecture
 
 Michael Nygard, [Documenting Architecture Decisions](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions). Will Larson, [Staff archetypes](https://staffeng.com/guides/staff-archetypes/). Amazon, [Principal Engineering Community Tenets](https://amazon.jobs/en/landing_pages/pe-community-tenets).

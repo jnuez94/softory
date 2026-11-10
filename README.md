@@ -13,13 +13,13 @@ On top of them, softory adds the team, the rules, and the craft.
 
 | | |
 | --- | --- |
-| **Roles** | Greg (Product Manager), Darwin (UX Designer), Quinn (Principal Engineer), Jade (Sr. SWE, frontend), Gold (Sr. SWE, backend and infra), and Toby (Security Engineer). Each has a profile collated from published role guidelines. See [factory/roles](factory/roles/README.md). |
+| **Roles** | Greg (Product Manager), Darwin (UX Designer), Quinn (Principal Engineer), Jade (Sr. SWE, frontend), Gold (Sr. SWE, backend and infra), Toby (Security Engineer), and Sage (Software Development Manager, who keeps the delivery process simple). Each has a profile collated from published role guidelines. See [factory/roles](factory/roles/README.md). |
 | **Boundaries** | A [RACI matrix](factory/governance/raci.md) with exactly one accountable role per activity, plus [decision, review, and work boundaries](factory/governance/boundaries.md), lanes, flex rules for when overlap is allowed, and escalation paths. |
 | **Units of work** | Epic (project) > story (feature) > task (function) or bug (fix), with templates, a definition of ready and done, and a [flow for each](factory/workflows/work-units.md). |
 | **Skills** | Eight skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, and architecture. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
 | **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, and the right role is closing. |
 
-Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, and Gold (agent coding and web design), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
+Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, Gold, and Sage (agent coding, web design, and process), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ The target must be the root of a git repository. The installer:
 2. Runs the scaffold's own installer with the SQLite backend. A project on an older 1.x scaffold, such as 1.4.0, is upgraded in place after a backup to `.coordination/backups/pre-scaffold-<version>-<time>.sqlite3`. A newer scaffold is refused.
 3. Copies softory's factory, CLI, and tracker into `.agents/softory/`, and the skills into `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex).
 4. Writes the operating instructions where both harnesses read them (below).
-5. Registers `owner` (you) and the six roles in the coordination database.
+5. Registers `owner` (you) and the seven roles in the coordination database.
 6. Hides all of it from git and checks that `git status` is unchanged.
 
 Re-running it upgrades softory in place and keeps your coordination history.
@@ -84,7 +84,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
 | `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
 | `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
-| `softory handoff <ID>` | Moves your claimed unit to review once it has evidence and, for a `ui` unit, its check against the design reference |
+| `softory handoff <ID>` | Moves your claimed unit to review once it has evidence and, for a `ui` unit, its check against the design reference. Refuses while untracked files that appeared during your claim sit in the main checkout |
 | `softory report <ID> <file> [--type T] [--keep]` | Files a report or screenshot under `.coordination/softory/evidence/<ID>/` and records it as evidence. An untracked file is moved, so the main checkout stays clean |
 | `softory workspace <role> [commit]` | The role's reusable checkout of a commit for reviews, with `verify.share` folders linked from the main checkout. A worktree where git allows it, a snapshot where a sandbox protects `.git` |
 | `softory reviewers <ID>` | Who must review it, and where each review stands |
@@ -117,6 +117,8 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task |
 | `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
+| `softory clutter [--idle-days 14]` | Lists untracked files, archives (ignored folders included), duplicate archives, extra worktrees, and merged or idle branches. Read-only; exits 2 when it finds any |
+| `softory flow [--days 7] [--record]` | The process's numbers over the window: time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk. `--record` keeps a snapshot; the next report lists what got `worse` since. Sage's check-in starts here |
 | `softory gc [--days 14] [--dry-run]` | Removes workspaces unused for that long, old run and verify logs, and verify trees a crashed run left in the temp folder |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
 
@@ -225,6 +227,16 @@ Softory assumes nothing about a harness beyond its command line in `run.harnesse
 - **`softory gc`** removes unused workspaces, old logs and leftover verify trees.
 
 Adding a harness takes one template line in the charter's `run.harnesses`, plus a parser in `usage.py` if you want its token counts.
+
+### Keeping the process simple (0.5.9)
+
+Tablet's agents made their own process: 11 copies of the same plugin zip, one folder per commit they wanted to prove, 66 untracked review documents in the main checkout, four leftover worktrees, a backup branch, and a 390-line installer for a feature that installs nothing. Nothing asked for any of it, and nobody could say no.
+
+- **Simplicity is a rule every role follows.** No zip, bundle, backup branch, or copy of the tree, and no new script, workflow, or kind of document, unless a unit's acceptance criteria need it. Proof is evidence rows and `softory verify`. One checkout per role, and one release artifact that each build overwrites.
+- **Sage, the Software Development Manager, owns it.** Sage decides whether a new workflow, script, packaging step, generated artifact, or kind of document exists, reviews units tagged `process`, and checks in on the team's process. Sage fixes the cause, such as the script that zips every commit, by filing a `simplify` unit for the lane owner. Sage never chooses architecture or assigns work (Quinn), sets priority (Greg), drops a security step (Toby), writes product code, or deletes your files. Deletes come to you as an escalation that names the exact paths.
+- **The gate holds it.** A unit whose commits change `simplify.process_paths` (scripts, `bin/`, CI, Makefiles, Dockerfiles) needs the `process` tag, so Sage reviews it. `softory handoff` refuses while untracked files from the claim sit in the main checkout.
+- **Sage's operating loop.** The runner wakes Sage for a check-in at most once a day (`simplify.checkin_hours`), and only when the team ran, filed feedback, or left clutter since the last one. Each check-in runs `softory flow --record`, which shows time to delivery, runs, minutes and tokens per delivered unit, idle runs, and disk, compared with the last check-in. It then reads `softory clutter`, the feedback, and new process work, and files a `simplify` unit for the one or two biggest causes, each naming the number it should move. Sage is capped at 4 runs and 40 minutes a day, and the digest has a clutter line.
+- **Upgrading:** if your charter sets `run.roles`, add `sage` to it. Clean up what's already there first, or Sage's first check-in will list it all.
 
 ## Git worktrees
 

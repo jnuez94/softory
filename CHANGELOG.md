@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.9] - 2026-11-10
+
+Simplification becomes a rule every role must follow, and a new role owns it. In Tablet, agents made their own process: 11 copies of the same plugin zip under `dist/releases` (one folder per commit, 28 MB), 66 untracked review documents in the main checkout, four leftover worktrees, a backup branch, a zip of cleanup records in evidence, and a 390-line untracked installer.
+
+- **Rule 10, a MUST:** no zip, bundle, backup branch, or copy of the tree, and no new script, workflow, or kind of document, unless a unit's acceptance criteria need it. Proof is evidence rows plus `softory verify`. One checkout per role, and one release artifact that each build overwrites.
+- **Sage, Software Development Manager** (`sage`, Claude), owns the delivery process, with simplification as its main job. Sage decides whether a new workflow, script, packaging step, generated artifact, or kind of document exists, reviews the new `process` tag (Quinn backs up), and checks in on the team's process, filing `simplify` units that remove the cause. Profile, roster, RACI (a new Delivery process table and a Sage column), boundaries (process versus architecture), and sources are updated.
+- **`softory clutter`** lists untracked files, archives (ignored folders included), duplicate archive names, extra worktrees, and merged or idle branches. It is read-only, and the digest shows a line when it finds anything.
+- **Sage's operating loop.** The runner wakes Sage for a check-in at most every `simplify.checkin_hours` (24), and only when the team ran, filed feedback, or left clutter since the last one, so an idle team costs nothing. Each check-in measures, looks for causes, files `simplify` units with a number to move, and cleans up. Its budget is 4 runs and 40 minutes a day.
+- **`softory flow [--days 7] [--record]`** reports the process's numbers: median time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk used by logs, verify, workspaces, evidence, and archives. `--record` keeps a snapshot, and the next report lists what got `worse`.
+- **`process_paths` gate check:** a unit whose own commits change `simplify.process_paths` (scripts, `bin/`, CI, Makefiles, Dockerfiles) must carry the `process` tag. The owner can waive it.
+- **Clean handoff:** `softory handoff` refuses while untracked files that changed during the claim sit in the main checkout. Commit them, file them with `softory report`, or delete them. Set `simplify.clean_handoff` to false to turn this off.
+
 ## [0.5.6] - 2026-11-10
 
 Two fixes from Tablet's first ticks on 0.5.5, where every runner run stopped within a minute without doing anything.

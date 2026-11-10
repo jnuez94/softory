@@ -46,7 +46,8 @@
     "roles": {
       "greg": {"minutes_per_run": 15, "minutes_per_role_per_day": 60},
       "darwin": {"minutes_per_run": 20, "minutes_per_role_per_day": 60},
-      "toby": {"minutes_per_run": 20, "minutes_per_role_per_day": 60}
+      "toby": {"minutes_per_run": 20, "minutes_per_role_per_day": 60},
+      "sage": {"runs_per_role_per_day": 4, "minutes_per_run": 20, "minutes_per_role_per_day": 40}
     }
   },
   "task_caps": {
@@ -58,6 +59,14 @@
   "waste": {
     "description": "The digest flags an open unit whose record changed this many times without closing (claims, status moves, retags), a sign a role is looping on tooling instead of the work. 0 turns it off.",
     "revision": 30
+  },
+  "simplify": {
+    "description": "Sage keeps the delivery process simple. role checks in at most every checkin_hours, and only when the team ran, filed feedback, or left clutter since the last check-in; each check-in measures with softory flow --record. process_paths are files that change how work is built or delivered: a unit that changes one needs the process tag, so Sage reviews it. With clean_handoff, softory handoff refuses while untracked files that appeared during the claim sit in the main checkout.",
+    "role": "sage",
+    "checkin_hours": 24,
+    "idle_branch_days": 14,
+    "process_paths": ["scripts/**", "bin/**", ".github/**", ".gitlab-ci.yml", "Makefile", "*.mk", "Dockerfile*", "docker-compose*"],
+    "clean_handoff": true
   },
   "review_batch": {
     "description": "Wake a reviewer once this many reviews wait, or once the oldest has waited this long, so one run clears several. Reviews also wait until softory verify passes at the commit.",
@@ -94,7 +103,7 @@
     "quiet_hours": [22, 8]
   },
   "run": {
-    "roles": ["greg", "darwin", "quinn", "jade", "gold", "toby"],
+    "roles": ["greg", "darwin", "quinn", "jade", "gold", "toby", "sage"],
     "harnesses": {
       "claude": ["claude", "-p", "{prompt}", "--model", "{model}", "--effort", "{effort}", "--settings", "{settings}",
                  "--output-format", "json", "--max-budget-usd", "{usd_per_run}"],
@@ -120,6 +129,7 @@
     "quinn": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
     "jade": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
     "gold": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
-    "toby": {"harness": "codex", "model": "gpt-6-astra", "escalate": null, "also": []}
+    "toby": {"harness": "codex", "model": "gpt-6-astra", "escalate": null, "also": []},
+    "sage": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []}
   }
 }

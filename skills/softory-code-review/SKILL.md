@@ -18,6 +18,7 @@ The goal of review is that the codebase is **better after the change than before
 | Darwin (`ui`) | Matches the spec, every state, accessibility, copy, tokens | Code structure |
 | Toby (`security`, `auth`, `data`, `deps`) | The security checklist in `softory-secure-coding` | Style, product |
 | Greg (stories, epics) | Each acceptance criterion against the evidence | Code |
+| Sage (`process`) | Is the new step, script, copy, or artifact needed at all, and is it the simplest that works | Code quality, architecture |
 
 ## As the reviewer: the order to look
 

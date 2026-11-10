@@ -327,7 +327,8 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
     result = []
     command = charter["verify"]["command"]
     globs = (charter.get("lanes") or {}).get(lane_of(task) or "", [])
-    if not command and not globs:
+    process = (charter.get("simplify") or {}).get("process_paths") or []
+    if not command and not globs and not process:
         return []
     sha = commit_of(project.root, task)
     if command and lane_of(task) not in NO_TEST_LANES:
@@ -346,7 +347,25 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
             result.append(_check("verified", passed, f"`{entry['command']}` {how} at {sha[:12]} ({entry['at']})"))
     if globs:
         result.append(_lane_check(project, charter, task, sha, globs, gates))
+    if process and sha:
+        result.append(_process_check(project, charter, task, sha, process))
     return result
+
+
+def _process_check(project: Project, charter: dict[str, Any], task: dict[str, Any], sha: str,
+                   globs: list[str]) -> dict[str, Any]:
+    """A unit that changes how work is built or delivered (scripts, CI, packaging) carries the process tag,
+    so Sage reviews it. Tablet grew a 390-line installer and a zip per commit with nobody asked."""
+    files = unit_files(project, charter, task["id"], sha)
+    if files is None:  # on by default, so a project whose git.base is off isn't stopped by it
+        return _check("process_paths", True, f"git can't diff {sha[:12]} against {charter['git']['base']}; not checked")
+    touched = [f for f in files if any(fnmatch.fnmatch(f, g) for g in globs)]
+    if not touched:
+        return _check("process_paths", True, "changes no process paths")
+    listed = ", ".join(touched[:5]) + (f" and {len(touched) - 5} more" if len(touched) > 5 else "")
+    if "process" in tags_of(task):
+        return _check("process_paths", True, f"tagged process: {listed}")
+    return _check("process_paths", False, f"changes process paths ({listed}): tag it process so Sage reviews it")
 
 
 def _lane_check(project: Project, charter: dict[str, Any], task: dict[str, Any], sha: str | None,

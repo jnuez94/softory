@@ -37,7 +37,7 @@ class FreshProjectTest(unittest.TestCase):
 
     def test_roles_registered(self) -> None:
         agents = {a["id"]: a for a in coord(self.root, "agent", "list")["data"]}
-        self.assertEqual(set(agents), {"owner", "greg", "darwin", "quinn", "jade", "gold", "toby"})
+        self.assertEqual(set(agents), {"owner", "greg", "darwin", "quinn", "jade", "gold", "toby", "sage"})
         self.assertEqual(agents["owner"]["name"], "Tester")
         self.assertEqual(agents["owner"]["actor_type"], "human")
         self.assertIn("Reviewing a change they implemented", agents["toby"]["unavailable_for"])
