@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.6] - 2026-11-10
+## [0.5.7] - 2026-11-10
 
 The tracker console can act again in a project with more than 500 sessions.
 
