@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.6] - 2026-11-10
+
+The tracker console can act again in a project with more than 500 sessions.
+
+- **The tracker moves to `83bd876`** (from `ee3dee6`). Its header read only the project's 500 oldest sessions, so in Tablet (937 sessions) the console's own session never loaded: the header said "No active session is selected for local-operator" and offered nothing to pick, and every action stayed disabled. The console now loads active sessions only (tracker UI-84). The new pin also brings the tracker's other changes since `ee3dee6`: an escalation can be resolved from its inspector, a blocked task shows what blocks it, a refused stale change shows what changed, the row-action column appears only when a row qualifies, and the Export page is gone. Softory used none of the Export page.
+
 ## [0.5.5] - 2026-11-09
 
 The rest of the Tablet review's fixes that don't wait on more data: work waiting on the owner stops waking roles, reviewers stop copying the tree, and evidence leaves the main checkout.
