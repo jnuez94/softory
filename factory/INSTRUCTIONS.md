@@ -28,7 +28,7 @@ Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per sessi
 2. **Work units:** epic > story > task or bug, plus review records. Create them with `softory new`, never with a raw `task create`, and never keep task lists in Markdown beside the database. The flows are in `.agents/softory/factory/workflows/work-units.md`.
 3. **One claim at a time, and no edits without a claim.** Never open `.coordination/coordination.sqlite3` directly, and never put secrets, credentials, or personal data in any coordination record.
 4. **Never review your own work.** `softory reviewers <ID>` names who must review, including the backup when the specialist built it alone.
-5. **Close only with `softory close <ID>`**, which runs the gate. Never use a raw `task status ... done`, and never work around a failing gate: fix what it lists.
+5. **Close only with `softory close <ID>`**, which runs the gate. Never use a raw `task status ... done`, and never work around a failing gate: fix what it lists. Never push or merge into the base branch: the owner or `softory ship` does.
 6. **Decisions are records** (`decision add`), not chat. Record an owner's ruling with `softory ruling`.
 7. **The rules are the owner's.** Never edit files under `.agents/softory`; the gate fails closed if they change. Stand-ins and waivers come only from the owner: ask with `softory propose ... --why "..."`.
 8. **Older tasks** (no `unit:` tag) keep this project's own process and still close with `softory close`. `softory triage` lists old tasks that are probably done.

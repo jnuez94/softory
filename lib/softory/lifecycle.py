@@ -11,8 +11,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import gate as gate_rules
+from . import policy
 from .coordination import Coordination
 from .errors import SoftoryError
+from .owner import record_decision
 from .project import Project
 from .units import WITHDRAWN, stack_of, tags_of, unit_of
 
@@ -90,27 +92,50 @@ def left_behind(project: Project, task: dict[str, Any]) -> list[str]:
     return found
 
 
-def move_to_done(coord: Coordination, task_id: str, actor: str, note: str, because: str | None = None) -> None:
+def move_to_done(coord: Coordination, task_id: str, actor: str, note: str, because: str | None = None,
+                 dropping: bool = False, gate: dict[str, Any] | None = None) -> None:
     """Take a task to done through the moves the scaffold allows.
 
     From todo or blocked that means a claim, which needs the actor's session.
     ``--no-assign`` keeps the claim from making the actor one of the builders.
+    Under strict closure (policy.py) finished dependencies are resolved first, and every dependency of
+    dropped work. When softory's ``gate`` passed but the scaffold's single-review rule doesn't fit (Greg
+    accepts the story he owns; changes requested with follow-ups filed), the gate's verdict is recorded
+    as a decision and cited.
     """
     task = coord.task(task_id)
     status = task["status"]
     if status == "in_progress" and task.get("claimed_by") != actor:
         raise SoftoryError(f"{task_id} is claimed by {task.get('claimed_by')}; they must release it first",
                            "task_already_claimed")
+    policy.resolve_dependencies(coord, task, actor, everything=dropping)
     if status in ("todo", "blocked"):
-        coord.run("task", "claim", task_id, "--agent", actor, "--no-assign", "--if-revision", str(task["revision"]),
+        coord.run("task", "claim", task_id, "--agent", actor, "--no-assign", "--if-revision", _revision(coord, task_id),
                   session=True)
         status = "in_progress"
     if status == "in_progress":
         coord.run("task", "release", task_id, "--to", "review", "--actor", actor,
                   "--if-revision", _revision(coord, task_id), session=True)
     extra = ["--because", because] if because else []
-    coord.run("task", "status", task_id, "done", "--actor", actor, "--if-revision", _revision(coord, task_id),
-              "--note", note, *extra)
+    done = coord.call("task", "status", task_id, "done", "--actor", actor, "--if-revision", _revision(coord, task_id),
+                      "--note", note, *extra)
+    error = done.get("error") or {}
+    if not done.get("ok") and error.get("code") == "closure_requires_review" and gate and not because:
+        decision = record_decision(coord, actor, "GATE", f"{task_id} passed softory's gate"[:200],
+                                   f"Close {task_id}: softory's gate passed, which stands in for the scaffold's "
+                                   "single accepted review.", _gate_summary(gate, error))
+        done = coord.call("task", "status", task_id, "done", "--actor", actor,
+                          "--if-revision", _revision(coord, task_id), "--note", note, "--because", f"decision:{decision}")
+        error = done.get("error") or {}
+    if not done.get("ok"):
+        raise SoftoryError(error.get("message", "task status failed"), error.get("code", "coordination_error"),
+                           error.get("details"))
+
+
+def _gate_summary(gate: dict[str, Any], error: dict[str, Any]) -> str:
+    reason = (error.get("details") or {}).get("reason", "")
+    passed = "; ".join(f"{c['check']}: {c['detail']}" for c in gate.get("checks") or [] if c["check"].startswith("review"))
+    return f"The scaffold refused ({reason or error.get('message', '')}). Reviews: {passed}"[:4000]
 
 
 def _revision(coord: Coordination, task_id: str) -> str:
@@ -164,7 +189,8 @@ def drop(project: Project, coord: Coordination, task_id: str, reason: str, super
     if superseded_by:
         tags.append(f"superseded-by:{superseded_by}")
     update_tags(coord, coord.task(task_id), tags, actor)
-    move_to_done(coord, task_id, actor, f"{DROP_NOTE}{kind}): {reason}", because=f"decision:{decision_id}")
+    move_to_done(coord, task_id, actor, f"{DROP_NOTE}{kind}): {reason}", because=f"decision:{decision_id}",
+                 dropping=True)
     parent = next((t.split(":", 1)[1] for t in tags if t.startswith("parent:")), None)
     result = {"dropped": task_id, "resolution": kind, "decision": decision_id}
     if superseded_by:
@@ -193,6 +219,11 @@ def stack(project: Project, coord: Coordination, ids: list[str], actor: str) -> 
     for task in tasks:
         if not stack_of(task):
             update_tags(coord, task, [*tags_of(task), f"stack:{name}"], actor)
+    for lower, upper in zip(tasks, tasks[1:]):  # "built on", which never blocks a claim (scaffold 1.4.2)
+        if not any(d.get("depends_on_task_id") == lower["id"] and d.get("dependency_type") in ("informs", "blocks")
+                   for d in upper.get("dependencies") or []):
+            coord.run("dependency", "add", "--task", upper["id"], "--depends-on", lower["id"], "--type", "informs",
+                      "--actor", actor, "--rationale", f"{upper['id']} is built on {lower['id']} (stack {name})")
     members = [t["id"] for t in coord.all_tasks("--tag", f"stack:{name}")]
     return {"stack": name, "members": members,
             "next": f"When every member is in review with its own reviews, close them together: softory close {ids[-1]} --stack"}
@@ -239,7 +270,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
     closed = []
     for member_id in order:
         try:
-            move_to_done(coord, member_id, actor, f"{CLOSE_NOTE} with stack {name}")
+            move_to_done(coord, member_id, actor, f"{CLOSE_NOTE} with stack {name}", gate=reports[member_id])
         except SoftoryError as error:
             return {"closed": False, "stack": name, "closed_before_error": closed, "error": error.message}
         closed.append(member_id)

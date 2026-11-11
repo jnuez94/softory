@@ -1,6 +1,6 @@
 # Units of Work
 
-Softory works in three sizes. All three are tasks in the coordination database. The tags and the ID prefix say which kind each one is.
+Softory works in three sizes, plus review records and releases. All of them are tasks in the coordination database. The tags and the ID prefix say which kind each one is.
 
 | Unit | Means | ID | Required tags | Owner (A) | Typical size |
 | --- | --- | --- | --- | --- | --- |
@@ -8,6 +8,7 @@ Softory works in three sizes. All three are tasks in the coordination database. 
 | **Story** | A feature: one user-visible increment | `STORY-n` | `unit:story`, `parent:EPIC-n` (optional) | Greg | 1 to 6 tasks |
 | **Task** | A function: one change by one engineer | `TASK-n` | `unit:task`, `parent:STORY-n`, one `lane:*` | Lane owner | One pull request |
 | **Bug** | A bug fix: a task that restores intended behavior | `BUG-n` | `unit:bug`, one `lane:*`, `parent:` optional | Lane owner | One pull request |
+| **Release** | One commit of the base on its way to production | `RELEASE-n` | `unit:release` | Gold builds, Greg closes | One base commit |
 
 Review tags add required reviewers: `arch` (Quinn), `ui` (Darwin), and `security`, `auth`, `data`, or `deps` (Toby), and `process` (Sage) for a new or changed workflow, script, packaging step, or generated artifact.
 
@@ -32,7 +33,9 @@ All units use the scaffold's five statuses: `todo`, `in_progress`, `review`, `bl
 | `blocked` | Waiting on the owner or an escalation | Waiting on a design, a decision, or a dependency | Waiting on another task or an answer |
 | `done` | Accepted, after `softory gate` passes | Accepted, after `softory gate` passes | Reviewed, after `softory gate` passes |
 
-Epics and stories don't sit in `in_progress` while children are built. A claim is a one-hour lease, and the scaffold's session sweep blocks tasks whose session goes quiet. `softory tree` shows progress instead.
+Epics and stories don't sit in `in_progress` while children are built. A claim is a one-hour lease, and the scaffold's session sweep blocks tasks whose session goes quiet. Instead the runner marks a story or epic **active** once one of its children has started (`task list --active`), with no claim and nothing for the sweep to block, and `done` clears it. `softory tree` shows progress.
+
+The scaffold enforces the basics itself (strict closure and dependencies): no `done` without an accepted review from someone other than a builder, and no claim on work with an open `blocks` dependency. Review records are exempt, a drop cites its decision, and `softory close` cites the gate's verdict where softory's rules differ, as when Greg accepts the story he owns.
 
 ## Epic flow
 
@@ -89,7 +92,17 @@ Plans change. A unit that won't be built closes as dropped, with a reason and a 
 
 ## Stacked work
 
-When a fix has to build on another unit that isn't closed yet, the engineer branches from it and records the stack, bottom first: `softory stack BUG-5 BUG-15`. Each member keeps its own reviews. `softory close BUG-15 --stack` checks every open member's gate, counting the other members as done, and closes them all bottom first, or none if any fails its gate. If a close call itself fails partway, softory stops and reports what it closed.
+When a fix has to build on another unit that isn't closed yet, the engineer branches from it and records the stack, bottom first: `softory stack BUG-5 BUG-15`. That links each member to the one below with an `informs` dependency, which means "built on" and never blocks a claim; `blocks` means "can't start until". Each member keeps its own reviews. `softory close BUG-15 --stack` checks every open member's gate, counting the other members as done, and closes them all bottom first, or none if any fails its gate. If a close call itself fails partway, softory stops and reports what it closed.
+
+## Merging and shipping
+
+With the charter's `merge.by` set to `softory`, nobody merges by hand and no role pushes to the base branch. `softory ship`, which the runner starts each tick, merges the units that closed through the gate: up to `merge.batch_max` of them become one candidate commit, and the base moves only when `softory verify` passes there. A batch that fails is tried one unit at a time. A unit that conflicts or fails on its own stays off the base, and its builder gets a priority 1 bug to fix it on top of the base.
+
+**The base stays green.** Whenever the base moves, softory verifies it. A red base gets one priority 1 bug for Gold, and nothing else merges until that bug's fix does.
+
+After each merge, softory deploys the new base to every `auto` target in the charter (`deploy.targets`, for example a preview or staging environment) and runs the target's smoke test. A failure files a priority 1 bug.
+
+**Releases.** Gold opens a release when Greg asks for one: `softory new release --title "..."` records the base commit it ships. Gold attaches the rollback plan (`softory report RELEASE-n plan.md --type rollback`) and hands it off. Toby and Quinn review it, and Greg closes it once every target but production passed at that commit (`softory deploy staging --release RELEASE-n` if it never deployed). Production is the owner's: `softory deploy production --release RELEASE-n`, at a terminal, after the release closes.
 
 ## Tasks from before softory
 
@@ -114,6 +127,7 @@ When softory joins a project that already has tasks, those tasks have no `unit:`
 | --- | --- |
 | Epic | Every story is done. Accepted reviews from Greg, Quinn, and Toby. Evidence exists. |
 | Story | Every task is done. Accepted review from Greg, plus Darwin if `ui`. Evidence exists. |
-| Task or bug | Evidence exists (PR or commit, test output). An accepted peer review from the other engineer, plus tag reviews. No self-review. |
+| Task or bug | Evidence exists (PR or commit, test output). An accepted peer review from the other engineer, plus tag reviews. No self-review. Its own commits add no secrets. |
 | Review run | Evidence exists (the report), and no code evidence. Each review tag on it (`security`, `ui`, ...) is covered by its author or signed off by that tag's reviewer. It names what it reviewed (`for:`), which its reviewer didn't build. The reviewer's verdict is on the record or on every reviewed task. Every "changes requested" on it names follow-up tasks that exist. |
+| Release | Accepted reviews from Toby and Quinn. A rollback plan in its evidence. Every deploy target but production passed its deploy and smoke test at the release's commit. |
 | Dropped | A recorded decision says won't do or superseded, by an allowed dropper, with no open children. |

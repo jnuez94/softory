@@ -80,6 +80,8 @@ Tests are part of the task: whoever is A/R for a task writes and owns its tests.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Release readiness checklist | C | C | **A/R** | C | C | C! | C | I |
 | Release go/no-go recommendation | **A/R** | C | C! | I | I | C! | – | I |
+| Release unit: rollback plan, staging deploy, smoke test | I | – | C! | I | **A/R** | C! | C | I |
+| Merging to the base branch (`merge.by softory`: `softory ship`) | I | – | C | I | I | – | C | **A** |
 | Production release and external sharing | C | – | C | I | R | C! | – | **A** |
 | Cross-domain deadlock | C | C | C | C | C | C | C | **A** |
 | Changes to roles, RACI, gates, skills | C | C | R | C | C | C | C | **A** |

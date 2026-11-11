@@ -19,7 +19,7 @@ from typing import Any
 
 from . import attended
 from . import charter as charters
-from . import decide, digest, feasibility, perms, recovery, runprompt, sessions, usage, watch, work
+from . import backups, decide, digest, feasibility, parents, perms, recovery, runprompt, sessions, usage, watch, work
 from .runstate import RUNNER_ENV, allowed_tasks, budget, is_paused, limits_for, now, state_dir
 from .coordination import Coordination
 from .errors import SoftoryError
@@ -42,6 +42,11 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
         report["recovered"] = recovery.sweep(project, coord, charter)
         report["defaulted"] = decide.apply_due(project, coord, charter)
         report["paged"] = digest.page_due(project, coord, charter)
+        report["backup"] = backups.daily(project, coord, charter)
+        report["parents"] = parents.sync(project, coord)
+        if ship_due(project, charter):
+            spawn(project, "ship", ["ship"])  # merges and deploys take minutes; ship.lock keeps it to one
+            report["ship"] = "started"
     for role in charter["run"]["roles"]:
         why = is_paused(project, role)
         if why and not allowed_tasks(project, role):
@@ -67,6 +72,17 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
             spawn(project, "quinn", ["run-check", check])
         report["feasibility"] = check
     return report
+
+
+def ship_due(project: Project, charter: dict[str, Any]) -> bool:
+    """softory ship runs every tick when softory merges, and otherwise only to check a base that moved."""
+    if not charter["verify"].get("command"):
+        return False
+    if charter["merge"].get("by") == "softory":
+        return True
+    from .ship import head, ledger  # noqa: PLC0415
+
+    return head(project, charter["git"]["base"]) not in (None, (ledger(project).get("base") or {}).get("sha"))
 
 
 def _feasibility_due(project: Project, coord: Coordination, charter: dict[str, Any]) -> str | None:

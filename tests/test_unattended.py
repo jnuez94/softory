@@ -493,7 +493,10 @@ class UnattendedTest(unittest.TestCase):
         coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade", "--if-revision", revision(self.root, "TASK-1"))
         coord(self.root, "--session", session, "task", "release", "TASK-1", "--to", "review", "--actor", "jade",
               "--if-revision", revision(self.root, "TASK-1"))
-        coord(self.root, "task", "status", "TASK-1", "done", "--actor", "jade", "--if-revision", revision(self.root, "TASK-1"))
+        coord(self.root, "decision", "add", "--id", "DEC-ME", "--title", "Ship it", "--owner", "jade", "--status",
+              "accepted", "--context", "x", "--decision", "done")
+        coord(self.root, "task", "status", "TASK-1", "done", "--actor", "jade", "--if-revision", revision(self.root, "TASK-1"),
+              "--because", "decision:DEC-ME")
         softory(self.root, "run", "--dry-run")  # a dry run pages nobody
         self.assertFalse(marker.exists())
         softory(self.root, "run")

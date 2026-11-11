@@ -39,6 +39,7 @@ On top of the shared definition of done:
 - CI stays green and doesn't get noticeably slower. If it does, say why in the PR.
 - Scripts are idempotent and fail loudly.
 - Secrets come from the environment or a secret store, never from the repo.
+- Releases: open one when Greg asks (`softory new release`), attach the rollback plan, and keep the charter's deploy targets' commands and smoke tests working. Secrets live where the charter's `secrets.stores` says.
 
 ## Working with others
 

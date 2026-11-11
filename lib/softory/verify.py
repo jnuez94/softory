@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import design, verifyenv
+from . import design, leaks, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gate import builders, with_stand_ins
@@ -143,6 +143,19 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     return result
 
 
+def run_at(project: Project, charter: dict[str, Any], sha: str, label: str, actor: str) -> dict[str, Any]:
+    """Run the verify command at a commit no unit owns (a merge candidate, the base) and record it."""
+    settings = charter["verify"]
+    with verifyenv.turn(project, label, actor):
+        outcome = _run_in_tree(project, settings, label, sha)
+        entries = ledger(project)
+        entries[sha] = {"task": label, "passed": outcome["code"] == 0 and outcome["stage"] == "test",
+                        "exit": outcome["code"], "command": settings["command"], "by": actor, "stage": outcome["stage"],
+                        "at": outcome["started"].isoformat(timespec="seconds"), "log": outcome["log"]}
+        ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return entries[sha]
+
+
 def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: str,
                  scan: dict[str, Any] | None = None) -> dict[str, Any]:
     place = Path(tempfile.mkdtemp(prefix="softory-verify-"))
@@ -211,8 +224,8 @@ def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
     return False
 
 
-def _shell(command: str, cwd: Path, timeout: float) -> tuple[int, str]:
-    env = {k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)}
+def _shell(command: str, cwd: Path, timeout: float, extra: dict[str, str] | None = None) -> tuple[int, str]:
+    env = {**{k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)}, **(extra or {})}
     try:
         done = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True,  # noqa: S602 - owner's command
                               timeout=timeout, check=False, env=env)
@@ -328,7 +341,8 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
     command = charter["verify"]["command"]
     globs = (charter.get("lanes") or {}).get(lane_of(task) or "", [])
     process = (charter.get("simplify") or {}).get("process_paths") or []
-    if not command and not globs and not process:
+    scan = (charter.get("secrets") or {}).get("scan", True)
+    if not command and not globs and not process and not scan:
         return []
     sha = commit_of(project.root, task)
     if command and lane_of(task) not in NO_TEST_LANES:
@@ -349,6 +363,11 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
         result.append(_lane_check(project, charter, task, sha, globs, gates))
     if process and lane_of(task) not in NO_TEST_LANES:
         result.append(_process_check(project, charter, task, sha, process))
+    if scan:
+        others = [c for c, entry in ledger(project).items() if entry.get("task") != task["id"]]
+        found = leaks.check(project.root, charter, sha, others)
+        if found:
+            result.append(found)
     return result
 
 

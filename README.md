@@ -4,7 +4,7 @@ A software factory for Claude Code and Codex that uses the scaffold and tracker 
 
 Softory is built on two existing projects. It installs both:
 
-- [agentic-project-scaffold-lite](https://github.com/jnuez94/agentic-project-scaffold-lite) **1.4.1** is the harness-agnostic coordination layer: agents, sessions, tasks, reviews, decisions, escalations, and an audit log in a local SQLite database behind a deterministic CLI.
+- [agentic-project-scaffold-lite](https://github.com/jnuez94/agentic-project-scaffold-lite) **1.4.2** is the harness-agnostic coordination layer: agents, sessions, tasks, reviews, decisions, escalations, and an audit log in a local SQLite database behind a deterministic CLI.
 - [agentic-scaffold-project-task-tracker](https://github.com/jnuez94/agentic-scaffold-project-task-tracker) is a local web console over that database, for tracking decisions, tasks, reviews, escalations, and health.
 
 On top of them, softory adds the team, the rules, and the craft.
@@ -15,9 +15,10 @@ On top of them, softory adds the team, the rules, and the craft.
 | --- | --- |
 | **Roles** | Greg (Product Manager), Darwin (UX Designer), Quinn (Principal Engineer), Jade (Sr. SWE, frontend), Gold (Sr. SWE, backend and infra), Toby (Security Engineer), and Sage (Software Development Manager, who keeps the delivery process simple). Each has a profile collated from published role guidelines. See [factory/roles](factory/roles/README.md). |
 | **Boundaries** | A [RACI matrix](factory/governance/raci.md) with exactly one accountable role per activity, plus [decision, review, and work boundaries](factory/governance/boundaries.md), lanes, flex rules for when overlap is allowed, and escalation paths. |
-| **Units of work** | Epic (project) > story (feature) > task (function) or bug (fix), with templates, a definition of ready and done, and a [flow for each](factory/workflows/work-units.md). |
+| **Units of work** | Epic (project) > story (feature) > task (function) or bug (fix), plus releases, with templates, a definition of ready and done, and a [flow for each](factory/workflows/work-units.md). |
 | **Skills** | Eight skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, and architecture. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
-| **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, and the right role is closing. |
+| **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, no secret was committed, and the right role is closing. The scaffold enforces the basics too, so a raw close can't skip them. |
+| **Shipping** | With `merge.by softory`, softory merges finished units onto the base only when its tests pass there, keeps the base green, deploys each merge to staging with a smoke test, and gates releases. Production stays yours. |
 
 Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, Gold, and Sage (agent coding, web design, and process), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
 
@@ -34,8 +35,8 @@ git clone https://github.com/jnuez94/softory.git
 
 The target must be the root of a git repository. The installer:
 
-1. Clones scaffold 1.4.1 and the tracker at the commits pinned in [dependencies.json](dependencies.json). Use `--scaffold-src` and `--tracker-src` to use local checkouts instead.
-2. Runs the scaffold's own installer with the SQLite backend. A project on an older 1.x scaffold, such as 1.4.0, is upgraded in place after a backup to `.coordination/backups/pre-scaffold-<version>-<time>.sqlite3`. A newer scaffold is refused.
+1. Clones scaffold 1.4.2 and the tracker at the commits pinned in [dependencies.json](dependencies.json). Use `--scaffold-src` and `--tracker-src` to use local checkouts instead.
+2. Runs the scaffold's own installer with the SQLite backend, and turns on its strict closure and dependency policies in `.coordination/config.yml`. A project on an older 1.x scaffold, such as 1.4.1, is upgraded in place after a backup to `.coordination/backups/pre-scaffold-<version>-<time>.sqlite3`. A newer scaffold is refused.
 3. Copies softory's factory, CLI, and tracker into `.agents/softory/`, and the skills into `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex).
 4. Writes the operating instructions where both harnesses read them (below).
 5. Registers `owner` (you) and the seven roles in the coordination database.
@@ -76,6 +77,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory new bug --type functional\|visual [--found-at stage] ...` | A bug says what kind of finding it is and where it was found (`build`, `verify`, `review`, `acceptance`, `staging`, `production`), so escaped defects can be counted |
 | `softory new bug --type ... --from <ID> --title ... [--blocks-source]` | Files a follow-up from a review: same story and lane, linked back to the source. The source waits for it only with `--blocks-source` |
 | `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
+| `softory new release --title ... [--commit sha]` | Opens a release of the base's head (or the commit given). It closes when Toby and Quinn accepted it, it has a rollback plan (`softory report <ID> <file> --type rollback`), and every target but production passed at its commit |
 | `softory drop <ID> --reason ... [--superseded-by ID] [--withdrawn]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision. `--withdrawn` marks a bug that turned out not to be a defect |
 | `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate, tests and lane included |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
@@ -115,6 +117,8 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory settle <ID> retry\|split\|drop --reason ... [--into IDs]` | Quinn settles a unit stopped at the review cap: one more round (once per unit), a split, or a drop. The owner settles the rest with `--actor owner` |
 | `softory feasible <STORY> --pass \| --needs "..." [--plan <hash>]` | The feasibility check's verdict, for the plan it read. Until a pass, the story's todo tasks wait; a new task or changed requirements after a pass are checked again; needs becomes a provisioning request in your digest |
 | `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task |
+| `softory ship [--dry-run]` | Checks the base (a red base gets a priority 1 bug), merges finished units on green as one candidate commit, and deploys the result to the `auto` targets. The runner starts it each tick; `--dry-run` lists what waits to merge |
+| `softory deploy <target> [--release ID] [--commit sha]` | Deploys a tested commit to one of the charter's targets and runs its smoke test. `production` takes a closed release, by you at a terminal |
 | `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
 | `softory clutter [--idle-days 14]` | Lists untracked files, archives (ignored folders included), duplicate archives, extra worktrees, and merged or idle branches. Read-only; exits 2 when it finds any |
@@ -200,7 +204,7 @@ If something looks wrong afterwards, restore the backup with no sessions active:
 .agents/agentic-project-scaffold-lite/bin/coordination restore --input <scaffold_backup> --actor owner --force
 ```
 
-Scaffold 1.4.0 and 1.4.1 share schema version 1, so either CLI can restore it.
+Scaffolds 1.4.0 to 1.4.2 share schema version 1, so any of their CLIs can restore it.
 
 ### Who changes the rules
 
@@ -248,6 +252,19 @@ Tablet's agents made their own process: 11 copies of the same plugin zip, one fo
 - **Sage's operating loop.** The runner wakes Sage for a check-in at most once a day (`simplify.checkin_hours`), and only when the team ran, filed feedback, or left clutter since the last one. Each check-in runs `softory flow --record`, which shows time to delivery, runs, minutes and tokens per delivered unit, idle runs, and disk, compared with the last check-in. It then reads `softory clutter`, the feedback, and new process work, and files a `simplify` unit for the one or two biggest causes, each naming the number it should move. Sage is capped at 4 runs and 40 minutes a day, and the digest has a clutter line.
 - **Upgrading:** if your charter sets `run.roles`, add `sage` to it. Clean up what's already there first, or Sage's first check-in will list it all.
 
+### Merging and shipping on its own (0.6.0)
+
+Until 0.6.0 every finished unit waited for you to merge it. Now, if you choose, softory merges, keeps the base green, and ships to staging. Production stays yours.
+
+- **Turn it on** with `softory charter approve <file> --merge` and a file holding `{"merge": {"by": "softory"}}`. Add `"push": "origin"` to push the base after each merge. It needs `verify.command`, since softory merges only what it saw pass.
+- **Merge on green.** Each tick, `softory ship` takes the units that closed through the gate since you turned it on, up to `merge.batch_max` (5), merges them into one candidate commit in a throwaway worktree, and moves the base only if `softory verify` passes there. A batch that fails is retried one unit at a time. A unit that conflicts or fails alone stays off the base, and its builder gets a priority 1 bug.
+- **The base stays green.** Whenever the base moves, by softory or by you, softory verifies it. A red base gets one priority 1 bug for Gold, pages you, and nothing else merges until that fix does. Roles may push their own branches but never the base.
+- **Staging.** Declare targets in `deploy.targets`, each `{"name", "command", "smoke", "auto"}`. Commands run in a clean checkout of the commit. An `auto` target gets every merge; a failed deploy or smoke test files a priority 1 bug. For an Obsidian plugin, staging can build the plugin and copy it into a dev vault, with a smoke test that checks the files landed.
+- **Releases.** Greg asks, Gold opens `softory new release`, attaches the rollback plan, Toby and Quinn sign off, and Greg closes it once every target but production passed at its commit. Then you run `softory deploy production --release RELEASE-n` at a terminal.
+- **Secrets.** The gate's `no_secrets` check scans the lines a unit adds for keys, tokens, private keys, and files like `.env` or `*.pem`. Declare where secrets live and who reads them in `secrets.stores`; softory never stores or fetches one. Add known safe matches to `secrets.allow`, or waive a false positive on one unit.
+- **Backups.** The runner copies the coordination database once a day to `.coordination/backups/softory-daily-<date>.sqlite3` and keeps `backups.keep_days` (7).
+- **The scaffold enforces the basics.** Strict closure and strict dependencies are on: no `done` without an accepted review from someone other than a builder, and no claim on work with an open `blocks` dependency. Review records, drops, and units whose softory gate passed close as before. Stacked units are linked with `informs`, which never blocks a claim. Stories and epics show as active while their children run.
+
 ## Git worktrees
 
 Softory's files are untracked, so a new git worktree has none of them: no instructions, no skills, no CLI. `softory worktree add <path> -b <branch>` creates a worktree and symlinks softory in. For a worktree made some other way, such as by Claude Code, run `softory link <path>` from the main checkout. The links are hidden by the same exclude rules. The database isn't linked, because the scaffold refuses a symlinked `.coordination`, so use `softory coord <args>` for coordination commands in a worktree. Codex reads instructions from the worktree's own root, so link the worktree before starting Codex in it.
@@ -287,7 +304,7 @@ external-skills.json     pinned open-source skills
 
 ## Known gaps upstream
 
-[docs/gaps.md](docs/gaps.md) lists what the scaffold and tracker don't do yet, and how softory works around it. The most important: the coordination CLI lets any actor close any task, so the gate holds only when agents close through `softory close`.
+[docs/gaps.md](docs/gaps.md) lists what the scaffold and tracker don't do yet, and how softory works around it. Since 0.6.0 the scaffold itself refuses a close without an accepted review or with open blocking work, so softory's gate is no longer honor-system on those points; its finer rules (tag reviews, lanes, verify) still hold only through `softory close`.
 
 ## License
 

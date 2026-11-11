@@ -30,7 +30,7 @@ Keep the process as simple as it can be: the fewest steps, copies, and artifacts
 These are the rules Sage holds every role to, and reviews against:
 
 1. **One checkout per role.** Build in the main checkout or one worktree. Review in `softory workspace`. No copies of the tree in /tmp, and no backup branches.
-2. **One release artifact.** A build overwrites its own output. It is made when the owner asks to ship, not per commit or per review.
+2. **One release artifact.** A build overwrites its own output. Deploys build in a clean checkout through `softory deploy`, never per commit or per review by hand.
 3. **Proof is a record.** Evidence rows and the verify ledger prove the work. A report that has to exist is filed with `softory report`. Never commit a proof document, and never zip one.
 4. **No speculative tooling.** A script, installer, or workflow exists only when a unit's acceptance criteria need it today.
 5. **Batch small work.** Related small bugs share one unit and one review.

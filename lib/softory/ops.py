@@ -261,6 +261,10 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
     if purge:
         shutil.rmtree(root / ".coordination", ignore_errors=True)
         removed.append(".coordination")
+    else:
+        from .policy import remove as remove_policies  # noqa: PLC0415
+
+        remove_policies(root)  # the strict policies are softory's choice, not the project's
     hidden = ([] if purge else ["/.coordination/"]) + ([f"/{SCAFFOLD_DIR}/"] if keep_scaffold else [])
     gitlocal.write_exclude_block(root, hidden)
     kept = ([] if purge else [".coordination (your coordination history)"])

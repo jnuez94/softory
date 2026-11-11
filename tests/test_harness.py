@@ -58,10 +58,10 @@ class HarnessTest(unittest.TestCase):
 
     def test_a_stack_close_runs_the_tests_and_lane_checks(self) -> None:
         self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": "HEAD"}})
+        self.build("TASK-1", "jade", self.commit("web/a.js", "a\n"))  # strict dependencies: built before it waits
         softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--blocks-source",
                 "--title", "On top", "--actor", "quinn")
         softory(self.root, "stack", "TASK-1", "BUG-1", "--actor", "jade")
-        self.build("TASK-1", "jade", self.commit("web/a.js", "a\n"))
         self.build("BUG-1", "jade", self.commit("web/b.js", "b\n"))
         self.review("TASK-1", "gold", "accepted")
         self.review("BUG-1", "gold", "accepted")

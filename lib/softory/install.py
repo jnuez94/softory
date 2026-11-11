@@ -1,4 +1,4 @@
-"""Install softory, scaffold 1.4.1, and the tracker into a project, hidden from git."""
+"""Install softory, the pinned scaffold, and the tracker into a project, hidden from git."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, STATE_DIR, __version__, gitlocal, instructions
+from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, STATE_DIR, __version__, gitlocal, instructions, policy
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import PROTECTED_DIRS, Project, integrity_hashes, make_read_only, write_protected
@@ -51,6 +51,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         owner = json.loads((source / "factory" / "roles" / "roster.json").read_text(encoding="utf-8"))["owner"]["id"]
         backup = _backup_before_upgrade(target, scaffold_found, deps["scaffold"]["version"], owner)
         _install_scaffold(scaffold_src, target)
+        enforcement = policy.apply(target)
         bundle = target / BUNDLE_DIR
         _copy_bundle(source, bundle)
         _move_state(bundle, target / STATE_DIR)
@@ -97,7 +98,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
 
     leaked = sorted(gitlocal.status_entries(target) - status_before)
     return {"target": str(target), "scaffold_found": scaffold_found, "scaffold_installed": deps["scaffold"]["version"],
-            "scaffold_backup": backup, "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
+            "scaffold_backup": backup, "enforcement": enforcement, "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
 
 
 def _protect(bundle: Path) -> dict[str, str]:

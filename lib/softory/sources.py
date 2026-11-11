@@ -47,7 +47,7 @@ def verify(name: str, checkout: Path, pin: dict[str, Any], allow_unpinned: bool)
         if not version_tuple(minimum) <= version_tuple(version) < (2, 0, 0):
             raise SoftoryError(
                 f"Scaffold {version} isn't supported: softory needs {minimum} or a later 1.x "
-                "(it uses options 1.4.1 added, and the tracker requires a CLI below 2.0.0).",
+                "(it uses the strict policies 1.4.2 added, and the tracker requires a CLI below 2.0.0).",
                 "unsupported_version",
             )
 
