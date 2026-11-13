@@ -112,6 +112,9 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(coord(self.root, "task", "show", bugs[2])["data"]["reviews"], [])
 
     def test_flow_reports_how_delivered_units_went_through_review(self) -> None:
+        path = self.root / ".git" / "charter.json"  # the secret scan needs a base this repository has
+        path.write_text(json.dumps({"git": {"base": self.base}}))
+        at_terminal(self.root, "charter", "approve", str(path))
         report = json.loads(softory(self.root, "flow").stdout)
         for key in ("first_verdict_hours", "handoff_to_close_hours", "fix_bugs_per_unit"):
             self.assertIn(key, report)
