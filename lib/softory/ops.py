@@ -176,14 +176,72 @@ def coord(project: Project, args: list[str]) -> int:
         if found:
             args = ["--session", found, *args]
     args = _without_refused_actor(binary, args)
+    also = _stack_siblings(project, Coordination(binary, project.root), args)
+    done = _run(binary, args)
+    sys.stdout.write(done.stdout)
+    sys.stderr.write(done.stderr)
+    if done.returncode == 0 and also:
+        review_id = _option(args, "--id") or "REV"
+        covered = [unit for unit in also if _run(binary, _with_option(_with_option(
+            args, "--id", f"{review_id}-{unit}"), "--task", unit)).returncode == 0]
+        sys.stderr.write(f"softory: the same verdict is recorded on {', '.join(covered) or 'no other unit'} "
+                         f"(same stack, parent, and commit).\n")
+    return done.returncode
+
+
+def _run(binary: str, args: list[str]) -> subprocess.CompletedProcess[str]:
     for attempt in (0, 1):
         done = subprocess.run([binary, *args], capture_output=True, text=True, check=False)  # noqa: S603
         if attempt or done.returncode == 0 or not transient(done.stdout + done.stderr):
             break
         time.sleep(0.2)
-    sys.stdout.write(done.stdout)
-    sys.stderr.write(done.stderr)
-    return done.returncode
+    return done
+
+
+def _stack_siblings(project: Project, coordination: Coordination, args: list[str]) -> list[str]:
+    """The other bugs one verdict covers: ``review add`` on a bug whose ``--scope`` names its stack
+    (``stack:<name>``) also counts for the stack's other bugs in review under the same parent, at the same
+    commit, that the reviewer didn't build. One review for several small fixes, by the owner's Tablet ruling;
+    the reviewer opts in by naming the stack, so a verdict never spreads by accident."""
+    from . import verify  # noqa: PLC0415
+    from .gate import builders  # noqa: PLC0415
+    from .units import parent_of, stack_of, unit_of  # noqa: PLC0415
+
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    named = re.search(r"\bstack:(\S+)", _option(args, "--scope") or "")
+    target, reviewer = _option(args, "--task"), _option(args, "--reviewer")
+    if tuple(args[i:i + 2]) != ("review", "add") or not named or not target:
+        return []
+    shown = coordination.call("task", "show", target)
+    gates = project.gates()
+    name = named.group(1).rstrip(".,;")
+    if not shown.get("ok") or stack_of(shown["data"]) != name or unit_of(shown["data"], gates) != "bug":
+        return []
+    task = shown["data"]
+    sha = verify.commit_of(project.root, task)
+    siblings = []
+    for summary in coordination.all_tasks("--tag", f"stack:{name}"):
+        if summary["id"] == target or summary["status"] != "review" or unit_of(summary, gates) != "bug":
+            continue
+        other = coordination.task(summary["id"])
+        if (sha and parent_of(other) == parent_of(task) and verify.commit_of(project.root, other) == sha
+                and reviewer not in builders(other)):
+            siblings.append(other["id"])
+    return siblings
+
+
+def _with_option(args: list[str], name: str, value: str) -> list[str]:
+    out = list(args)
+    for i, arg in enumerate(out):
+        if arg == name and i + 1 < len(out):
+            out[i + 1] = value
+            return out
+        if arg.startswith(name + "="):
+            out[i] = f"{name}={value}"
+            return out
+    return out
 
 
 #: The option that says who a record is from, for the commands a role could file under another name.

@@ -491,7 +491,10 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
             if owed is None:
                 continue  # another listed reviewer already covered it; maybe the next requirement is the agent's
             if owed:
-                to_review.append({"id": task["id"], "why": requirement["why"], "title": task["title"]})
+                row = {"id": task["id"], "why": requirement["why"], "title": task["title"]}
+                if latest.get(agent):  # a correction of what this reviewer sent back
+                    row["re_review"] = re_review(project, task, latest[agent])
+                to_review.append(row)
             break
     ready = ready_to_close(board, agent)
     scope = runstate.scope_for(project, agent)
@@ -538,6 +541,18 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
     if unread:
         result["unread"] = {"count": len(unread), "read": "softory inbox"}
     return result
+
+
+def re_review(project: Project, task: dict[str, Any], mine: dict[str, Any]) -> dict[str, Any]:
+    """What a reviewer looks at when a unit they sent back returns: their findings and the change since.
+    The owner's Tablet ruling: a correction is re-reviewed on the delta, not from the top."""
+    was, now = lifecycle._reviewed_commit(mine), verify.commit_of(project.root, task)  # noqa: SLF001
+    row: dict[str, Any] = {"you_asked": " ".join(str(mine.get("required_changes") or "").split())[:400],
+                           "scope": "Check what you asked for against the change. What you accepted stands; "
+                                    "a new finding outside the change is a new bug, not a reason to hold this unit."}
+    if was and now and was != now:
+        row["diff"] = f"git diff {was[:12]}..{now[:12]}"
+    return row
 
 
 def review_owed(task: dict[str, Any], requirement: dict[str, Any], agent: str, built_by: set[str],

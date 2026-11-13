@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.5] - 2026-11-13
+
+Right-first-time handoff. In Tablet 116 of 126 bugs were found in review, Jade typed 366 review requests by hand, and corrections went round the whole review again. The owner's remedy there (ask every review at once, re-review the change only, batch small fixes) is now what softory does. No new command.
+
+- **A handoff asks every reviewer at once.** `softory handoff` sends one request per reviewer the unit still needs, tagged `request`, naming the commit and its base, with your `--note`. Each requirement goes to its one candidate or to the reviewer `softory reviewers` would ask; a reviewer who already accepted isn't asked. The result lists who was `asked`, and any review softory couldn't pick a reviewer for as `unasked`.
+- **A correction is re-reviewed on what changed.** When a unit a reviewer sent back returns, their row in `softory queue` carries `re_review`: what they asked for, the `git diff` from the commit they reviewed to the commit now, and the scope: check the findings against the change, what was accepted stands, and a new finding outside the change is a new bug. The handoff's request to that reviewer says the same.
+- **One verdict can cover a stack of small bugs.** A reviewer who names the stack in the review's scope (`--scope "... stack:<name>"`) on one bug gets the same verdict recorded on the stack's other bugs in review under the same parent at the same commit, except ones they built. A verdict never spreads unless the reviewer names the stack.
+- **A handoff says what will slow the review.** `warnings` in its result name tests that haven't passed at the unit's commit (reviewers aren't woken until they do) and, where the project has no test command, acceptance criteria with no evidence beyond the commit. They are warnings: nothing new is refused.
+- **`softory flow` measures the handoff.** For units delivered in the window it adds the median hours from first handoff to first verdict and to close, and fix-up bugs filed per delivered unit, and compares them with the last snapshot. Sage kept these by hand in Tablet's decisions.
+
 ## [0.6.4] - 2026-11-13
 
 Records that refuse wrong input. Tablet's records took what they were given: a message under another role's name, a review of a commit that didn't exist, one question to the owner filed twice, and 150 decisions that were only corrections. The owner's approval in a session, on the other hand, could not be recorded at all.
