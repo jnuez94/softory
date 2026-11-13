@@ -3,7 +3,7 @@
 ``softory commit`` records the commit a unit delivered by its full hash, with
 its base kept apart, so verify and the gate never mistake one for the other.
 ``softory supersede`` retracts a wrong evidence row without deleting it: the
-row and its audit stay, and softory reads past it. ``softory escalate``
+row and its audit stay, the reason is kept on the retraction, and softory reads past it. ``softory escalate``
 raises an escalation the owner can read at a glance: one plain question, a
 length limit, and no words run together.
 """
@@ -23,13 +23,13 @@ from . import decide, feasibility, holds as unit_holds, ops
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git, is_tracked
-from .owner import record_decision
 from .project import Project
 from .work import actor_of
 
 COMMANDS = ("commit", "supersede", "escalate", "answer", "settle", "feasible", "defer", "report")
 ISSUE_LIMIT = 600
 ASK_LIMIT = 300
+REASON_LIMIT = 300
 # "contain9", "runnerusage0", "atthe186": a word fused with a number reads as noise to the owner.
 _HASH = re.compile(r"^[0-9a-f]{7,40}$")  # commit hashes are fine
 _FUSED = re.compile(r"\b(?:[a-z]{3,}\d+[a-z]*|\d+[a-z]{4,})\b")
@@ -180,7 +180,8 @@ def _full(project: Project, sha: str) -> str:
 
 def supersede(project: Project, coord: Coordination, task_id: str, evidence_id: str, reason: str,
               actor: str) -> dict[str, Any]:
-    """Only whoever added the row, Quinn, or the owner may retract it, and the reason becomes a decision."""
+    """Only whoever added the row, Quinn, or the owner may retract it. The reason is kept on the retracting
+    row, not as a decision: Tablet's corrections were 150 of its 250 decisions in four days."""
     task = coord.task(task_id)
     row = next((e for e in task.get("evidence") or [] if str(e.get("id")) == str(evidence_id)), None)
     if row is None:
@@ -191,12 +192,10 @@ def supersede(project: Project, coord: Coordination, task_id: str, evidence_id: 
                            "not_allowed")
     if not reason.strip():
         raise SoftoryError("Say why with --reason", "invalid_arguments")
-    decision = record_decision(coord, actor, "SUPERSEDE", f"Supersede evidence {evidence_id} on {task_id}",
-                               f"Evidence {evidence_id} ({row.get('evidence_type')}: {row.get('uri')}) no longer counts.",
-                               reason)
-    coord.run("evidence", "add", "--task", task_id, "--uri", f"softory-supersedes:{evidence_id}:{decision}",
+    why = " ".join(reason.split())[:REASON_LIMIT]
+    coord.run("evidence", "add", "--task", task_id, "--uri", f"softory-supersedes:{evidence_id}:{why}",
               "--type", "note", "--actor", actor)
-    return {"task": task_id, "superseded": evidence_id, "decision": decision,
+    return {"task": task_id, "superseded": evidence_id, "reason": why,
             "note": "The row and its audit stay; the gate and verify read past it."}
 
 
@@ -226,6 +225,12 @@ def escalate(project: Project, coord: Coordination, issue: str, ask: str, tasks:
         raise SoftoryError("Rewrite the escalation so the owner can read it at a glance: " + "; ".join(problems),
                            "invalid_arguments")
     held = unit_holds.check_units(coord, [h.strip() for h in (holds or "").split(",") if h.strip()])
+    asked = " ".join(ask.lower().split())
+    same = next((row["id"] for row in coord.all_rows("escalation", "list", "--status", "open")
+                 if " ".join(str(row.get("requested_decision") or "").lower().split()) == asked), None)
+    if same:  # Tablet's owner was asked one question twice, five seconds apart
+        raise SoftoryError(f"{same} already asks the owner this and is still open. Wait for its answer; send what "
+                           "is new as a message on its tasks.", "conflict", {"existing": same})
     decider = owner or project.roster()["owner"]["id"]
     escalation_id = f"ESC-{actor.upper()}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
     args = ["escalation", "add", "--id", escalation_id, "--raised-by", actor, "--owner", decider,

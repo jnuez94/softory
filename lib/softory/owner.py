@@ -311,17 +311,43 @@ def _checked_waiver(project: Project, coord: Coordination, task_id: str, check: 
 # ---- rulings ----------------------------------------------------------------------------------
 
 def ruling(project: Project, coord: Coordination, title: str, decision: str, where: str, context: str | None,
-           actor: str) -> dict[str, Any]:
-    """Record a decision the owner made, under the owner's name, marked with who recorded it and where."""
+           actor: str, review: str | None = None, escalation: str | None = None) -> dict[str, Any]:
+    """Record a decision the owner made, under the owner's name, marked with who recorded it and where.
+
+    ``review`` also records it as the owner's accepted review of that unit, and ``escalation`` closes that
+    escalation with it: what the owner says in a session counts without a second trip to a terminal. Both
+    name the ruling and who recorded it, and the owner's digest lists them for a day.
+    """
+    from . import decide, verify  # noqa: PLC0415 - both import this module
+
     if not where.strip():
         raise SoftoryError("Say where the owner said it with --where (a thread, a message, a date)", "invalid_arguments")
     owner = project.roster()["owner"]["id"]
+    task = coord.task(review) if review else None  # both must exist before anything is written
+    asked = decide.open_escalation(coord, escalation) if escalation else None
     session = os.environ.get("COORDINATION_SESSION") or "no session"
     background = f"Recorded by {actor} ({session}) on the owner's behalf. The owner said it here: {where}."
     decision_id = record_decision(coord, owner, f"RULING-{actor}", f"Owner ruling (recorded by {actor}): {title}",
                                   decision, background + (f" {context}" if context else ""), recorded_by=actor)
-    return {"decision": decision_id, "owner": owner, "recorded_by": actor,
-            "note": "A ruling is a record. It doesn't change the gate; a stand-in or waiver still needs softory approve."}
+    result = {"decision": decision_id, "owner": owner, "recorded_by": actor,
+              "note": "A ruling is a record. It doesn't change the gate; a stand-in or waiver still needs softory approve."}
+    if task:
+        sha = verify.commit_of(project.root, task)
+        review_id = f"REV-{task['id']}-{owner}-{decision_id.rsplit('-', 1)[-1]}"
+        coord.run("review", "add", "--id", review_id, "--task", task["id"], "--reviewer", owner,
+                  "--artifact", f"commit:{sha}" if sha else task["id"], "--decision", "accepted",
+                  "--scope", f"The owner's approval, said here: {where}. Recorded by {actor} as {decision_id}.",
+                  "--accepted-items", decision)
+        result.update(review=review_id, note=f"Recorded as the owner's accepted review of {task['id']}. The owner "
+                                             "sees it in the digest.")
+    if asked:
+        decide.close_as_told(project, coord, asked, decision, decision_id, actor)
+        result["escalation"] = asked["id"]
+    if task or asked:
+        decide.note_on_behalf(project, {"by": actor, "decision": decision_id, "where": where, "said": decision[:200],
+                                        **({"review": task["id"]} if task else {}),
+                                        **({"escalation": asked["id"]} if asked else {})})
+    return result
 
 
 def record_decision(coord: Coordination, owner: str, kind: str, title: str, decision: str, context: str,

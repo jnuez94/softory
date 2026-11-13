@@ -93,12 +93,12 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` / `close --ready` | Runs the gate, then moves it to done only if it passes. `--ready` closes every unit you may close that passes now |
 | `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one |
-| `softory supersede <ID> <evidence> --reason ...` | Retracts a wrong evidence row (its adder, Quinn, or the owner). The row and its audit stay; the gate and `verify` read past it |
+| `softory supersede <ID> <evidence> --reason ...` | Retracts a wrong evidence row (its adder, Quinn, or the owner). The row and its audit stay, with the reason on the retraction; the gate and `verify` read past it |
 | `softory escalate --issue ... --ask "...?" [--tasks IDs] [--owner who]` | Raises an escalation, to the owner by default. Refuses text the owner can't read at a glance: more than one question, too long, or words fused with numbers |
 | `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` asks the owner to mark an older review run as a record, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
 | `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
 | `softory propose standin\|waiver ... --why ...` / `softory proposals` / `softory approve <ID> \| --all` | Agents ask (review adoptions ask too); the owner approves at a terminal. A waiver lets one review check pass on one task |
-| `softory ruling --title ... --decision ... --where ...` | Records a decision the owner made, under the owner's name, marked with who recorded it and where the owner said it |
+| `softory ruling --title ... --decision ... --where ... [--review ID] [--escalation ESC]` | Records a decision the owner made, under the owner's name, marked with who recorded it and where the owner said it. `--review` also records it as the owner's accepted review of that unit, and `--escalation` closes that open escalation with it; the digest lists both |
 | `softory feedback "<note>" [--task ID]` / `--list` | Records friction with softory itself in a hidden local log, for whoever maintains softory |
 | `softory triage` | Lists finished work nobody closed, older review runs to adopt, sessions to end or restart, and silent roles |
 | `softory worktree add <path> -b <branch> [--share .web/node_modules]` / `softory link [path]` | Creates a git worktree with softory linked in, or links an existing one. `--share` links more untracked paths, such as installed dependencies |
@@ -178,7 +178,7 @@ You can also run the team as sessions you open in the Claude or Codex app, each 
 - **A `ui` unit needs one check against its reference** (evidence of type `reference`, `screenshot`, or `visual`) before it closes, since a green suite can miss a screen that never renders.
 - **Story progress** shows in `softory tree` as done of total, counted from the children.
 
-Not yet: compact typed handoffs, shorter queue output, and tokens per accepted unit wait for a week of runner logs from the pilot. Approvals from chat need a channel softory doesn't have yet; answer at a terminal with `softory answer`.
+Not yet: compact typed handoffs, shorter queue output, and tokens per accepted unit wait for a week of runner logs from the pilot. What you say in a session counts when the role records it with `softory ruling --review` or `--escalation` (0.6.4); your digest lists each one, and `softory answer` at a terminal replaces it.
 
 ### How design works (0.5.1)
 
