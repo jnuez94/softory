@@ -1,7 +1,7 @@
 """The gate's ``no_secrets`` check: no key, token, private key, or secret file in the lines a unit adds.
 
 Only the unit's own commits count, read the way ``lane_paths`` reads them, so an inherited line is
-checked on the unit that wrote it. Placeholder values (example, dummy, changeme, ``${VAR}``) and the
+checked on the unit that wrote it. A merge commit counts for what it adds beyond git's automatic merge. Placeholder values (example, dummy, changeme, ``${VAR}``) and the
 charter's ``secrets.allow`` patterns don't count. The owner can waive a false positive on one unit.
 """
 
@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import verify
 from .gitlocal import git
 
 PATTERNS = [
@@ -43,12 +44,29 @@ def findings(root: Path, base: str, sha: str, inherited: list[str], allow: list[
     mine = set(listed.stdout.split())
     below = [f"^{c}" for c in dict.fromkeys(inherited) if c in mine and c != sha]
     shown = git(root, "log", "--no-merges", "--no-renames", "-p", "-U0", "--format=", sha, f"^{base}", *below, "--")
-    if shown.returncode != 0:
+    merges = git(root, "rev-list", "--merges", sha, f"^{base}", *below)
+    if shown.returncode != 0 or merges.returncode != 0:
         return None
+    patches = [shown.stdout]
+    for merge in merges.stdout.split():  # what a merge added itself, beyond git's automatic merge of its parents
+        baselines = verify.merge_baselines(root, merge)
+        if baselines is None:
+            return None
+        for against in baselines:
+            added = git(root, "diff", "--no-renames", "-U0", against, merge, "--")
+            if added.returncode != 0:
+                return None
+            patches.append(added.stdout)
     allowed = [re.compile(p) for p in allow]
     found: list[str] = []
+    for patch in patches:
+        _scan(patch, allowed, found)
+    return list(dict.fromkeys(found))
+
+
+def _scan(patch: str, allowed: list[re.Pattern[str]], found: list[str]) -> None:
     path, line = "", 0
-    for text in shown.stdout.splitlines():
+    for text in patch.splitlines():
         if text.startswith("+++ "):
             path = text[6:] if text.startswith("+++ b/") else ""
             if path and _secret_file(path):
@@ -64,7 +82,6 @@ def findings(root: Path, base: str, sha: str, inherited: list[str], allow: list[
         if kind:
             found.append(f"{path}:{line}: {kind}")
         line += 1
-    return list(dict.fromkeys(found))
 
 
 def _secret_file(path: str) -> bool:

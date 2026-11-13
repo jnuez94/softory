@@ -20,7 +20,7 @@ from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git
 from .project import Project
-from .units import live_evidence
+from .units import live_evidence, unit_of
 
 PRODUCTION = "production"
 
@@ -80,7 +80,15 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
                            "not_found")
     task = coord.task(release) if release else None
     if task is not None:
-        sha = sha or verify.commit_of(project.root, task)
+        if unit_of(task, project.gates()) != "release":
+            raise SoftoryError(f"{release} is not a release unit", "not_allowed")
+        recorded = verify.commit_of(project.root, task)
+        if not recorded:
+            raise SoftoryError(f"{release} records no commit; it ships the commit it was reviewed at", "not_allowed")
+        if sha and _full(project, sha) != recorded:
+            raise SoftoryError(f"{release} ships {recorded[:12]}, not {sha[:12]}: a release deploys only its own "
+                               "commit", "not_allowed")
+        sha = recorded
     sha = _full(project, sha or charter["git"]["base"])
     if name == PRODUCTION:
         if not task or task.get("status") != "done":

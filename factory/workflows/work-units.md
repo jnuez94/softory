@@ -96,7 +96,7 @@ When a fix has to build on another unit that isn't closed yet, the engineer bran
 
 ## Merging and shipping
 
-With the charter's `merge.by` set to `softory`, nobody merges by hand and no role pushes to the base branch. `softory ship`, which the runner starts each tick, merges the units that closed through the gate: up to `merge.batch_max` of them become one candidate commit, and the base moves only when `softory verify` passes there. A batch that fails is tried one unit at a time. A unit that conflicts or fails on its own stays off the base, and its builder gets a priority 1 bug to fix it on top of the base.
+With the charter's `merge.by` set to `softory`, nobody merges by hand and no role pushes to the base branch. `softory ship`, which the runner starts each tick, merges the units that closed through the gate: up to `merge.batch_max` of them become one candidate commit, and the base moves only when `softory verify` passes there. A batch that fails is tried one unit at a time. A unit that conflicts or fails on its own stays off the base, and its builder gets a priority 1 bug to fix it on top of the base. A unit built on another unit's work waits until that unit closes.
 
 **The base stays green.** Whenever the base moves, softory verifies it. A red base gets one priority 1 bug for Gold, and nothing else merges until that bug's fix does.
 

@@ -5,6 +5,7 @@ the base branch by softory alone. Up to ``batch_max`` of them become one candida
 throwaway worktree, and the base moves only when ``softory verify`` passes at the candidate. A unit
 whose commit already sits on the base is a fast-forward, and its own verify result counts. A failing
 batch is tried again one unit at a time; a unit that conflicts or fails alone gets a bug for its lane.
+A unit built on another unit's commits waits until that unit closes too. Only a verified candidate is pushed.
 After a merge, every ``auto`` deploy target gets the new base.
 
 Whatever the merge setting, a base that moved since the last check is verified, and a red base gets one
@@ -69,17 +70,33 @@ def waiting(project: Project, coord: Coordination, charter: dict[str, Any]) -> l
     seen = data.get("units") or {}
     base = charter["git"]["base"]
     gates = project.gates()
+    tasks = {task["id"]: task for task in coord.all_tasks()}
     found = []
-    for task in coord.all_tasks("--status", "done"):
-        if task["id"] in seen or unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
+    for task in tasks.values():
+        if task["status"] != "done" or task["id"] in seen or unit_of(task, gates) not in verify.CODE_UNITS:
             continue
-        if resolution_of(task) or not closed_by_softory(task) or parse_time(str(task.get("updated_at"))) < since_at:
+        if lane_of(task) in verify.NO_TEST_LANES or not _closed(task) or parse_time(str(task.get("updated_at"))) < since_at:
             continue
         sha = verify.commit_of(project.root, coord.task(task["id"]))
-        if sha and not _contains(project.root, base, sha):
+        if sha and not _contains(project.root, base, sha) and not open_below(project, base, sha, task["id"], tasks):
             found.append({"id": task["id"], "title": task["title"], "commit": sha, "lane": lane_of(task),
                           "closed": task.get("updated_at")})
     return sorted(found, key=lambda row: (row["closed"] or "", row["id"]))
+
+
+def _closed(task: dict[str, Any]) -> bool:
+    return task["status"] == "done" and not resolution_of(task) and closed_by_softory(task)
+
+
+def open_below(project: Project, base: str, sha: str, task_id: str, tasks: dict[str, dict[str, Any]]) -> list[str]:
+    """Other units whose verified commits ``sha`` is built on and that haven't closed through the gate.
+    Merging ``sha`` would carry their work onto the base, so it waits for them."""
+    listed = git(project.root, "rev-list", sha, f"^{base}")
+    if listed.returncode != 0:
+        return ["(git can't list its history)"]
+    mine = set(listed.stdout.split())
+    below = {entry.get("task") for commit, entry in verify.ledger(project).items() if commit in mine}
+    return sorted(t for t in below if t in tasks and t != task_id and not _closed(tasks[t]))
 
 
 def _contains(root: Path, base: str, sha: str) -> bool:
@@ -242,11 +259,12 @@ def _advance(project: Project, base: str, before: str, candidate: str) -> None:
 
 
 def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> str | None:
-    """Push the base to the charter's remote when softory moved it since the last push. A failure is
-    reported and tried again next time."""
+    """Push the base to the charter's remote when it is still the last candidate softory verified and
+    merged. A failure is reported and tried again next time."""
     remote, base = charter["merge"].get("push"), charter["git"]["base"]
     sha = head(project, base)
-    if not remote or not data.get("last_candidate") or data.get("pushed") == sha:
+    # Only a candidate softory verified: a commit made on the base by hand waits for check_base and the owner.
+    if not remote or sha != data.get("last_candidate") or data.get("pushed") == sha:
         return None
     done = git(project.root, "push", "--quiet", remote, f"refs/heads/{base}:refs/heads/{base}")
     if done.returncode != 0:

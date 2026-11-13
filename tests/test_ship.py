@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from tests.helpers import REPO, coord, git_project, install, needs_sources, revi
 from tests.test_workflow import at_terminal, failing, gate, start
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import backups, leaks, parents, perms  # noqa: E402
+from softory import backups, leaks, parents, perms, runner  # noqa: E402
 from softory import charter as charters  # noqa: E402
 from softory import deploy as deploys  # noqa: E402
 from softory.coordination import Coordination  # noqa: E402
@@ -189,16 +190,21 @@ class ShipTest(unittest.TestCase):
         run(["git", "checkout", "-q", self.base], self.root)
         return sha
 
-    def deliver(self, title: str, files: dict[str, str]) -> str:
-        """A backend task built on its own branch, verified, peer-reviewed, and closed through the gate."""
+    def build(self, title: str, files: dict[str, str], on: str | None = None) -> tuple[str, str, dict[str, str]]:
+        """A backend task built on its own branch (from ``on``, else the base) and verified, still open."""
         task = json.loads(softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend",
                                   "--title", title, "--actor", "quinn").stdout)["id"]
         env = {"COORDINATION_SESSION": start(self.root, "gold")["COORDINATION_SESSION"]}
         coord(self.root, "--session", env["COORDINATION_SESSION"], "task", "claim", task, "--agent", "gold",
               "--if-revision", revision(self.root, task))
-        sha = self.commit(task.lower(), files)
+        sha = self.commit(task.lower(), files, on)
         softory(self.root, "commit", task, sha, "--actor", "gold")
         softory(self.root, "verify", task, "--actor", "gold", env=env)
+        return task, sha, env
+
+    def deliver(self, title: str, files: dict[str, str], on: str | None = None) -> str:
+        """A backend task built, verified, peer-reviewed, and closed through the gate."""
+        task, sha, env = self.build(title, files, on)
         softory(self.root, "handoff", task, "--actor", "gold", env=env)
         coord(self.root, "review", "add", "--id", f"REV-{task}", "--task", task, "--reviewer", "jade",
               "--artifact", sha, "--scope", "test", "--decision", "accepted")
@@ -225,6 +231,49 @@ class ShipTest(unittest.TestCase):
         self.assertEqual(shipped["merge"]["deployed"], {"staging": "passed"})
         self.assertEqual((self.marks / "log").read_text().split(), [head])
         self.assertEqual(self.ship()["merge"], {"merged": []})  # nothing left, and the base is known green
+
+    def test_only_the_verified_candidate_is_pushed(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})
+        self.deliver("A", {"a.txt": "a\n"})
+        shipped = self.ship()
+        self.assertEqual(shipped["merge"]["push"], "pushed")
+        pushed = run(["git", "rev-parse", self.base], remote).stdout.strip()
+        self.assertEqual(pushed, shipped["merge"]["base"])
+        (self.root / "broken").write_text("x\n")  # a failing commit on the base by hand, after a shipment
+        run(["git", "add", "broken"], self.root)
+        run([*GIT, "commit", "-qm", "broken by hand"], self.root)
+        again = self.ship()
+        self.assertIsNone(again["push"])
+        self.assertFalse(again["base_check"]["green"])
+        self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), pushed)
+
+    def test_a_paused_project_doesnt_ship(self) -> None:
+        self.deliver("A", {"a.txt": "a\n"})
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        started: list[str] = []
+        softory(self.root, "pause", "--reason", "stop everything")
+        with mock.patch.object(runner, "spawn", lambda _project, name, *_: started.append(name)):
+            report = runner.tick(project, board)
+        self.assertNotIn("ship", report)
+        self.assertEqual(started, [])
+        self.assertFalse(self.on_base("a.txt"))
+
+    def test_a_unit_built_on_open_work_waits_for_it(self) -> None:
+        below, sha, _ = self.build("A", {"a.txt": "a\n"})  # verified, not closed
+        above = self.deliver("B", {"b.txt": "b\n"}, on=sha)
+        self.assertEqual(json.loads(softory(self.root, "ship", "--dry-run").stdout)["waiting"], [])
+        self.assertEqual(self.ship()["merge"], {"merged": []})
+        self.assertFalse(self.on_base("a.txt") or self.on_base("b.txt"))
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        from softory.ship import open_below  # noqa: PLC0415
+        tasks = {t["id"]: t for t in board.all_tasks()}
+        top = run(["git", "rev-parse", above.lower()], self.root).stdout.strip()
+        self.assertEqual(open_below(project, self.base, top, above, tasks), [below])
 
     def test_a_failing_batch_splits_and_the_unit_that_breaks_it_is_held(self) -> None:
         first = self.deliver("A", {"a.txt": "a\n"})
@@ -280,11 +329,34 @@ class ShipTest(unittest.TestCase):
         self.charter({"deploy": {"targets": [{"name": "production", "command": "true"}]}})
         refused = softory(self.root, "deploy", "production", "--release", release, "--actor", "gold", check=False)
         self.assertIn("owner_terminal_required", refused.stderr)
+        other = self.commit("other", {"x.txt": "x\n"})
+        swapped = softory(self.root, "deploy", "production", "--release", release, "--commit", other,
+                          "--actor", "gold", check=False)
+        self.assertIn("deploys only its own commit", swapped.stderr)
+        story = softory(self.root, "deploy", "production", "--release", "STORY-1", "--actor", "gold", check=False)
+        self.assertIn("not a release unit", story.stderr)
 
     def test_a_committed_key_fails_the_gate(self) -> None:
         task = json.loads(softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend",
                                   "--title", "Leak", "--actor", "quinn").stdout)["id"]
         sha = self.commit("leak", {"settings.py": 'AWS = "AKIAABCDEFGHIJKLMNOP"\n'})
+        softory(self.root, "commit", task, sha, "--actor", "gold")
+        check = next(c for c in gate(self.root, task, "gold")["checks"] if c["check"] == "no_secrets")
+        self.assertFalse(check["pass"])
+        self.assertIn("settings.py:1: AWS access key", check["detail"])
+
+    def test_a_key_added_while_merging_fails_the_gate(self) -> None:
+        task = json.loads(softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend",
+                                  "--title", "Merge leak", "--actor", "quinn").stdout)["id"]
+        self.commit("left", {"l.txt": "l\n"})
+        self.commit("right", {"r.txt": "r\n"})
+        run(["git", "checkout", "-q", "left"], self.root)
+        run([*GIT, "merge", "-q", "--no-commit", "--no-ff", "right"], self.root)
+        (self.root / "settings.py").write_text('AWS = "AKIAABCDEFGHIJKLMNOP"\n')  # only the merge adds it
+        run(["git", "add", "settings.py"], self.root)
+        run([*GIT, "commit", "-qm", "merge right"], self.root)
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        run(["git", "checkout", "-q", self.base], self.root)
         softory(self.root, "commit", task, sha, "--actor", "gold")
         check = next(c for c in gate(self.root, task, "gold")["checks"] if c["check"] == "no_secrets")
         self.assertFalse(check["pass"])

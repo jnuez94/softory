@@ -44,7 +44,7 @@ def tick(project: Project, coord: Coordination, dry_run: bool = False) -> dict[s
         report["paged"] = digest.page_due(project, coord, charter)
         report["backup"] = backups.daily(project, coord, charter)
         report["parents"] = parents.sync(project, coord)
-        if ship_due(project, charter):
+        if ship_due(project, charter) and not is_paused(project, "ship"):  # "all" stops shipping too
             spawn(project, "ship", ["ship"])  # merges and deploys take minutes; ship.lock keeps it to one
             report["ship"] = "started"
     for role in charter["run"]["roles"]:

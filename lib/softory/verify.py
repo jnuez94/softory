@@ -272,24 +272,31 @@ def merge_changes(root: Path, merge: str) -> set[str] | None:
     whole file and so drops the other side's change, which ``--cc`` misses because the result equals a parent.
     Files the automatic merge would have produced anyway stay with the parents that brought them.
     """
-    parents = git(root, "rev-parse", f"{merge}^@")
-    if parents.returncode != 0:
+    against_all = merge_baselines(root, merge)
+    if against_all is None:
         return None
-    heads = parents.stdout.split()
-    automatic = None
-    if len(heads) == 2:
-        tried = git(root, "merge-tree", "--write-tree", "--no-messages", *heads)
-        if tried.returncode in (0, 1) and tried.stdout.split():  # 1: conflicts; the tree holds conflict markers
-            automatic = tried.stdout.split()[0]
-    # An octopus merge, or a git too old for merge-tree --write-tree: no automatic result to compare with,
-    # so count every file that differs from any parent. That can over-count, never miss a dropped change.
     files: set[str] = set()
-    for against in [automatic] if automatic else heads:
+    for against in against_all:
         found = git(root, "diff", "--no-renames", "--name-only", against, merge, "--")
         if found.returncode != 0:
             return None
         files |= {line for line in found.stdout.splitlines() if line}
     return files
+
+
+def merge_baselines(root: Path, merge: str) -> list[str] | None:
+    """What a merge commit's own changes are measured against: git's automatic merge of its two parents.
+    An octopus merge, or a git too old for merge-tree --write-tree, has none, so every parent counts. That
+    can over-count, never miss a change. None if git can't read the parents."""
+    parents = git(root, "rev-parse", f"{merge}^@")
+    if parents.returncode != 0:
+        return None
+    heads = parents.stdout.split()
+    if len(heads) == 2:
+        tried = git(root, "merge-tree", "--write-tree", "--no-messages", *heads)
+        if tried.returncode in (0, 1) and tried.stdout.split():  # 1: conflicts; the tree holds conflict markers
+            return [tried.stdout.split()[0]]
+    return heads
 
 
 def unit_files(project: Project, charter: dict[str, Any], task_id: str, sha: str) -> list[str] | None:
