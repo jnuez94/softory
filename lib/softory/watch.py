@@ -78,8 +78,13 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     in_scope = (lambda ids: [i for i in ids if i in scope]) if scope else (lambda ids: ids)
     if not scope:
         wanted, rest = unread_messages(coord, agent, board, work)
+        direct = [m for m in rest if m.get("recipient") == agent] if own else []  # only for a session that is open
         if wanted:
             reasons.append({"why": "messages that need you", "count": len(wanted)})
+        elif direct:
+            # An open session reads its own mail for free; a scheduler asking for the role still starts nobody. Untagged handoffs to Quinn sat 90 minutes in Tablet
+            # because only tagged messages counted, a rule made for runs that cost a cold start.
+            reasons.append({"why": "unread messages to you", "count": len(direct)})
         elif rest and retry_hours > 0 and min(m.get("created_at") or "" for m in rest) <= (
                 now - timedelta(hours=retry_hours)).isoformat(timespec="seconds") and (
                 last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)):
@@ -140,19 +145,30 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
+    if from_own_run and agent == feasibility.CHECKER:
+        checks = in_scope(feasibility.due(board, charter))
+        if checks:  # the runner won't start a check beside a live Quinn session, so that session runs them
+            reasons.append({"why": "feasibility checks due: softory run-check <story> for each", "ids": checks})
     simplify = charter.get("simplify") or {}
     if agent == simplify.get("role") and not scope:
-        sweep = _sweep_due(project, simplify, now)
+        sweep = _sweep_due(project, simplify, now, coord)
         if sweep:
             reasons.append(sweep)
     if scope:
         hold = None
+    # A pause stops the runner from starting the role. In attended mode the owner opens the sessions, and one
+    # checking on itself is told about its work: in Tablet every check-in stopped on exit 3 for an hour.
+    runner_only = bool(hold) and from_own_run and charter["run"].get("mode") == "attended"
     ids = {i for r in reasons for i in r.get("ids", [])}
     escalate = sorted(i for i in ids if rounds.get(i, 0) >= caps["escalate_model_after"])
-    result = {"agent": agent, "pending": bool(reasons) and not running and not hold, "since": since,
+    ready = bool(reasons) and not running and (not hold or runner_only)
+    state = "work" if ready else "running" if running and reasons else "paused" if hold and reasons else "idle"
+    result = {"agent": agent, "pending": ready, "state": state, "since": since,
               "running": running, "reasons": reasons}
     if hold:
         result["paused"] = hold
+        if runner_only:
+            result["paused_for"] = "runner starts only; this session may work"
     if scope:
         result["scoped_to"] = sorted(scope)
     if escalate:
@@ -165,7 +181,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     return result
 
 
-def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime) -> dict[str, Any] | None:
+def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime,
+               coord: Coordination | None = None) -> dict[str, Any] | None:
     """Sage's check-in: once per ``checkin_hours`` after the last one (the last ``softory flow --record``, not
     Sage's last session, so process reviews never put it off), when the team ran, filed feedback, or left new
     clutter since. An idle team costs nothing."""
@@ -180,9 +197,14 @@ def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime) -> dic
              if checked is None or (e.get("at") and parse_time(e["at"]) > parse_time(checked))]
     found = clutter.report(project)
     fresh = not found["clean"] and not (last and last.get("clutter_key") == found["key"])  # seen already
-    if not fresh and not notes and not ran:
+    # Sessions the owner opened log no runs, so a team working only in them still counts as having worked.
+    live = [] if ran or coord is None else [
+        s for s in coord.run("session", "list", "--status", "active", "--limit", "50")
+        if s.get("agent_id") not in (role, project.roster()["owner"]["id"]) and s.get("agent_id") in project.role_ids()
+        and (checked is None or parse_time(str(s.get("last_seen_at") or s["started_at"])) > parse_time(checked))]
+    if not fresh and not notes and not ran and not live:
         return None
-    seen = [f"{len(ran)} team run(s)" if ran else "", f"{len(notes)} feedback note(s)" if notes else "",
+    seen = [f"{len(ran)} team run(s)" if ran else f"{len(live)} open session(s)" if live else "", f"{len(notes)} feedback note(s)" if notes else "",
             ", ".join(f"{n} {kind}" for kind, n in found["counts"].items() if n) if fresh else ""]
     return {"why": f"process check-in ({'; '.join(p for p in seen if p)} since the last): run softory flow "
                    f"--record, softory clutter and softory feedback --list, then simplify",

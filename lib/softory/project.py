@@ -152,6 +152,14 @@ class Project:
         )
 
 
+    def member(self, agent_id: str) -> dict[str, Any]:
+        """A role, or an agent the owner's active stand-in grant lets act for one. Tablet's Avery reviews for
+        Jade and Gold, and ``softory start`` and ``softory workspace`` refused it as an unknown role."""
+        if any(grant["agent"] == agent_id and grants.is_active(grant) for grant in self.stand_ins()):
+            return {"id": agent_id, "name": agent_id, "stand_in": True}
+        return self.role(agent_id)
+
+
 def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
