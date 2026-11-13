@@ -67,7 +67,8 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
     and its base. In Tablet, Jade typed 366 of these by hand, one reviewer at a time.
 
     Each requirement goes to one reviewer: its only candidate, or the one ``softory reviewers`` would ask.
-    A reviewer who already accepted isn't asked again, and a second handoff at the same commit sends nothing.
+    A reviewer who already accepted isn't asked again, one whose change request is open is asked before
+    anyone else, and a second handoff at the same commit sends nothing.
     Returns who was asked for what, and the reviews nobody could be picked for.
     """
     from . import charter as charters  # noqa: PLC0415
@@ -83,11 +84,13 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
     unasked = []
     for requirement in gate_rules.required_reviews(task, gates):
         candidates = gate_rules.eligible(requirement, built_by, latest)
-        if any(latest.get(r, {}).get("decision") in accepting for r in candidates):
-            continue  # already given
+        open_requests = [r for r in candidates if r in latest and latest[r].get("decision") not in accepting]
+        if not open_requests and any(latest.get(r, {}).get("decision") in accepting for r in candidates):
+            continue  # already given, and nobody's change request holds the unit open
         if gate_rules.ANYONE in requirement["reviewers"] and not candidates:
             candidates = [r for r in rotation if r not in built_by]
-        reviewer = candidates[0] if len(candidates) == 1 else gate_rules.ask(candidates, latest, rotation, task["id"])
+        reviewer = candidates[0] if len(candidates) == 1 else (
+            open_requests[0] if open_requests else gate_rules.ask(candidates, latest, rotation, task["id"], accepting))
         if reviewer:
             wanted.setdefault(reviewer, []).append(requirement["why"])
         else:
