@@ -5,7 +5,8 @@ the base branch by softory alone. Up to ``batch_max`` of them become one candida
 throwaway worktree, and the base moves only when ``softory verify`` passes at the candidate. A unit
 whose commit already sits on the base is a fast-forward, and its own verify result counts. A failing
 batch is tried again one unit at a time; a unit that conflicts or fails alone gets a bug for its lane.
-A unit built on another unit's commits waits until that unit closes too. Only a verified candidate is pushed.
+A unit merges at the commit it closed at (closed.py), and waits while any unit it is built on is still open.
+Only a verified candidate is pushed.
 After a merge, every ``auto`` deploy target gets the new base.
 
 Whatever the merge setting, a base that moved since the last check is verified, and a red base gets one
@@ -22,13 +23,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import deploy, verify, verifyenv
+from . import closed, deploy, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git
-from .lifecycle import closed_by_softory
 from .project import Project
-from .units import lane_of, resolution_of, unit_of
+from .units import lane_of, stack_of, unit_of
 from .watch import parse_time
 
 AUTHOR = ["-c", "user.name=softory", "-c", "user.email=softory@localhost"]
@@ -71,32 +71,71 @@ def waiting(project: Project, coord: Coordination, charter: dict[str, Any]) -> l
     base = charter["git"]["base"]
     gates = project.gates()
     tasks = {task["id"]: task for task in coord.all_tasks()}
+    approved = closed.commits(project)
+    recorded: dict[str, set[str]] = {}  # every commit an unclosed unit ever recorded, read once if needed
     found = []
     for task in tasks.values():
-        if task["status"] != "done" or task["id"] in seen or unit_of(task, gates) not in verify.CODE_UNITS:
+        if task["id"] in seen or unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
             continue
-        if lane_of(task) in verify.NO_TEST_LANES or not _closed(task) or parse_time(str(task.get("updated_at"))) < since_at:
+        if not _closed(task) or parse_time(str(task.get("updated_at"))) < since_at:
             continue
-        sha = verify.commit_of(project.root, coord.task(task["id"]))
-        if sha and not _contains(project.root, base, sha) and not open_below(project, base, sha, task["id"], tasks):
-            found.append({"id": task["id"], "title": task["title"], "commit": sha, "lane": lane_of(task),
-                          "closed": task.get("updated_at")})
+        sha = approved.get(task["id"])  # the commit its gate passed at, never evidence added after it closed
+        if not sha or _contains(project.root, base, sha):
+            continue
+        if not recorded:
+            recorded.update(_recorded(project, coord, tasks))
+        found.append({"id": task["id"], "title": task["title"], "commit": sha, "lane": lane_of(task),
+                      "closed": task.get("updated_at"),
+                      "waits_on": open_below(project, coord, base, sha, task["id"], tasks, approved, recorded)})
     return sorted(found, key=lambda row: (row["closed"] or "", row["id"]))
 
 
-def _closed(task: dict[str, Any]) -> bool:
-    return task["status"] == "done" and not resolution_of(task) and closed_by_softory(task)
+_closed = closed.through_gate
 
 
-def open_below(project: Project, base: str, sha: str, task_id: str, tasks: dict[str, dict[str, Any]]) -> list[str]:
-    """Other units whose verified commits ``sha`` is built on and that haven't closed through the gate.
-    Merging ``sha`` would carry their work onto the base, so it waits for them."""
+def _recorded(project: Project, coord: Coordination, tasks: dict[str, dict[str, Any]]) -> dict[str, set[str]]:
+    """Each unclosed unit's recorded commits, whether or not softory verify ran there."""
+    found: dict[str, set[str]] = {"": set()}  # the empty key marks the read as done
+    for task_id, task in tasks.items():
+        if not _closed(task):
+            commits = verify.commits_of(project.root, coord.task(task_id))
+            if commits:
+                found[task_id] = commits
+    return found
+
+
+def open_below(project: Project, coord: Coordination, base: str, sha: str, task_id: str,
+               tasks: dict[str, dict[str, Any]], approved: dict[str, str], recorded: dict[str, set[str]]) -> list[str]:
+    """Other units ``sha`` is built on whose work hasn't passed a close gate. Merging ``sha`` would carry
+    that work onto the base, so it waits for them.
+
+    A unit counts when a commit it recorded or verified is in the history ``sha`` adds to the base and it
+    hasn't closed through the gate (or it closed at a commit that doesn't hold that one), and when it is an
+    open lower member of the same stack.
+    """
     listed = git(project.root, "rev-list", sha, f"^{base}")
     if listed.returncode != 0:
         return ["(git can't list its history)"]
     mine = set(listed.stdout.split())
-    below = {entry.get("task") for commit, entry in verify.ledger(project).items() if commit in mine}
-    return sorted(t for t in below if t in tasks and t != task_id and not _closed(tasks[t]))
+    below: dict[str, set[str]] = {unit: commits & mine for unit, commits in recorded.items()}
+    for commit, entry in verify.ledger(project).items():
+        if commit in mine:
+            below.setdefault(str(entry.get("task")), set()).add(commit)
+    waits = set()
+    for unit, commits in below.items():
+        if unit == task_id or unit not in tasks or not commits:
+            continue
+        done_at = approved.get(unit) if _closed(tasks[unit]) else None
+        if not done_at or any(git(project.root, "merge-base", "--is-ancestor", c, done_at).returncode != 0
+                              for c in commits):
+            waits.add(unit)
+    me = coord.task(task_id)
+    for dep in me.get("dependencies") or []:  # softory stack: "built on", recorded as informs (or an older blocks)
+        other = tasks.get(dep.get("depends_on_task_id"))
+        if (other and dep.get("dependency_type") in ("informs", "blocks") and stack_of(me)
+                and stack_of(other) == stack_of(me) and other["status"] != "done"):
+            waits.add(other["id"])
+    return sorted(waits)
 
 
 def _contains(root: Path, base: str, sha: str) -> bool:
@@ -157,7 +196,7 @@ def check_base(project: Project, coord: Coordination, charter: dict[str, Any]) -
 
 def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, Any]:
     """Merge one batch of waiting units onto the base, or none of it."""
-    units = waiting(project, coord, charter)
+    units = [u for u in waiting(project, coord, charter) if not u["waits_on"]]
     if not units:
         return {"merged": []}
     data = ledger(project)

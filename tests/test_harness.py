@@ -73,6 +73,8 @@ class HarnessTest(unittest.TestCase):
         softory(self.root, "verify", "TASK-1", "--actor", "jade")
         closed = json.loads(softory(self.root, "close", "TASK-1", "--stack", "--actor", "jade").stdout)
         self.assertTrue(closed["closed"])
+        at_close = json.loads((self.root / ".coordination/softory/closed.json").read_text())
+        self.assertEqual(set(at_close), {"TASK-1", "BUG-1"})  # each member's approved commit, for softory ship
 
     def test_a_fresh_shell_keeps_the_session_through_the_role(self) -> None:
         session = start(self.root, "jade")["COORDINATION_SESSION"]  # exports printed, then lost: no env below

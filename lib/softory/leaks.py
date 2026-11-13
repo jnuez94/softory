@@ -114,8 +114,10 @@ def check(root: Path, charter: dict[str, Any], sha: str | None, inherited: list[
         return {"check": "no_secrets", "pass": True, "detail": "no commit recorded, so nothing to scan"}
     found = findings(root, charter["git"]["base"], sha, inherited, list(settings.get("allow") or []))
     if found is None:
-        return {"check": "no_secrets", "pass": True,
-                "detail": f"git can't diff {sha[:12]} against {charter['git']['base']}; not scanned"}
+        return {"check": "no_secrets", "pass": False,
+                "detail": f"git can't compare {sha[:12]} with the base {charter['git']['base']}, so nothing was "
+                          "scanned. Set git.base in the charter to a branch this repository has, or ask the owner "
+                          "to waive this unit"}
     if not found:
         return {"check": "no_secrets", "pass": True, "detail": "no secrets in the lines its own commits add"}
     listed = "; ".join(found[:LIMIT]) + (f"; and {len(found) - LIMIT} more" if len(found) > LIMIT else "")
