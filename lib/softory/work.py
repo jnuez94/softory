@@ -388,7 +388,8 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
             "latest": {r: latest[r]["decision"] for r in candidates if r in latest},
         }
         if not anyone and len(candidates) > 1:  # several may give it: name the one to ask
-            row["ask"] = gate_rules.ask(candidates, latest, rotation, task_id)
+            row["ask"] = gate_rules.ask(candidates, latest, rotation, task_id,
+                                        set(gates["accepting_decisions"]))
         if requirement.get("note"):
             row["note"] = requirement["note"]
         rows.append(row)
