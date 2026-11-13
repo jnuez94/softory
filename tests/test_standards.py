@@ -62,6 +62,10 @@ class RotationTest(unittest.TestCase):
                                   ["gold", "jade", "avery"], "BUG-7"), "gold")
 
     def test_no_rotation_uses_the_gates_order_and_no_candidate_asks_nobody(self) -> None:
+        # A change request holds the unit open whoever else accepted, so the follow-up goes to its author.
+        mixed = {"jade": {"decision": "accepted"}, "avery": {"decision": "changes_requested"}}
+        self.assertEqual(gate.ask(["jade", "avery"], mixed, [], "TASK-1"), "avery")
+        self.assertEqual(gate.ask(["jade", "avery"], {"jade": {"decision": "accepted"}}, [], "TASK-1"), "jade")
         self.assertEqual(gate.ask(["jade", "gold"], {}, [], "TASK-2"), "jade")
         self.assertEqual(gate.ask(["jade", "gold"], {}, ["toby"], "TASK-3"), "gold")
         self.assertIsNone(gate.ask([], {}, [], "TASK-1"))
