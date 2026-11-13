@@ -7,6 +7,9 @@
 ## Success metric
 <How we'll know: one measurable signal and its target.>
 
+## Requirements
+- <FR-1 or NFR-1: the user outcome, Must or Should, its source, and a testable target. No solution named.>
+
 ## Scope
 - <Story-sized capabilities, one per line>
 
@@ -21,5 +24,5 @@
 
 ## Links
 - Design direction: docs/design/EPIC-n.md
-- Technical design and ADRs: docs/adr/
+- Technical design, ADRs, and the options compared: docs/adr/
 - Threat model: docs/security/EPIC-n-threat-model.md

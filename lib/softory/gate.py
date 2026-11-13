@@ -116,6 +116,23 @@ def eligible(requirement: dict[str, Any], built_by: set[str], latest: dict[str, 
     return [r for r in pool if not (requirement.get("not_self") and r in built_by)]
 
 
+def ask(candidates: list[str], latest: dict[str, dict[str, Any]], rotation: list[str], task_id: str) -> str | None:
+    """The one reviewer to send the request to when several may give the same review.
+
+    Whoever already reviewed the unit keeps it. Otherwise the unit's number picks a place in the
+    owner's rotation (the candidates' own order when the charter sets none), so requests spread
+    without any state to keep. Any candidate's verdict still satisfies the gate.
+    """
+    if not candidates:
+        return None
+    for reviewer in candidates:
+        if reviewer in latest:
+            return reviewer
+    order = [r for r in rotation if r in candidates] or candidates
+    digits = "".join(ch for ch in task_id.rsplit("-", 1)[-1] if ch.isdigit())
+    return order[int(digits or 0) % len(order)]
+
+
 def may_review(requirement: dict[str, Any], agent: str, built_by: set[str]) -> bool:
     if requirement.get("not_self") and agent in built_by:
         return False

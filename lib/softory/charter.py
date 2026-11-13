@@ -146,6 +146,9 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
         problems.append(f"merge.by is {merging!r}: use owner or softory")
     elif merging == "softory" and not charter["verify"].get("command"):
         problems.append("merge.by softory needs verify.command: softory merges only what it saw pass")
+    rotation = (charter.get("review") or {}).get("rotation") or []
+    if not isinstance(rotation, list) or not all(isinstance(name, str) for name in rotation):
+        problems.append("review.rotation must be a list of role or stand-in IDs")
     problems += deploy_problems(charter)
     for pattern in (charter.get("secrets") or {}).get("allow") or []:
         try:

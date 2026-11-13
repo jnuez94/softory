@@ -54,8 +54,8 @@ $C evidence add --task TASK-7 --uri <test-output-path> --type test --actor $SOFT
 $S verify TASK-7                    # runs the charter's tests at that commit; the gate needs it to pass
 $S report TASK-7 <screenshot or diff> --type reference   # ui units: one rendered check against the design; files go outside the checkout
 $S handoff TASK-7                   # to review; refuses without evidence, or a ui unit's reference check
-$S reviewers TASK-7                 # who must review
-$C message send ... --recipient <each reviewer> --task TASK-7 --body "Ready for review: <one line>"
+$S reviewers TASK-7                 # who must review; with several candidates, "ask" names the one to message
+$C message send ... --recipient <one reviewer per requirement> --task TASK-7 --body "Ready for review: <one line>"
 ```
 
 ## 6. Review someone else's work

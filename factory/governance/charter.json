@@ -68,6 +68,10 @@
     "process_paths": ["scripts/**", "bin/**", ".github/**", ".gitlab-ci.yml", "Makefile", "*.mk", "Dockerfile*", "docker-compose*"],
     "clean_handoff": true
   },
+  "review": {
+    "description": "rotation is the order softory reviewers uses to name one reviewer to ask (its ask field) when several may give the same review, so requests spread instead of all going to the first name. Builders are skipped, and whoever already reviewed the unit is asked again. Empty uses the gate's own order. Any eligible reviewer's verdict still counts.",
+    "rotation": []
+  },
   "review_batch": {
     "description": "Wake a reviewer once this many reviews wait, or once the oldest has waited this long, so one run clears several. Reviews also wait until softory verify passes at the commit.",
     "min": 2,
