@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import verify, verifyenv
+from . import closed, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git
@@ -79,10 +79,16 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
         raise SoftoryError(f"The charter has no deploy target {name!r}; it lists {', '.join(targets(charter)) or 'none'}",
                            "not_found")
     task = coord.task(release) if release else None
+    if task is not None and unit_of(task, project.gates()) != "release":
+        raise SoftoryError(f"{release} is not a release unit", "not_allowed")
+    if name == PRODUCTION and (task is None or not closed.through_gate(task)):
+        # done isn't enough: a dropped release never passed its gate
+        raise SoftoryError("Production deploys a release that softory close took through its gate: "
+                           "softory deploy production --release <ID>", "not_allowed")
     if task is not None:
-        if unit_of(task, project.gates()) != "release":
-            raise SoftoryError(f"{release} is not a release unit", "not_allowed")
-        recorded = verify.commit_of(project.root, task)
+        # A closed release ships the commit its gate passed at, whatever evidence was added afterwards.
+        recorded = closed.commits(project).get(release) if task.get("status") == "done" else \
+            verify.commit_of(project.root, task)
         if not recorded:
             raise SoftoryError(f"{release} records no commit; it ships the commit it was reviewed at", "not_allowed")
         if sha and _full(project, sha) != recorded:
@@ -91,9 +97,6 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
         sha = recorded
     sha = _full(project, sha or charter["git"]["base"])
     if name == PRODUCTION:
-        if not task or task.get("status") != "done":
-            raise SoftoryError("Production deploys a closed release: softory deploy production --release <ID>",
-                               "not_allowed")
         if confirm is None:
             raise SoftoryError("Only the owner deploys to production, at a terminal", "not_allowed")
         confirm(f"Deploy {release} ({sha[:12]}) to production?")

@@ -69,6 +69,16 @@ def commit_of(root: Path, task: dict[str, Any]) -> str | None:
     return None
 
 
+def commits_of(root: Path, task: dict[str, Any]) -> set[str]:
+    """Every commit of this repository the task's standing code evidence names, old rows included."""
+    found = set()
+    for row in live_evidence(task.get("evidence")):
+        if str(row.get("evidence_type", "")).lower() in CODE_EVIDENCE:
+            uri = str(row.get("uri", "")).lower()
+            found |= {_resolve(root, c) for c in _HEAD.findall(uri)[-1:] or _SHA.findall(uri)}
+    return found - {None}
+
+
 def _resolve(root: Path, candidate: str) -> str | None:
     found = git(root, "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}")
     return found.stdout.strip() if found.returncode == 0 else None

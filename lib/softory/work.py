@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import charter, deploy, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
+from . import charter, closed, deploy, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
@@ -296,9 +296,11 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
         if dep.get("dependency_type") == "blocks" and dep.get("status") == "active"
     }
     children = coord.all_tasks("--tag", f"parent:{task_id}")
-    return gate_rules.evaluate(task, gates, dependency_status, children,
-                               actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
-                               objective_checks(project, task, gates))
+    report = gate_rules.evaluate(task, gates, dependency_status, children,
+                                 actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
+                                 objective_checks(project, task, gates))
+    report["commit"] = verify.commit_of(project.root, task)  # the commit these checks judged; close records it
+    return report
 
 
 def objective_checks(project: Project, task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
@@ -351,6 +353,7 @@ def close(project: Project, coord: Coordination, task_id: str, actor: str | None
     if not report["pass"]:
         return {"closed": False, "gate": report}
     lifecycle.move_to_done(coord, task_id, actor, lifecycle.CLOSE_NOTE, gate=report)
+    closed.record(project, task_id, report["commit"], actor)
     return {"closed": True, "id": task_id, "gate": report}
 
 
