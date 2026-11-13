@@ -11,15 +11,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import gate as gate_rules
-from . import policy
+from . import closed, policy
+from .closed import CLOSE_NOTE
 from .coordination import Coordination
 from .errors import SoftoryError
 from .owner import record_decision
 from .project import Project
 from .units import WITHDRAWN, stack_of, tags_of, unit_of
 
-#: The note every softory close leaves on a task; triage looks for done work without one.
-CLOSE_NOTE = "closed through softory gate"
 DROP_NOTE = "dropped ("
 
 
@@ -191,6 +190,7 @@ def drop(project: Project, coord: Coordination, task_id: str, reason: str, super
     update_tags(coord, coord.task(task_id), tags, actor)
     move_to_done(coord, task_id, actor, f"{DROP_NOTE}{kind}): {reason}", because=f"decision:{decision_id}",
                  dropping=True)
+    closed.record(project, task_id, None, actor)  # reopened after a close, then dropped: nothing of it ships
     parent = next((t.split(":", 1)[1] for t in tags if t.startswith("parent:")), None)
     result = {"dropped": task_id, "resolution": kind, "decision": decision_id}
     if superseded_by:
@@ -236,7 +236,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
     its lane), when the other members count as done. Members close bottom first: a member
     closes after every member it waits on.
     """
-    from . import work  # work imports this module
+    from . import verify, work  # noqa: PLC0415 - both import this module's neighbours
 
     gates = project.gates()
     name = stack_of(coord.task(task_id))
@@ -267,14 +267,15 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
         return {"closed": False, "stack": name, "failing": failing, "gates": [reports[i] for i in failing]}
 
     order = _bottom_first(members)
-    closed = []
+    finished = []
     for member_id in order:
         try:
             move_to_done(coord, member_id, actor, f"{CLOSE_NOTE} with stack {name}", gate=reports[member_id])
+            closed.record(project, member_id, verify.commit_of(project.root, members[member_id]), actor)
         except SoftoryError as error:
-            return {"closed": False, "stack": name, "closed_before_error": closed, "error": error.message}
-        closed.append(member_id)
-    return {"closed": True, "stack": name, "order": closed}
+            return {"closed": False, "stack": name, "closed_before_error": finished, "error": error.message}
+        finished.append(member_id)
+    return {"closed": True, "stack": name, "order": finished}
 
 
 def _bottom_first(members: dict[str, dict[str, Any]]) -> list[str]:
