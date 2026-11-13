@@ -7,6 +7,7 @@ a review record or a dropped task can close from todo or blocked.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -45,7 +46,102 @@ def handoff(project: Project, coord: Coordination, task_id: str, actor: str, not
     extra = ["--note", note] if note else []
     coord.run("task", "release", task_id, "--to", "review", "--actor", actor, "--if-revision",
               str(task["revision"]), *extra, session=True)
-    return {"task": task_id, "status": "review", "next": f"softory reviewers {task_id}, then message one reviewer per requirement (its ask, when it has one)"}
+    asked, unasked = request_reviews(project, coord, task, actor, note)
+    result: dict[str, Any] = {"task": task_id, "status": "review", "asked": asked}
+    if unasked:
+        result["unasked"] = unasked
+        result["next"] = "Message a reviewer for each unasked review: softory reviewers " + task_id
+    warnings = handoff_warnings(project, task)
+    if warnings:
+        result["warnings"] = warnings
+    return result
+
+
+_BASE = re.compile(r";base=([0-9a-f]{7,40})")
+
+
+def request_reviews(project: Project, coord: Coordination, task: dict[str, Any], actor: str,
+                    note: str = "") -> tuple[list[dict[str, Any]], list[str]]:
+    """Ask every review the unit still needs, in one go: one tagged message per reviewer, naming the commit
+    and its base. In Tablet, Jade typed 366 of these by hand, one reviewer at a time.
+
+    Each requirement goes to one reviewer: its only candidate, or the one ``softory reviewers`` would ask.
+    A reviewer who already accepted isn't asked again, one whose change request is open is asked before
+    anyone else, and a second handoff at the same commit sends nothing.
+    Returns who was asked for what, and the reviews nobody could be picked for.
+    """
+    from . import charter as charters  # noqa: PLC0415
+    from . import verify  # noqa: PLC0415 - verify imports gate, which this module imports
+
+    gates = project.gates()
+    accepting = set(gates["accepting_decisions"])
+    latest = gate_rules.latest_reviews(task)
+    built_by = gate_rules.builders(task)
+    rotation = (charters.load(project).get("review") or {}).get("rotation") or []
+    sha = verify.commit_of(project.root, task)
+    wanted: dict[str, list[str]] = {}
+    unasked = []
+    for requirement in gate_rules.required_reviews(task, gates):
+        candidates = gate_rules.eligible(requirement, built_by, latest)
+        open_requests = [r for r in candidates if r in latest and latest[r].get("decision") not in accepting]
+        if not open_requests and any(latest.get(r, {}).get("decision") in accepting for r in candidates):
+            continue  # already given, and nobody's change request holds the unit open
+        if gate_rules.ANYONE in requirement["reviewers"] and not candidates:
+            candidates = [r for r in rotation if r not in built_by]
+        reviewer = candidates[0] if len(candidates) == 1 else (
+            open_requests[0] if open_requests else gate_rules.ask(candidates, latest, rotation, task["id"], accepting))
+        if reviewer:
+            wanted.setdefault(reviewer, []).append(requirement["why"])
+        else:
+            unasked.append(requirement["why"])
+    commits = [str(e.get("uri", "")) for e in task.get("evidence") or [] if sha and sha in str(e.get("uri", ""))]
+    base = next((m.group(1) for uri in reversed(commits) if (m := _BASE.search(uri))), None)
+    where = (f" Commit {sha}" + (f", built on {base}" if base else "") + ".") if sha else ""
+    asked = []
+    for reviewer, reasons in wanted.items():
+        message_id = f"SOFTORY-REVIEW-{task['id']}-{reviewer}-{(sha or 'r' + str(task['revision']))[:12]}"
+        if coord.call("message", "show", message_id).get("ok"):
+            continue  # asked at this commit already
+        body = f"{task['id']} ({task['title'][:80]}) is ready for your review: {'; '.join(reasons)}.{where}"
+        mine = latest.get(reviewer)
+        if mine:  # a correction: the re-review covers what changed
+            was = _reviewed_commit(mine)
+            body += (" You asked for changes" + (f" at {was[:12]}" if was else "") + ": check them against "
+                     + (f"git diff {was[:12]}..{sha[:12]}" if was and sha and was != sha else "what changed since")
+                     + ". What you accepted before stands.")
+        body += f" {note.strip()}" if note.strip() else ""
+        coord.run("message", "send", "--id", message_id, "--sender", actor, "--recipient", reviewer,
+                  "--task", task["id"], "--tags", "request", "--body", body)
+        asked.append({"reviewer": reviewer, "for": reasons})
+    return asked, unasked
+
+
+def _reviewed_commit(review: dict[str, Any]) -> str | None:
+    """The commit a review names in its artifact, if it names one."""
+    found = re.search(r"\b[0-9a-f]{7,40}\b", str(review.get("artifact_uri") or review.get("artifact") or "").lower())
+    return found.group(0) if found else None
+
+
+def handoff_warnings(project: Project, task: dict[str, Any]) -> list[str]:
+    """What will slow the review down, told to the builder at handoff. Warnings only: nothing is refused."""
+    from . import charter as charters  # noqa: PLC0415
+    from . import verify  # noqa: PLC0415
+    from .units import CODE_EVIDENCE, live_evidence  # noqa: PLC0415
+
+    charter, gates = charters.load(project), project.gates()
+    warnings = []
+    state = verify.tests_state(project, charter, task, gates)
+    if state in ("not run", "failed", "setup failed"):
+        warnings.append(f"softory verify is {state} at this unit's commit: reviewers aren't woken until it passes. "
+                        f"Run softory verify {task['id']}")
+    criteria = str(task.get("acceptance_criteria") or task.get("acceptance") or "").strip()
+    proof = [e for e in live_evidence(task.get("evidence"))
+             if str(e.get("evidence_type", "")).lower() not in CODE_EVIDENCE]
+    if criteria and not proof and state == "n/a":
+        warnings.append("It has acceptance criteria and no evidence besides the commit, so the reviewer has to "
+                        "work out each one. Add what shows they hold: a test run with evidence add --type test, "
+                        f"or softory report {task['id']} <file>")
+    return warnings
 
 
 def ready_for_review(project: Project, task: dict[str, Any]) -> None:
