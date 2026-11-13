@@ -48,6 +48,7 @@ def add_parsers(sub: Any) -> None:
     p = sub.add_parser("verify", help="Run the charter's tests at a unit's commit and record the result for the gate")
     p.add_argument("id")
     p.add_argument("--commit", help="Default: the newest commit named in the unit's evidence")
+    p.add_argument("--fresh", action="store_true", help="Run the tests even if this commit already passed")
     p.add_argument("--actor")
     p = sub.add_parser("digest", help="What needs the owner; --send pages it now")
     p.add_argument("--send", action="store_true")
@@ -85,7 +86,7 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
         roles = [r.strip() for r in (args.roles or "").split(",") if r.strip()] or None
         result = runstate.resume(project, args.role, confirm_at_terminal, args.task, roles)
     elif command == "verify":
-        result = verify.run(project, coord, charters.load(project), args.id, actor_of(args.actor), args.commit)
+        result = verify.run(project, coord, charters.load(project), args.id, actor_of(args.actor), args.commit, args.fresh)
         print(ops.dumps(result), end="")
         return 0 if result["passed"] else 3
     elif command == "digest":

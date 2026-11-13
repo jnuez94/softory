@@ -79,10 +79,10 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     for row in decide.recent_settlements(project):
         later.append({"key": f"settled-{row['task']}-{row['at']}", "text": f"{row['by']} settled {row['task']} "
                       f"({row['action']}): {_cut(row['reason'], 200)}"})
-    for row in feasibility.requests(board):
-        later.append({"key": f"needs-{row['story']}", "text": f"Provisioning request for {row['story']} "
-                      f"({row['title'][:60]}): {'; '.join(row['needs'])}. The team re-plans around it meanwhile; "
-                      "add it to the charter's environment if you provide it"})
+    for ask in feasibility.asks(board):  # one ask per missing thing, however many stories need it
+        later.append({"key": f"needs-{ask['key']}", "text": f"Provisioning request: {ask['need']} (needed by "
+                      f"{', '.join(ask['stories'])}). The team re-plans around it meanwhile; add it to the "
+                      "charter's environment if you provide it"})
     churn = int((charter.get("waste") or {}).get("revision", 0) or 0)
     for task in board.tasks:
         spec = gate_spec(task, board.gates)[1]
