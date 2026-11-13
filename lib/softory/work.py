@@ -379,6 +379,7 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
     task = coord.task(task_id)
     latest = gate_rules.latest_reviews(task)
     built_by = gate_rules.builders(task)
+    rotation = (charter.load(project).get("review") or {}).get("rotation") or []
     rows = []
     for requirement in gate_rules.required_reviews(task, gates):
         candidates = gate_rules.eligible(requirement, built_by, latest)
@@ -389,6 +390,9 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
             "reviewers": ["anyone but the builder"] if anyone else candidates,
             "latest": {r: latest[r]["decision"] for r in candidates if r in latest},
         }
+        if not anyone and len(candidates) > 1:  # several may give it: name the one to ask
+            row["ask"] = gate_rules.ask(candidates, latest, rotation, task_id,
+                                        set(gates["accepting_decisions"]))
         if requirement.get("note"):
             row["note"] = requirement["note"]
         rows.append(row)

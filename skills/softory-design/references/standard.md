@@ -12,7 +12,7 @@ Applies to every unit with a `ui` tag or `lane:design`. A project adds its own r
 6. **Fit the host.** Use the platform's theme variables and conventions, work in light and dark and at every size the host runs at, and load nothing remote the host doesn't allow.
 7. **Accessible to WCAG 2.2 AA.** Contrast, visible focus, a keyboard path, labels, and targets of at least 24 by 24 px (DESIGN.md may raise it, for example 44 px on touch). Pass or fail, not opinion.
 8. **Honest states.** Never fake a time, a count, or a success. Loading, stale, never synced, failed, and empty each look different.
-9. **Fewer, better options.** At most three directions per story, with one recommended. Needing more means the problem isn't defined yet.
+9. **Compare before choosing.** A new design choice shows at least three materially different options, including the simplest existing or native one, compared requirement by requirement, with one recommended. The comparison stays in the spec. A routine bug fix needs none.
 10. **No filler.** No default gradients, nested cards, generic icon tiles, or placeholder copy.
 
 ## Gates

@@ -45,7 +45,7 @@ def handoff(project: Project, coord: Coordination, task_id: str, actor: str, not
     extra = ["--note", note] if note else []
     coord.run("task", "release", task_id, "--to", "review", "--actor", actor, "--if-revision",
               str(task["revision"]), *extra, session=True)
-    return {"task": task_id, "status": "review", "next": f"softory reviewers {task_id}, then message each one"}
+    return {"task": task_id, "status": "review", "next": f"softory reviewers {task_id}, then message one reviewer per requirement (its ask, when it has one)"}
 
 
 def ready_for_review(project: Project, task: dict[str, Any]) -> None:
