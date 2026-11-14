@@ -14,9 +14,9 @@ from typing import Any
 
 from .errors import SoftoryError
 
-UNITS = ("epic", "story", "task", "bug", "review")
+UNITS = ("epic", "story", "task", "bug", "review", "release")
 LANES = ("frontend", "backend", "infra", "design")
-ALLOWED_PARENTS = {"epic": (), "story": ("epic",), "task": ("story",), "bug": ("story", "epic"), "review": ()}
+ALLOWED_PARENTS = {"epic": (), "story": ("epic",), "task": ("story",), "bug": ("story", "epic"), "review": (), "release": ()}
 RESERVED_TAG_KEYS = ("unit", "parent", "lane", "for", "from", "stack", "resolution", "superseded-by", "finding", "found")
 # What a bug is, so escaped defects can be counted: visual bugs slip past a green suite that never renders.
 FINDING_TYPES = ("functional", "visual")
@@ -124,7 +124,7 @@ def build_tags(
         raise SoftoryError(
             f"A {unit} needs --lane, one of {', '.join(LANES)}", "invalid_arguments"
         )
-    if unit in ("epic", "story", "review") and lane:
+    if unit in ("epic", "story", "review", "release") and lane:
         raise SoftoryError(f"A {unit} has no lane; its tasks do", "invalid_arguments")
     if unit == "review" and not targets:
         raise SoftoryError("A review needs --for with the task(s) it reviews", "invalid_arguments")

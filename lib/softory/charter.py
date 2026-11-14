@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from .coordination import Coordination
+from .deploy import problems as deploy_problems
 from .errors import SoftoryError
 from .owner import _now, record_decision
 from .project import Project
@@ -25,8 +27,10 @@ def defaults(project: Project) -> dict[str, Any]:
 
 def load(project: Project) -> dict[str, Any]:
     """The charter in force: the defaults with the owner's approved overrides on top."""
-    merged = merge(defaults(project), project.local().get("charter", {}).get("settings", {}))
-    merged["approved"] = project.local().get("charter", {}).get("approved")
+    saved = project.local().get("charter", {})
+    merged = merge(defaults(project), saved.get("settings", {}))
+    merged["approved"] = saved.get("approved")
+    merged["merge"]["since"] = saved.get("merge_since")  # when softory began merging; older work stays the owner's
     return merged
 
 
@@ -90,7 +94,13 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any, lay
                                "The owner approved the charter softory's runner follows.",
                                json.dumps(overrides, sort_keys=True)[:4000])
     settings = project.local()
-    settings["charter"] = {"settings": overrides, "approved": {"at": _now(), "decision": decision}}
+    before = merge(defaults(project), current)["merge"].get("by")
+    since = settings.get("charter", {}).get("merge_since")
+    if merged["merge"].get("by") != "softory":
+        since = None
+    elif before != "softory" or not since:
+        since = _now()
+    settings["charter"] = {"settings": overrides, "approved": {"at": _now(), "decision": decision}, "merge_since": since}
     project.save_local(settings)
     return {"approved": True, "decision": decision, "changed": changes, "charter": load(project)}
 
@@ -131,6 +141,20 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
                 for pick in (c, c.get("escalate")) if pick}
         for harness in sorted(h for h in used if h and h not in (charter["run"].get("attended") or {})):
             problems.append(f"run.mode is attended, but run.attended has no interactive command for {harness}")
+    merging = (charter.get("merge") or {}).get("by", "owner")
+    if merging not in ("owner", "softory"):
+        problems.append(f"merge.by is {merging!r}: use owner or softory")
+    elif merging == "softory" and not charter["verify"].get("command"):
+        problems.append("merge.by softory needs verify.command: softory merges only what it saw pass")
+    rotation = (charter.get("review") or {}).get("rotation") or []
+    if not isinstance(rotation, list) or not all(isinstance(name, str) for name in rotation):
+        problems.append("review.rotation must be a list of role or stand-in IDs")
+    problems += deploy_problems(charter)
+    for pattern in (charter.get("secrets") or {}).get("allow") or []:
+        try:
+            re.compile(pattern)
+        except re.error as error:
+            problems.append(f"secrets.allow has an invalid pattern {pattern!r}: {error}")
     for role in ["", *(charter["budget"].get("roles") or {})]:
         limits = limits_for(charter, role)
         if min(limits["runs_per_role_per_day"], limits["minutes_per_role_per_day"], limits["minutes_per_run"]) <= 0:

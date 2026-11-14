@@ -20,7 +20,7 @@ from typing import Any
 # its blockers are done, and the rules haven't been edited.
 WAIVABLE_PREFIXES = ("review:",)
 WAIVABLE_CHECKS = ("ui_reference", "no_open_rejections", "findings_tracked", "verdicts_recorded", "independent", "verified",
-                   "lane_paths", "process_paths")
+                   "lane_paths", "process_paths", "no_secrets")
 
 
 def today() -> str:

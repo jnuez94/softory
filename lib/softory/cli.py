@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, clutter, external, flow, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
+from . import __version__, charter, clutter, external, flow, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -32,8 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--harness", help="claude, codex, ... (default: the role's recommendation)")
     p.add_argument("--model", default="", help="Model name to record on the session")
 
-    p = sub.add_parser("new", help="Create an epic, story, task, bug, or review")
-    p.add_argument("unit", choices=["epic", "story", "task", "bug", "review"])
+    p = sub.add_parser("new", help="Create an epic, story, task, bug, review, or release")
+    p.add_argument("unit", choices=["epic", "story", "task", "bug", "review", "release"])
     p.add_argument("--title", required=True)
     p.add_argument("--parent", help="EPIC-n for a story, STORY-n for a task, either for a bug")
     p.add_argument("--from", dest="from", metavar="ID",
@@ -52,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--found-at", choices=FOUND_STAGES, help="Where a bug was found (default with --from: review)")
     p.add_argument("--design", action="store_true", help="With a story: also file its design task for Darwin, so "
                    "UX work can start before the breakdown")
+    p.add_argument("--commit", help="With a release: the base commit it ships (default: the base branch's head)")
     p.add_argument("--actor", help="Acting role (default: $SOFTORY_ROLE)")
 
     p = sub.add_parser("tree", help="Show the epic > story > task hierarchy")
@@ -184,6 +185,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stack", action="store_true", help="Close the unit's whole stack together, or none of it")
     p.add_argument("--actor", help="Who is closing it (default: $SOFTORY_ROLE)")
     p.add_argument("--session", help="Default: $COORDINATION_SESSION, then the session softory start opened for --actor")
+
+    p = sub.add_parser("ship", help="Check the base, merge finished units on green, and deploy to auto targets "
+                                    "(the runner starts it)")
+    p.add_argument("--dry-run", action="store_true", help="Only list the units waiting to merge")
+
+    p = sub.add_parser("deploy", help="Deploy a tested commit to one of the charter's targets, then smoke-test it")
+    p.add_argument("target")
+    p.add_argument("--release", help="The release unit it deploys; required for production")
+    p.add_argument("--commit", help="Default: the release's commit, else the base branch's head")
 
     p = sub.add_parser("reviewers", help="Who must review a unit, and where each review stands")
     p.add_argument("id")
@@ -372,6 +382,19 @@ def _dispatch(args: argparse.Namespace) -> int:
             project, coord, args.id, args.actor, args.stack)
         print(ops.dumps(result), end="")
         return 0 if result["closed"] else 3
+    elif args.command == "ship":
+        from .ship import ship  # noqa: PLC0415
+
+        print(ops.dumps(ship(project, coord, charter.load(project), args.dry_run)), end="")
+    elif args.command == "deploy":
+        from . import deploy  # noqa: PLC0415
+
+        confirm = owner.confirm_at_terminal if args.target == deploy.PRODUCTION else None
+        actor = project.roster()["owner"]["id"] if confirm else work.actor_of(None)
+        result = deploy.run(project, coord, charter.load(project), args.target, actor, args.commit, args.release,
+                            confirm)
+        print(ops.dumps(result), end="")
+        return 0 if result["passed"] else 3
     elif args.command == "reviewers":
         print(ops.dumps(work.reviewers(project, coord, args.id)), end="")
     elif args.command == "queue":

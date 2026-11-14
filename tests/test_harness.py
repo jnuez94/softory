@@ -58,10 +58,10 @@ class HarnessTest(unittest.TestCase):
 
     def test_a_stack_close_runs_the_tests_and_lane_checks(self) -> None:
         self.approve({"verify": {"command": "true"}, "lanes": {"frontend": ["web/**"]}, "git": {"base": "HEAD"}})
+        self.build("TASK-1", "jade", self.commit("web/a.js", "a\n"))  # strict dependencies: built before it waits
         softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--blocks-source",
                 "--title", "On top", "--actor", "quinn")
         softory(self.root, "stack", "TASK-1", "BUG-1", "--actor", "jade")
-        self.build("TASK-1", "jade", self.commit("web/a.js", "a\n"))
         self.build("BUG-1", "jade", self.commit("web/b.js", "b\n"))
         self.review("TASK-1", "gold", "accepted")
         self.review("BUG-1", "gold", "accepted")
@@ -73,6 +73,8 @@ class HarnessTest(unittest.TestCase):
         softory(self.root, "verify", "TASK-1", "--actor", "jade")
         closed = json.loads(softory(self.root, "close", "TASK-1", "--stack", "--actor", "jade").stdout)
         self.assertTrue(closed["closed"])
+        at_close = json.loads((self.root / ".coordination/softory/closed.json").read_text())
+        self.assertEqual(set(at_close), {"TASK-1", "BUG-1"})  # each member's approved commit, for softory ship
 
     def test_a_fresh_shell_keeps_the_session_through_the_role(self) -> None:
         session = start(self.root, "jade")["COORDINATION_SESSION"]  # exports printed, then lost: no env below

@@ -23,6 +23,7 @@ from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, budget, paused, state_dir
 from .gate import spec_for as gate_spec
+from .ship import owner_items as ship_items
 from .work import Board
 
 QUINN_SETTLE_HOURS = 8  # a capped unit Quinn hasn't settled in this long reaches the owner too
@@ -99,6 +100,9 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     found = clutter.report(project)
     if not found["clean"]:
         later.append({"key": "clutter", "text": clutter.summary(found)})
+    shipping = ship_items(project)
+    urgent += shipping[0]
+    later += shipping[1]
     for who, why in paused(project).items():
         if who == "allow":
             continue

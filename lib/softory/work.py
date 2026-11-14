@@ -7,11 +7,12 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import charter, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
+from . import charter, closed, deploy, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
+from .gitlocal import git
 from .project import Project
 from .units import (
     build_tags,
@@ -163,6 +164,8 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             coord.run("dependency", "add", "--task", source_id, "--depends-on", task_id, "--actor", actor,
                       "--type", "blocks", "--rationale", f"{source_id} can't close until its follow-up {task_id} does")
             result["blocks"] = source_id
+    if unit == "release":  # a release ships one commit of the base; its gate and deploys read it from here
+        result["commit"] = release_commit(project, coord, task_id, options.get("commit"), actor)
     if unit == "story" and not parent_id:
         result["warning"] = "This story is not under an epic. Add --parent EPIC-n unless it stands alone."
     if unit == "story" and options.get("design"):
@@ -178,6 +181,16 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
         result["reminder"] = (f"{' and '.join(missing)} not written yet. The design standard needs them before "
                               f"UI work: templates are in {templates}/ (Greg writes PRODUCT.md, Darwin DESIGN.md).")
     return result
+
+
+def release_commit(project: Project, coord: Coordination, task_id: str, given: str | None, actor: str) -> str:
+    base = charter.load(project)["git"]["base"]
+    found = git(project.root, "rev-parse", "--verify", "--quiet", f"{given or base}^{{commit}}")
+    if found.returncode != 0:
+        raise SoftoryError(f"{given or base} is not a commit in this repository", "not_found")
+    sha = found.stdout.strip()
+    coord.run("evidence", "add", "--task", task_id, "--uri", f"commit:{sha}", "--type", "commit", "--actor", actor)
+    return sha
 
 
 def missing_design_files(project: Project, unit: str, options: dict[str, Any]) -> list[str]:
@@ -283,15 +296,20 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
         if dep.get("dependency_type") == "blocks" and dep.get("status") == "active"
     }
     children = coord.all_tasks("--tag", f"parent:{task_id}")
-    return gate_rules.evaluate(task, gates, dependency_status, children,
-                               actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
-                               objective_checks(project, task, gates))
+    report = gate_rules.evaluate(task, gates, dependency_status, children,
+                                 actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
+                                 objective_checks(project, task, gates))
+    report["commit"] = verify.commit_of(project.root, task)  # the commit these checks judged; close records it
+    return report
 
 
 def objective_checks(project: Project, task: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
     """The charter's checks on the code itself: tests passed at the commit, and the diff stays in its lane."""
     unit, _ = gate_rules.spec_for(task, gates)
-    return verify.checks(project, charter.load(project), task, unit, gates)
+    settings = charter.load(project)
+    if unit == "release":
+        return deploy.release_checks(project, settings, task, gates)
+    return verify.checks(project, settings, task, unit, gates)
 
 
 def related_live(coord: Coordination, task: dict[str, Any], gates: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -334,7 +352,8 @@ def close(project: Project, coord: Coordination, task_id: str, actor: str | None
     report = gate(project, coord, task_id, actor)
     if not report["pass"]:
         return {"closed": False, "gate": report}
-    lifecycle.move_to_done(coord, task_id, actor, lifecycle.CLOSE_NOTE)
+    lifecycle.move_to_done(coord, task_id, actor, lifecycle.CLOSE_NOTE, gate=report)
+    closed.record(project, task_id, report["commit"], actor)
     return {"closed": True, "id": task_id, "gate": report}
 
 
@@ -360,6 +379,7 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
     task = coord.task(task_id)
     latest = gate_rules.latest_reviews(task)
     built_by = gate_rules.builders(task)
+    rotation = (charter.load(project).get("review") or {}).get("rotation") or []
     rows = []
     for requirement in gate_rules.required_reviews(task, gates):
         candidates = gate_rules.eligible(requirement, built_by, latest)
@@ -370,6 +390,9 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
             "reviewers": ["anyone but the builder"] if anyone else candidates,
             "latest": {r: latest[r]["decision"] for r in candidates if r in latest},
         }
+        if not anyone and len(candidates) > 1:  # several may give it: name the one to ask
+            row["ask"] = gate_rules.ask(candidates, latest, rotation, task_id,
+                                        set(gates["accepting_decisions"]))
         if requirement.get("note"):
             row["note"] = requirement["note"]
         rows.append(row)

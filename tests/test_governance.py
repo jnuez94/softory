@@ -68,7 +68,7 @@ class GatesTest(unittest.TestCase):
         self.assertTrue(set(reviewers) <= ROLE_IDS, set(reviewers) - ROLE_IDS)
 
     def test_units_cover_the_three_sizes(self) -> None:
-        self.assertEqual(set(GATES["units"]), {"epic", "story", "task", "bug", "review"})
+        self.assertEqual(set(GATES["units"]), {"epic", "story", "task", "bug", "review", "release"})
 
     def test_every_specialist_tag_has_a_backup(self) -> None:
         for tag, entry in GATES["tag_reviews"].items():
