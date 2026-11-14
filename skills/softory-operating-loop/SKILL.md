@@ -51,7 +51,7 @@ Don't claim a todo task that `softory queue` marks as waiting for its story's fe
 ```sh
 $S commit TASK-7 <commit hash> [--base <hash>]   # full hash, base kept apart, so verify tests the right one
 $C evidence add --task TASK-7 --uri <test-output-path> --type test --actor $SOFTORY_ROLE
-$S verify TASK-7                    # runs the charter's tests at that commit; the gate needs it to pass
+$S verify TASK-7                    # runs the charter's tests at that commit, once per commit; the gate needs it to pass
 $S report TASK-7 <screenshot or diff> --type reference   # ui units: one rendered check against the design; files go outside the checkout
 $S handoff TASK-7                   # to review; refuses without evidence, or a ui unit's reference check
 $S reviewers TASK-7                 # who must review; with several candidates, "ask" names the one to message

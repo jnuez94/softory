@@ -119,7 +119,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task. In attended mode a pause stops only the runner: sessions you opened keep seeing their work |
 | `softory ship [--dry-run]` | Checks the base (a red base gets a priority 1 bug), merges finished units on green as one candidate commit, and deploys the result to the `auto` targets. The runner starts it each tick; `--dry-run` lists what waits to merge |
 | `softory deploy <target> [--release ID] [--commit sha]` | Deploys a tested commit to one of the charter's targets and runs its smoke test. `production` takes a closed release, by you at a terminal |
-| `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
+| `softory verify <ID> [--fresh]` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. A commit that already passed with the same settings isn't tested again unless `--fresh`. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
 | `softory clutter [--idle-days 14]` | Lists untracked files, archives (ignored folders included), duplicate archives, extra worktrees, and merged or idle branches. Read-only; exits 2 when it finds any |
 | `softory flow [--days 7] [--record]` | The process's numbers over the window: time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk. `--record` keeps a snapshot; the next report lists what got `worse` since. While sessions opened outside the runner worked in the window, the run numbers are left empty (`unmeasured`), since nothing logged them. Sage's check-in starts here |
@@ -188,7 +188,7 @@ For a story with UI, Darwin writes the spec under its design task, with the ques
 
 From 0.5.2, Emil Kowalski's design skills are in the catalog: `prototype` and `break-ui` for Darwin, and `emil-design-eng`, `review-animations`, and `remove-animations` for Jade. Pull them with `softory skills add --recommended`. `softory-design` says how each fits the lanes.
 
-From 0.5.3, UI build tasks wait until their story's design task is done. With `impeccable` installed (`softory skills add impeccable`), `softory verify` also runs its design detector on a UI task's changed files, and an error or warning blocks the close.
+From 0.5.3, UI build tasks wait until their story's design task is done. With `impeccable` installed (`softory skills add impeccable`), `softory verify` also runs its design detector on a UI task's changed files, and an error or warning on a line the task changed blocks the close (from 0.6.3, findings on lines it didn't change are only counted).
 
 ### Upgrading
 

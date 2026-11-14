@@ -78,9 +78,10 @@
     "max_wait_minutes": 60
   },
   "verify": {
-    "description": "softory verify runs command at the unit's commit, one at a time per project. setup, when set, runs first and its failure is a setup failure, not a test failure. share lists folders from the main checkout to bring in, cloned copy-on-write (share_mode clone) so an installer can't delete them; link is the 0.4 behaviour. keep lists globs copied out of the tree when a run fails.",
+    "description": "softory verify runs command at the unit's commit, one at a time per project. setup, when set, runs first and its failure is a setup failure, not a test failure. share lists folders from the main checkout to bring in, cloned copy-on-write (share_mode clone) so an installer can't delete them; link is the 0.4 behaviour. keep lists globs copied out of the tree when a run fails. A commit that passed is not tested again while these settings stay the same (softory verify --fresh forces it). retry, when set, is a command that reruns only what failed (pytest --lf, playwright test --last-failed); it runs once after a failure, and a pass then counts as a pass and is logged as a flake.",
     "command": "",
     "setup": "",
+    "retry": "",
     "timeout_minutes": 20,
     "share": [],
     "share_mode": "clone",

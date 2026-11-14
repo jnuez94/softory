@@ -64,7 +64,7 @@ class AutonomyTest(unittest.TestCase):
                                    "--actor", "quinn").stdout)
         self.assertEqual(needs["told"], ["greg", "quinn"])
         digest = json.loads(softory(self.root, "digest").stdout)["digest"]
-        self.assertTrue(any(row["key"] == "needs-STORY-1" for row in digest))
+        self.assertTrue(any(row["key"].startswith("needs-") and "STORY-1" in row["text"] for row in digest))
         self.assertNotIn("feasibility", json.loads(softory(self.root, "run", "--dry-run").stdout))
         self.approve({"environment": {"accounts": ["GitHub"], "devices": ["An unlocked Mac"]},  # the owner provides it
                       "run": {"roles": ["jade"]}})

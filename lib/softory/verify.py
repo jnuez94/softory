@@ -8,11 +8,17 @@ not something an agent wrote. ``lane_paths`` fails when the unit's own
 commits touch paths outside its lane, unless Quinn (or, when Quinn built it,
 Quinn's named backup) accepted it as cross-lane. Commits another unit's
 verified commit already holds are inherited, not the unit's own.
+
+A commit is tested once. A second ``softory verify`` at a commit that already
+passed with the same verify settings reuses that pass (``--fresh`` runs it
+again), and runs only the design detector when the unit still needs it. A
+failed entry is never reused, and a newer run always replaces an older one.
 """
 
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -50,6 +56,13 @@ def ledger(project: Project) -> dict[str, Any]:
         return {}
 
 
+def settings_key(settings: dict[str, Any]) -> str:
+    """A fingerprint of what decides a run's result besides the commit: the commands and the shared folders."""
+    parts = [settings.get("command") or "", settings.get("setup") or "", settings.get("retry") or "",
+             sorted(settings.get("share") or []), settings.get("share_mode") or "clone"]
+    return hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()[:12]
+
+
 def commit_of(root: Path, task: dict[str, Any]) -> str | None:
     """The full hash of the newest code evidence that names exactly one commit this repository has.
 
@@ -85,11 +98,12 @@ def _resolve(root: Path, candidate: str) -> str | None:
 
 
 def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id: str, actor: str,
-        commit: str | None = None) -> dict[str, Any]:
+        commit: str | None = None, fresh: bool = False) -> dict[str, Any]:
     """Run the verify command at the task's commit in a throwaway worktree, and record what happened.
 
     One verify runs at a time per project; the rest wait their turn. ``verify.setup``, when set, runs
-    first, and its failure is recorded as a setup failure, not a test failure.
+    first, and its failure is recorded as a setup failure, not a test failure. A pass already recorded
+    at this commit with the same settings is reused unless ``fresh``.
     """
     settings = charter["verify"]
     command = settings["command"]
@@ -111,7 +125,12 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
             found = design.unscanned(f"git can't diff {sha[:12]} against {charter['git']['base']}, so the "
                                      "unit's UI files are unknown")
         else:
-            scan = {"launcher": design.detector(project), "files": design.ui_files(files)}
+            ui = design.ui_files(files)
+            scan = {"launcher": design.detector(project), "files": ui,
+                    "lines": changed_lines(project.root, charter["git"]["base"], sha, _others(project, task_id), ui)}
+    previous = ledger(project).get(sha) or {}
+    if not fresh and previous.get("passed") and previous.get("settings") == settings_key(settings):
+        return _reuse(project, coord, task, sha, previous, scan, found, actor)
     with verifyenv.turn(project, task_id, actor):
         outcome = _run_in_tree(project, settings, task_id, sha, scan)
     tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
@@ -125,9 +144,12 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command, "by": actor,
              "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
              "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
-             "designs": dict(previous.get("designs") or {})}
+             "settings": settings_key(settings), "designs": dict(previous.get("designs") or {})}
     if outcome["stage"] == "setup":
         entry["setup_failed"] = True
+    if outcome.get("flaky"):
+        entry["flaky"] = True
+        _note_flake(project, task_id, sha, actor, outcome)
     if found and tests_passed:
         entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
     if not entry["designs"]:
@@ -150,7 +172,64 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
                              "with softory report.")
     if found:
         result["design"] = found
+    if outcome.get("flaky"):
+        result["flaky"] = (f"The first run failed and `{settings['retry']}` then passed: a flaky test. Its output is "
+                           f"in {outcome['flaky']}. If no open bug covers this flake, file one bug for it; "
+                           "don't file one per run.")
     return result
+
+
+def _reuse(project: Project, coord: Coordination, task: dict[str, Any], sha: str, previous: dict[str, Any],
+           scan: dict[str, Any] | None, found: dict[str, Any] | None, actor: str) -> dict[str, Any]:
+    """Answer a verify from the pass already recorded at this commit. The tests are the commit's, so they
+    don't run again; the design detector is one unit's, so it runs alone when this unit has no clean result."""
+    task_id = task["id"]
+    mine = (previous.get("designs") or {}).get(task_id)
+    if found is None and scan is not None and not (mine and mine["passed"]):
+        found = _scan_in_tree(project, sha, scan)
+    elif found is None and mine:
+        found = {"passed": True, "detail": mine["detail"]}
+    if found:
+        entries = ledger(project)
+        entry = entries.get(sha) or previous
+        entry.setdefault("designs", {})[task_id] = {"passed": found["passed"], "detail": found["detail"],
+                                                    "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        entries[sha] = entry
+        ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    passed = found is None or bool(found["passed"])
+    uri = f"softory-verify:{'pass' if passed else 'fail'}:{sha}"
+    if not any(str(row.get("uri", "")) == uri for row in live_evidence(task.get("evidence"))):
+        coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", "test", "--actor", actor)
+    result = {"task": task_id, "commit": sha, "passed": passed, "exit": previous.get("exit", 0),
+              "stage": "test" if passed else "design",
+              "reused": f"`{previous['command']}` already passed at {sha[:12]} ({previous['at']}, for "
+                        f"{previous['task']}), so the tests did not run again. --fresh runs them anyway."}
+    if found:
+        result["design"] = found
+    return result
+
+
+def _scan_in_tree(project: Project, sha: str, scan: dict[str, Any]) -> dict[str, Any]:
+    """The design detector alone, on the commit's files. No tests run, so it doesn't wait for the verify turn."""
+    place = Path(tempfile.mkdtemp(prefix="softory-verify-"))
+    tree = place / "tree"
+    worktree = _checkout(project.root, sha, tree)
+    if worktree is None:
+        shutil.rmtree(place, ignore_errors=True)
+        raise SoftoryError(f"git could check out {sha[:12]} neither as a worktree nor as an archive", "git_error")
+    try:
+        return design.scan(scan["launcher"], tree, scan["files"], scan.get("lines"))
+    finally:
+        if worktree:
+            git(project.root, "worktree", "remove", "--force", str(tree))
+        shutil.rmtree(place, ignore_errors=True)
+
+
+def _note_flake(project: Project, task_id: str, sha: str, actor: str, outcome: dict[str, Any]) -> None:
+    row = {"at": outcome["started"].isoformat(timespec="seconds"), "task": task_id, "commit": sha, "by": actor,
+           "log": outcome["flaky"]}
+    with (project.state / "flakes.jsonl").open("a", encoding="utf-8") as log:
+        log.write(json.dumps(row) + "\n")
 
 
 def run_at(project: Project, charter: dict[str, Any], sha: str, label: str, actor: str) -> dict[str, Any]:
@@ -161,6 +240,7 @@ def run_at(project: Project, charter: dict[str, Any], sha: str, label: str, acto
         entries = ledger(project)
         entries[sha] = {"task": label, "passed": outcome["code"] == 0 and outcome["stage"] == "test",
                         "exit": outcome["code"], "command": settings["command"], "by": actor, "stage": outcome["stage"],
+                        "settings": settings_key(settings),
                         "at": outcome["started"].isoformat(timespec="seconds"), "log": outcome["log"]}
         ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return entries[sha]
@@ -179,6 +259,7 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
     name = f"{task_id}-{sha[:12]}"
     shared, kept = {}, []
     found = None
+    flaky = None
     started = datetime.now(timezone.utc)
     try:
         for path in settings.get("share") or []:
@@ -193,8 +274,15 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
         if stage == "test":
             code, more = _shell(verifyenv.awake(settings["command"]), tree, timeout)
             output += more
+            if code not in (0, 124) and settings.get("retry"):  # one more try at what failed; a timeout isn't a flake
+                again, more = _shell(verifyenv.awake(settings["retry"]), tree, timeout)
+                if again == 0:
+                    first = out_dir / f"{name}.flake.log"
+                    first.write_text(output, encoding="utf-8")
+                    code, flaky = 0, str(first)
+                output += f"\n[softory] verify.retry exited {again}\n{more}"
         if stage == "test" and code == 0 and scan:
-            found = design.scan(scan["launcher"], tree, scan["files"])
+            found = design.scan(scan["launcher"], tree, scan["files"], scan.get("lines"))
             output += f"\n[softory] design detector: {found['detail']}\n"
         if code != 0:
             kept = verifyenv.keep_artifacts(tree, list(settings.get("keep") or []), out_dir / name)
@@ -206,7 +294,7 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
     # A failure keeps the whole log for whoever has to fix it; a pass keeps the tail.
     log.write_text(output if code != 0 else output[-200_000:], encoding="utf-8")
     return {"stage": stage, "code": code, "output": output, "log": str(log), "shared": shared, "kept": kept,
-            "started": started, "design": found}
+            "started": started, "design": found, "flaky": flaky}
 
 
 def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
@@ -257,11 +345,9 @@ def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None =
     A unit built on a branch that isn't merged yet would otherwise answer for every file
     the units below it changed (Tablet's TASK-34 failed on 166 paths it never touched).
     """
-    listed = git(root, "rev-list", sha, f"^{base}")
-    if listed.returncode != 0:
+    below = _below(root, base, sha, inherited)
+    if below is None:
         return None
-    mine = set(listed.stdout.split())
-    below = [f"^{c}" for c in dict.fromkeys(inherited or []) if c in mine and c != sha]
     plain = git(root, "log", "--no-merges", "--no-renames", "--name-only", "--format=", sha, f"^{base}", *below, "--")
     merges = git(root, "rev-list", "--merges", sha, f"^{base}", *below)
     if plain.returncode != 0 or merges.returncode != 0:
@@ -273,6 +359,44 @@ def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None =
             return None
         files |= changed
     return sorted(files)
+
+
+def _below(root: Path, base: str, sha: str, inherited: list[str] | None) -> list[str] | None:
+    """Exclusions for the commits under ``sha`` that other units own. None if git can't list the range."""
+    listed = git(root, "rev-list", sha, f"^{base}")
+    if listed.returncode != 0:
+        return None
+    mine = set(listed.stdout.split())
+    return [f"^{c}" for c in dict.fromkeys(inherited or []) if c in mine and c != sha]
+
+
+_BLAME = re.compile(r"^([0-9a-f]{40}) \d+ (\d+)")
+
+
+def changed_lines(root: Path, base: str, sha: str, inherited: list[str] | None,
+                  files: list[str]) -> dict[str, set[int] | None] | None:
+    """For each file, the line numbers at ``sha`` that the unit's own commits wrote. A file git can't blame
+    maps to None, and the whole answer is None when git can't list the unit's commits: both mean "every line"."""
+    below = _below(root, base, sha, inherited)
+    if below is None:
+        return None
+    listed = git(root, "rev-list", sha, f"^{base}", *below)
+    if listed.returncode != 0:
+        return None
+    own = set(listed.stdout.split())
+    lines: dict[str, set[int] | None] = {}
+    for path in files:
+        blamed = git(root, "blame", "--porcelain", sha, "--", path)
+        if blamed.returncode != 0:
+            lines[path] = None
+            continue
+        found = (_BLAME.match(row) for row in blamed.stdout.splitlines())
+        lines[path] = {int(m.group(2)) for m in found if m and m.group(1) in own}
+    return lines
+
+
+def _others(project: Project, task_id: str) -> list[str]:
+    return [c for c, entry in ledger(project).items() if entry.get("task") != task_id]
 
 
 def merge_changes(root: Path, merge: str) -> set[str] | None:
@@ -311,8 +435,7 @@ def merge_baselines(root: Path, merge: str) -> list[str] | None:
 
 def unit_files(project: Project, charter: dict[str, Any], task_id: str, sha: str) -> list[str] | None:
     """The files a unit's own commits change, reading past work other units verified."""
-    others = [c for c, entry in ledger(project).items() if entry.get("task") != task_id]
-    return changed_files(project.root, charter["git"]["base"], sha, others)
+    return changed_files(project.root, charter["git"]["base"], sha, _others(project, task_id))
 
 
 def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any], gates: dict[str, Any]) -> str:

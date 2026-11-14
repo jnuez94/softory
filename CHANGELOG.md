@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.3] - 2026-11-13
+
+Verify once per commit. Tablet repeated checks it had already passed: the same commit was tested once per unit that named it, a UI unit failed for findings in lines it never touched, and STORY-21 ran its feasibility check 44 times, once per bug.
+
+- **A commit that passed is not tested again.** `softory verify` at a commit whose ledger entry passed with the same verify settings (command, setup, retry, shared folders) reuses that pass and says so in `reused`. `--fresh` runs the tests anyway. A failed entry is never reused, a newer run always replaces an older one, and passes recorded before 0.6.3 are run once more because they don't name their settings.
+- **A reused pass runs only what the unit still needs.** When the design detector applies to the unit and has no clean result for it at that commit, verify runs the detector alone, with no tests and no wait for the verify turn.
+- **The design detector blocks only on lines the unit wrote.** A finding on a line the unit's own commits didn't change was there before the unit: it is counted in the result ("2 on lines this unit didn't change") and doesn't fail the verify. A finding with no line, or in a file git can't blame, still blocks.
+- **A flaky test costs one retry, not a round** (`verify.retry`, empty by default). Set it to a command that reruns only what failed (`pytest --lf`, `playwright test --last-failed`). After a failed run it runs once in the same tree; a pass then counts, the first run's output is kept, the result says `flaky` and asks for one bug per flake, and `.coordination/softory/flakes.jsonl` logs it. A timeout is not retried.
+- **A bug doesn't re-run its story's feasibility check.** The plan a verdict covers is the story and its tasks; a bug filed under the story repairs work the plan already holds. New tasks and changed requirements are still checked. Each open story with bugs is checked once more after the upgrade, because its plan fingerprint changes.
+- **The owner is asked once per missing thing.** The digest lists each provisioning request once with the stories that need it, instead of once per story.
+
 ## [0.6.2] - 2026-11-13
 
 Sessions the owner opens are first-class. Since 10 Nov, Tablet has run every role as a long-lived session with a heartbeat instead of runner runs, and softory hid work from those sessions. All from Tablet's BUG-157 and its related notes.
