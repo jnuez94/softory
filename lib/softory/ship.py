@@ -75,12 +75,13 @@ def waiting(project: Project, coord: Coordination, charter: dict[str, Any]) -> l
     recorded: dict[str, set[str]] = {}  # every commit an unclosed unit ever recorded, read once if needed
     found = []
     for task in tasks.values():
-        if task["id"] in seen or unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
+        if unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
             continue
         if not _closed(task) or parse_time(str(task.get("updated_at"))) < since_at:
             continue
         sha = approved.get(task["id"])  # the commit its gate passed at, never evidence added after it closed
-        if not sha or _contains(project.root, base, sha):
+        # Merged or held counts only for the commit it happened at: a unit closed again at a new one ships again.
+        if not sha or (seen.get(task["id"]) or {}).get("commit") == sha or _contains(project.root, base, sha):
             continue
         if not recorded:
             recorded.update(_recorded(project, coord, tasks))
@@ -173,14 +174,16 @@ def ship(project: Project, coord: Coordination, charter: dict[str, Any], dry_run
 
 
 def check_base(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, Any]:
-    """Verify the base head if it moved since the last check. A red base gets one priority 1 bug."""
+    """Verify the base head if softory verify never ran there, and record what the newest run says.
+    A red base gets one priority 1 bug; a passing retest at the same commit makes it green again."""
     data = ledger(project)
     state = data.get("base") or {}
     sha = head(project, charter["git"]["base"])
-    if state.get("sha") == sha:
+    green = _verified(project, coord, charter, sha, "base")  # read again each time: a retest at the same commit counts
+    if state.get("sha") == sha and state.get("green") == green:
         return state
-    green = _verified(project, coord, charter, sha, "base")
-    moved_outside = bool(state.get("sha")) and sha != data.get("last_candidate")
+    moved_outside = state.get("moved_outside") if state.get("sha") == sha else \
+        bool(state.get("sha")) and sha != data.get("last_candidate")
     state = {"sha": sha, "green": green, "checked_at": _now(), "bug": state.get("bug") if not green else None,
              "moved_outside": moved_outside and charter["merge"].get("by") == "softory"}
     if not green and not state["bug"]:

@@ -43,22 +43,29 @@ def findings(root: Path, base: str, sha: str, inherited: list[str], allow: list[
         return None
     mine = set(listed.stdout.split())
     below = [f"^{c}" for c in dict.fromkeys(inherited) if c in mine and c != sha]
-    shown = git(root, "log", "--no-merges", "--no-renames", "-p", "-U0", "--format=", sha, f"^{base}", *below, "--")
-    merges = git(root, "rev-list", "--merges", sha, f"^{base}", *below)
-    if shown.returncode != 0 or merges.returncode != 0:
+    scope = [sha, f"^{base}", *below]
+    shown = git(root, "log", "--no-merges", "--no-renames", "-p", "-U0", "--format=", *scope, "--")
+    names = git(root, "log", "--no-merges", "--no-renames", "--name-only", "--diff-filter=AM", "-z", "--format=",
+                *scope, "--")
+    merges = git(root, "rev-list", "--merges", *scope)
+    if shown.returncode != 0 or names.returncode != 0 or merges.returncode != 0:
         return None
-    patches = [shown.stdout]
+    patches, files = [shown.stdout], names.stdout
     for merge in merges.stdout.split():  # what a merge added itself, beyond git's automatic merge of its parents
         baselines = verify.merge_baselines(root, merge)
         if baselines is None:
             return None
         for against in baselines:
             added = git(root, "diff", "--no-renames", "-U0", against, merge, "--")
-            if added.returncode != 0:
+            named = git(root, "diff", "--no-renames", "--name-only", "--diff-filter=AM", "-z", against, merge, "--")
+            if added.returncode != 0 or named.returncode != 0:
                 return None
             patches.append(added.stdout)
+            files += named.stdout
+    # File names come from git's own list, not the patch text: a binary file (.p12, a DER .key) has no patch.
+    found = [f"{path}: a secret file is committed" for path in dict.fromkeys(files.replace("\n", "\0").split("\0"))
+             if path and _secret_file(path)]
     allowed = [re.compile(p) for p in allow]
-    found: list[str] = []
     for patch in patches:
         _scan(patch, allowed, found)
     return list(dict.fromkeys(found))
@@ -69,8 +76,6 @@ def _scan(patch: str, allowed: list[re.Pattern[str]], found: list[str]) -> None:
     for text in patch.splitlines():
         if text.startswith("+++ "):
             path = text[6:] if text.startswith("+++ b/") else ""
-            if path and _secret_file(path):
-                found.append(f"{path}: a secret file is committed")
             continue
         if text.startswith("@@"):
             match = re.search(r"\+(\d+)", text)

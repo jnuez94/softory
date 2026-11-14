@@ -102,7 +102,7 @@ With the charter's `merge.by` set to `softory`, nobody merges by hand and no rol
 
 After each merge, softory deploys the new base to every `auto` target in the charter (`deploy.targets`, for example a preview or staging environment) and runs the target's smoke test. A failure files a priority 1 bug.
 
-**Releases.** Gold opens a release when Greg asks for one: `softory new release --title "..."` records the base commit it ships. Gold attaches the rollback plan (`softory report RELEASE-n plan.md --type rollback`) and hands it off. Toby and Quinn review it, and Greg closes it once every target but production passed at that commit (`softory deploy staging --release RELEASE-n` if it never deployed). Production is the owner's: `softory deploy production --release RELEASE-n`, at a terminal, after the release closes.
+**Releases.** Gold opens a release when Greg asks for one: `softory new release --title "..."` records the base commit it ships. Gold attaches the rollback plan (`softory report RELEASE-n plan.md --type rollback`) and hands it off. Toby and Quinn review it with `--artifact <that commit>` (a sign-off covers one commit), and Greg closes it once every target but production passed at that commit (`softory deploy staging --release RELEASE-n` if it never deployed). Production is the owner's: `softory deploy production --release RELEASE-n`, at a terminal, after the release closes.
 
 ## Tasks from before softory
 

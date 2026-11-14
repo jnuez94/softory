@@ -18,6 +18,7 @@ from typing import Any, Callable
 from . import closed, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
+from .gate import latest_reviews
 from .gitlocal import git
 from .project import Project
 from .units import live_evidence, unit_of
@@ -158,7 +159,8 @@ def _full(project: Project, ref: str) -> str:
 
 def release_checks(project: Project, charter: dict[str, Any], task: dict[str, Any],
                    gates: dict[str, Any]) -> list[dict[str, Any]]:
-    """A release's own checks: a rollback plan, and a passing deploy to every target but production."""
+    """A release's own checks: a rollback plan, a passing deploy to every target but production, and
+    accepted reviews that name the commit it ships."""
     spec = (gates["units"].get("release") or {}).get("release") or {}
     kinds = set(spec.get("rollback_evidence") or ["rollback"])
     plans = [r for r in live_evidence(task.get("evidence")) if str(r.get("evidence_type", "")).lower() in kinds]
@@ -177,4 +179,15 @@ def release_checks(project: Project, charter: dict[str, Any], task: dict[str, An
                        "detail": f"not deployed and smoke-tested at {sha[:12]}: {', '.join(missing)}. Run softory "
                                  f"deploy <target> --release {task['id']}" if missing else
                                  f"{', '.join(staged)} passed at {sha[:12]}"})
+    if sha:  # a sign-off covers one commit: recording another one afterwards sends the release back to review
+        stale = sorted(who for who, review in latest_reviews(task).items()
+                       if "accepted" in str(review.get("decision")) and not _covers(project, review, sha))
+        result.append({"check": "reviews_cover_commit", "pass": not stale,
+                       "detail": f"accepted for another commit, not {sha[:12]}: {', '.join(stale)}. Each reviews again "
+                                 f"with --artifact {sha}" if stale else f"every accepted review names {sha[:12]}"})
     return result
+
+
+def _covers(project: Project, review: dict[str, Any], sha: str) -> bool:
+    named = verify._SHA.findall(str(review.get("artifact_uri") or "").lower())  # noqa: SLF001
+    return any(verify._resolve(project.root, candidate) == sha for candidate in named)  # noqa: SLF001

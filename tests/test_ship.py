@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +15,8 @@ from tests.helpers import REPO, coord, git_project, install, needs_sources, revi
 from tests.test_workflow import at_terminal, failing, gate, start
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import backups, leaks, parents, perms, runner  # noqa: E402
+from softory import backups, closed, leaks, parents, perms, runner  # noqa: E402
+from softory import verify as verifies  # noqa: E402
 from softory import charter as charters  # noqa: E402
 from softory import deploy as deploys  # noqa: E402
 from softory.coordination import Coordination  # noqa: E402
@@ -304,6 +306,44 @@ class ShipTest(unittest.TestCase):
         self.assertTrue(self.on_base("a.txt"))
         self.assertFalse(self.on_base("late.txt"))
 
+    def test_a_unit_closed_again_at_a_new_commit_ships_again(self) -> None:
+        task = self.deliver("A", {"a.txt": "a\n"})
+        self.assertEqual(self.ship()["merge"]["merged"], [task])
+        project = Project(self.root)
+        again = self.commit("again", {"a2.txt": "a2\n"})
+        softory(self.root, "verify", task, "--commit", again, "--actor", "gold")
+        closed.record(project, task, again, "gold")  # what a second softory close at a new commit records
+        self.assertEqual([u["commit"] for u in json.loads(softory(self.root, "ship", "--dry-run").stdout)["waiting"]],
+                         [again])
+        self.assertEqual(self.ship()["merge"]["merged"], [task])
+        self.assertTrue(self.on_base("a2.txt"))
+
+    def test_concurrent_closes_keep_both_records(self) -> None:
+        project = Project(self.root)
+        units = [f"TASK-{n}" for n in range(40)]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda unit: closed.record(project, unit, "c" * 40, "gold"), units))
+        self.assertEqual(set(closed.commits(project)), set(units))
+        self.assertEqual([p.name for p in project.state.glob("closed.json.*")], [])
+
+    def test_a_passing_retest_at_the_same_commit_clears_a_red_base(self) -> None:
+        flag = self.marks / "down"
+        (self.root / "check.sh").write_text(f"test ! -f {flag}\n")
+        run(["git", "add", "check.sh"], self.root)
+        run([*GIT, "commit", "-qm", "check the environment"], self.root)
+        task = self.deliver("A", {"a.txt": "a\n"})
+        flag.write_text("x\n")  # the environment is down, the code is fine
+        held = self.ship()
+        self.assertFalse(held["base_check"]["green"])
+        self.assertIn("the base is red", held["merge"]["waiting"])
+        flag.unlink()
+        project = Project(self.root)
+        sha = run(["git", "rev-parse", self.base], self.root).stdout.strip()
+        verifies.run_at(project, charters.load(project), sha, "base", "owner")  # the retest passes
+        shipped = self.ship()
+        self.assertTrue(shipped["base_check"]["green"])
+        self.assertEqual(shipped["merge"]["merged"], [task])
+
     def test_a_failing_batch_splits_and_the_unit_that_breaks_it_is_held(self) -> None:
         first = self.deliver("A", {"a.txt": "a\n"})
         second = self.deliver("C", {"c.txt": "c\n"})  # each passes alone; together they fail check.sh
@@ -354,6 +394,14 @@ class ShipTest(unittest.TestCase):
             coord(self.root, "review", "add", "--id", f"REV-{release}-{reviewer}", "--task", release, "--reviewer",
                   reviewer, "--artifact", made["commit"], "--scope", "release", "--decision", "accepted")
         greg = {"COORDINATION_SESSION": start(self.root, "greg")["COORDINATION_SESSION"]}
+        swap = self.commit("swap", {"s.txt": "s\n"})  # another commit recorded after both sign-offs
+        row = coord(self.root, "evidence", "add", "--task", release, "--uri", f"commit:{swap}", "--type", "commit",
+                    "--actor", "gold")["data"]
+        self.assertIn("reviews_cover_commit", failing(gate(self.root, release, "greg")))
+        self.assertFalse(json.loads(softory(self.root, "close", release, "--actor", "greg", env=greg,
+                                            check=False).stdout)["closed"])
+        softory(self.root, "supersede", release, str(row["id"]), "--reason", "not the release commit",
+                "--actor", "gold")
         self.assertTrue(json.loads(softory(self.root, "close", release, "--actor", "greg", env=greg).stdout)["closed"])
         self.charter({"deploy": {"targets": [{"name": "production", "command": "true"}]}})
         refused = softory(self.root, "deploy", "production", "--release", release, "--actor", "gold", check=False)
@@ -394,6 +442,18 @@ class ShipTest(unittest.TestCase):
         check = next(c for c in gate(self.root, task, "gold")["checks"] if c["check"] == "no_secrets")
         self.assertFalse(check["pass"])
         self.assertIn("settings.py:1: AWS access key", check["detail"])
+
+    def test_a_binary_key_bundle_fails_the_scan(self) -> None:
+        run(["git", "checkout", "-q", "-b", "bundle", self.base], self.root)
+        (self.root / "certs").mkdir()
+        (self.root / "certs" / "signing.p12").write_bytes(bytes(range(256)) * 4)  # git shows no patch for it
+        run(["git", "add", "certs/signing.p12"], self.root)
+        run([*GIT, "commit", "-qm", "bundle"], self.root)
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        run(["git", "checkout", "-q", self.base], self.root)
+        check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
+        self.assertFalse(check["pass"])
+        self.assertIn("certs/signing.p12: a secret file is committed", check["detail"])
 
     def test_a_base_git_cant_read_fails_the_scan(self) -> None:
         sha = self.commit("leak", {"settings.py": 'AWS = "AKIAABCDEFGHIJKLMNOP"\n'})
