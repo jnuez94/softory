@@ -25,6 +25,7 @@ from .units import (
     resolution_of,
     tag_value,
     tags_of,
+    targets_of,
     unit_of,
 )
 
@@ -59,7 +60,7 @@ def open_session(project: Project, coord: Coordination, role_id: str, harness: s
                  by_runner: bool = False) -> str:
     """Start a session for a role, remember it for commands whose shell lost the exports, and return its ID.
     ``by_runner``: the runner opened it, so it isn't logged as a start by some other scheduler."""
-    role = project.role(role_id)
+    role = project.member(role_id)
     if not model or not harness:  # usage and reviews compare models, so a session always names one
         pick = (charter.load(project).get("models") or {}).get(role_id) or {}
         harness = harness or pick.get("harness")
@@ -132,7 +133,15 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
         template = "task" if unit == "bug" else unit
         description = project.factory_file(f"templates/{template}.md").read_text(encoding="utf-8")
 
-    existing = [task["id"] for task in coord.all_tasks()]
+    everything = coord.all_tasks()
+    if unit == "review":
+        # Two workers under one Avery session each opened a record for the same task in Tablet (REVIEW-329, 330).
+        twin = next((t["id"] for t in everything if t["status"] != "done" and unit_of(t, gates) == "review"
+                     and assignee in (t.get("assignees") or []) and set(targets) & set(targets_of(t))), None)
+        if twin:
+            raise SoftoryError(f"{assignee} already has {twin} open for a task this review names. Continue that "
+                               "record, or close it first.", "conflict", {"existing": twin})
+    existing = [task["id"] for task in everything]
     for _attempt in range(5):
         task_id = next_id(spec["id_prefix"], existing)
         args = ["task", "create", "--id", task_id, "--title", options["title"], "--actor", actor,
@@ -524,6 +533,14 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         result["held"] = [{"id": i, "why": on_hold[i]} for i in mine_held]
     if scope is not None:
         result["scoped_to"] = sorted(scope)
+    if agent == feasibility.CHECKER:  # the runner won't start a check beside a live session, so the queue shows them
+        checks = [row for row in feasibility.due_rows(board, settings) if scope is None or row["story"] in scope]
+        if checks:
+            result["feasibility_due"] = checks
+    inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
+    unread = [m for m in (inbox.get("messages", []) if isinstance(inbox, dict) else inbox) if m.get("recipient") == agent]
+    if unread:
+        result["unread"] = {"count": len(unread), "read": "softory inbox"}
     return result
 
 

@@ -81,15 +81,15 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory drop <ID> --reason ... [--superseded-by ID] [--withdrawn]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision. `--withdrawn` marks a bug that turned out not to be a defect |
 | `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate, tests and lane included |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
-| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, your assigned work, and the verify queue |
-| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. The runner uses it each tick |
+| `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, your assigned work, unread messages sent to you, the verify queue, and for Quinn the feasibility checks that are due |
+| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. Its `state` says `work`, `running`, `paused`, or `idle`. The runner uses it each tick, and a session you opened uses it to check on itself |
 | `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
 | `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
 | `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
 | `softory handoff <ID>` | Moves your claimed unit to review once it has evidence and, for a `ui` unit, its check against the design reference. Refuses while untracked files that appeared during your claim sit in the main checkout |
 | `softory report <ID> <file> [--type T] [--keep]` | Files a report or screenshot under `.coordination/softory/evidence/<ID>/` and records it as evidence. An untracked file is moved, so the main checkout stays clean |
 | `softory workspace <role> [commit]` | The role's reusable checkout of a commit for reviews, with `verify.share` folders linked from the main checkout. A worktree where git allows it, a snapshot where a sandbox protects `.git` |
-| `softory reviewers <ID>` | Who must review it, and where each review stands |
+| `softory reviewers <ID>` | Who must review it, where each review stands, and who to `ask` when several may give it |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` / `close --ready` | Runs the gate, then moves it to done only if it passes. `--ready` closes every unit you may close that passes now |
 | `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one |
@@ -116,13 +116,13 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory answer <ESC> "<answer>"` | Answers an escalation, or replaces one that defaulted; the role that asked is told (owner, at a terminal) |
 | `softory settle <ID> retry\|split\|drop --reason ... [--into IDs]` | Quinn settles a unit stopped at the review cap: one more round (once per unit), a split, or a drop. The owner settles the rest with `--actor owner` |
 | `softory feasible <STORY> --pass \| --needs "..." [--plan <hash>]` | The feasibility check's verdict, for the plan it read. Until a pass, the story's todo tasks wait; a new task or changed requirements after a pass are checked again; needs becomes a provisioning request in your digest |
-| `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task |
+| `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task. In attended mode a pause stops only the runner: sessions you opened keep seeing their work |
 | `softory ship [--dry-run]` | Checks the base (a red base gets a priority 1 bug), merges finished units on green as one candidate commit, and deploys the result to the `auto` targets. The runner starts it each tick; `--dry-run` lists what waits to merge |
 | `softory deploy <target> [--release ID] [--commit sha]` | Deploys a tested commit to one of the charter's targets and runs its smoke test. `production` takes a closed release, by you at a terminal |
 | `softory verify <ID>` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
 | `softory clutter [--idle-days 14]` | Lists untracked files, archives (ignored folders included), duplicate archives, extra worktrees, and merged or idle branches. Read-only; exits 2 when it finds any |
-| `softory flow [--days 7] [--record]` | The process's numbers over the window: time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk. `--record` keeps a snapshot; the next report lists what got `worse` since. Sage's check-in starts here |
+| `softory flow [--days 7] [--record]` | The process's numbers over the window: time to delivery, review rounds, runs, minutes, tokens and dollars per delivered unit, the share of runs that changed nothing, and disk. `--record` keeps a snapshot; the next report lists what got `worse` since. While sessions opened outside the runner worked in the window, the run numbers are left empty (`unmeasured`), since nothing logged them. Sage's check-in starts here |
 | `softory gc [--days 14] [--dry-run]` | Removes workspaces unused for that long, old run and verify logs, and verify trees a crashed run left in the temp folder |
 | `softory attach` | Watch attended runs: attaches to the tmux session where each running role has a window, or says where they open |
 | `softory doctor` / `roles` / `sync` / `uninstall [--purge]` | Maintenance |
@@ -160,6 +160,15 @@ Each run is shaped to waste as little as possible:
  Claude Code roles get a settings file that allows edits only in their lane's paths; Codex runs in its workspace-write sandbox. Either way, the gate's `lane_paths` check fails a unit whose own commits reach outside the lane (work below it that another unit verified doesn't count against it), unless it's tagged `cross-lane` and Quinn accepted it, or Jade or Gold when Quinn built it, and `verified` needs `softory verify` to have passed at the commit.
 
 A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops, and Quinn settles it: one more round (once per unit), a split, or a drop. You see what he chose in the digest; a unit Quinn built, or one whose extra round is spent, comes to you. Review records never count, and the first request whose every item is labelled `evidence:` is free (`free_evidence_rounds`). The digest also flags an open unit whose record changed `waste.revision` times (default 30) without closing, a sign a role is looping on its own tooling. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
+
+### Sessions you open yourself (0.6.2)
+
+You can also run the team as sessions you open in the Claude or Codex app, each checking in on a timer, with no runner starting anything. Set `run.mode` to `attended` and, if a runner is loaded, `softory pause` it. Each session runs `softory pending <role>` and works when it exits 0.
+
+- A pause then stops only the runner. A session checking on itself still hears about its work; `softory resume --task` still narrows a role to named tasks.
+- A session sees every unread message sent to its role, tagged or not, and Quinn's session sees the feasibility checks that are due and runs each with `softory run-check STORY-n`.
+- Softory can't see what these sessions cost. `softory usage`, the budget caps, and the run numbers in `softory flow` cover runner runs only, and `softory flow` says so instead of showing partial numbers.
+- An agent with a stand-in grant, such as a second reviewer, starts with `softory start <agent>` like any role.
 
 ### What doesn't wait for you (0.5.0)
 

@@ -29,6 +29,8 @@ from .errors import SoftoryError
 from .project import Project
 from .units import live_evidence, parent_of, unit_of
 
+#: The role whose fresh run gives the verdict.
+CHECKER = "quinn"
 MARK = "softory-feasibility:"
 MAX_NEED = 200
 
@@ -93,6 +95,16 @@ def due(board: Any, charter: dict[str, Any]) -> list[str]:
         if record is None or record["plan"] != _current(board, summary["id"], charter):
             found.append(summary["id"])  # never checked, or the plan changed since its verdict: check again
     return found
+
+
+def due_rows(board: Any, charter: dict[str, Any]) -> list[dict[str, Any]]:
+    """Each due check with the plan it would read and the plan the last verdict covered, for Quinn's queue."""
+    rows = []
+    for story in due(board, charter):
+        last = latest(board.show(story)) or {}
+        rows.append({"story": story, "plan": _current(board, story, charter), "checked_plan": last.get("plan"),
+                     "last_verdict": last.get("verdict"), "run": f"softory run-check {story}"})
+    return rows
 
 
 def held(board: Any, charter: dict[str, Any]) -> set[str]:

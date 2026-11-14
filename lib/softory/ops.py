@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -107,7 +108,8 @@ def _scheduler_warnings(project: Project) -> list[str]:
                         "softory setup --load-schedule. Until then roles start only when someone starts them.")
     elif last is None or (watch.parse_time(last) < datetime.now(timezone.utc) - timedelta(minutes=30)):
         warnings.append(f"The scheduler is loaded but the runner last ticked at {last or 'never'}; check run/runner.log.")
-    manual = runstate.manual_starts(project)
+    # In attended mode the owner opens sessions on purpose, so they aren't a second scheduler to warn about.
+    manual = [] if charters.load(project)["run"].get("mode") == "attended" else runstate.manual_starts(project)
     if manual:
         roles = sorted({row["role"] for row in manual})
         warnings.append(f"{len(manual)} session(s) in the last day started outside the runner ({', '.join(roles)}). "
@@ -169,8 +171,23 @@ def coord(project: Project, args: list[str]) -> int:
         found = sessions.recall(project, role, sessions.open_check(Coordination(binary, project.root)))
         if found:
             args = ["--session", found, *args]
+    args = _without_refused_actor(binary, args)
     os.execv(binary, [binary, *args])
     return 0  # unreachable
+
+
+def _without_refused_actor(binary: str, args: list[str]) -> list[str]:
+    """Drop ``--actor <role>`` from a command whose CLI doesn't take it. The operating loop tells harnesses to
+    pass ``--actor <role>`` to softory, which uses it to find the role's session; forwarded to a read command
+    it was refused, five times in a row for Greg in Tablet. The command's own help says whether it takes one."""
+    if "--actor" not in args[:-1]:
+        return args
+    words = [a for i, a in enumerate(args) if not a.startswith("-") and (i == 0 or args[i - 1] not in {*_GLOBAL_VALUES, "--actor"})]
+    usage = subprocess.run([binary, *words[:2], "--help"], capture_output=True, text=True, check=False).stdout  # noqa: S603
+    if not usage or "--actor" in usage:
+        return args
+    at = args.index("--actor")
+    return args[:at] + args[at + 2:]
 
 
 #: The coordination CLI's global options that take a value. Every ``task release`` option takes one.

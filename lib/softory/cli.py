@@ -308,7 +308,9 @@ def _dispatch(args: argparse.Namespace) -> int:
         options = vars(args).copy()
         if args.description_file:
             options["description"] = Path(args.description_file).read_text(encoding="utf-8")
-        print(ops.dumps(work.new_unit(project, coord, args.unit, options)), end="")
+        made = work.new_unit(project, coord, args.unit, options)
+        # The ID goes last, so a caller that reads only the tail of the output still gets the right one.
+        print(ops.dumps({**{k: v for k, v in made.items() if k != "id"}, "id": made["id"]}), end="")
     elif args.command == "tree":
         print(work.tree(project, coord, args.id, args.all), end="")
     elif args.command == "adopt":
