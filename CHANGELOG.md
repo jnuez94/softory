@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.4] - 2026-11-13
+
+Records that refuse wrong input. Tablet's records took what they were given: a message under another role's name, a review of a commit that didn't exist, one question to the owner filed twice, and 150 decisions that were only corrections. The owner's approval in a session, on the other hand, could not be recorded at all.
+
+- **A message or review can't be filed under another role's name.** `softory coord message send` and `softory coord review add` refuse a `--sender` or `--reviewer` other than the calling role (`SOFTORY_ROLE`, which `softory start` exports) and name the fix. A shell that dropped the variable can't be checked this way; the scaffold's session check still applies there. Jade sent a message as Avery by mistake.
+- **A review names a commit git has.** `softory coord review add` refuses an `--artifact` whose `commit:`, `head=`, or `base=` hash, or a bare hash, isn't a commit in the repository. An artifact that is a file or a link passes as before.
+- **The owner's word in a session counts** (`softory ruling --review <ID>` and `--escalation <ESC>`). A ruling that names a unit is also recorded as the owner's accepted review of it, at the unit's commit, naming the ruling, who recorded it, and where the owner said it. A ruling that names an open escalation closes it and tells whoever raised it. The owner's digest lists both for a day with how to replace them. A role still can't write a review under the owner's name any other way. In Tablet the owner's chat approval of TASK-91 could not pass the owner-review gate, and an escalation answered in a session stayed open for days.
+- **The owner isn't asked the same question twice.** `softory escalate` refuses a question that an open escalation already asks, and returns that escalation's ID. Darwin's 24px question was filed twice, five seconds apart.
+- **A correction writes no decision.** `softory supersede` keeps its reason on the retracting evidence row. The decision log is for decisions again; 150 of Tablet's 250 were corrections.
+- **A lost race in the database's path check is run once more.** SQLite removes its `-wal` and `-shm` files when the last connection closes, and the scaffold's check sometimes looked in between and failed. Softory, and `softory coord`, run the command once more when that is the error; nothing was read or written by then. The fix belongs in the scaffold (1.4.3).
+
 ## [0.6.3] - 2026-11-13
 
 Verify once per commit. Tablet repeated checks it had already passed: the same commit was tested once per unit that named it, a UI unit failed for findings in lines it never touched, and STORY-21 ran its feasibility check 44 times, once per bug.

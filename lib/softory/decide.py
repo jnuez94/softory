@@ -142,6 +142,44 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
     return {"escalation": escalation_id, "decision": decision, "reversed_default": reversing}
 
 
+def open_escalation(coord: Coordination, escalation_id: str) -> dict[str, Any]:
+    """The escalation, if it still waits for an answer; an error that says why otherwise."""
+    shown = coord.call("escalation", "show", escalation_id)
+    if not shown.get("ok"):
+        raise SoftoryError(f"No escalation {escalation_id}", "not_found")
+    if shown["data"].get("status") not in ("open", "in_review"):
+        raise SoftoryError(f"{escalation_id} is already {shown['data'].get('status')}; only the owner replaces an "
+                           "answer, with softory answer", "conflict")
+    return shown["data"]
+
+
+def close_as_told(project: Project, coord: Coordination, escalation: dict[str, Any], text: str, decision: str,
+                  recorded_by: str) -> None:
+    """Close an open escalation with the answer the owner gave in chat, which ``recorded_by`` wrote down as
+    ruling ``decision``. In Tablet an escalation the owner had answered in a session stayed open for days."""
+    owner = project.roster()["owner"]["id"]
+    escalation_id = escalation["id"]
+    row = recommendations(project).get(escalation_id, {})
+    coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
+              "--because", f"decision:{decision}")
+    _tell(coord, owner, row.get("raised_by") or escalation.get("raised_by"),
+          f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
+          f"The owner answered {escalation_id} (recorded by {recorded_by}): {text}")
+    with _editing(project, "escalations.json") as rows:
+        if escalation_id in rows:
+            rows[escalation_id]["settled"] = "answered"
+
+
+def note_on_behalf(project: Project, row: dict[str, Any]) -> None:
+    """Log what a role recorded as the owner's word that changed more than a record, for the owner's digest."""
+    with (state_dir(project) / "on-behalf.jsonl").open("a", encoding="utf-8") as log:
+        log.write(json.dumps({"at": _now().isoformat(timespec="seconds"), **row}) + "\n")
+
+
+def recent_on_behalf(project: Project, hours: float = 24) -> list[dict[str, Any]]:
+    return _recent(project, "on-behalf.jsonl", hours)
+
+
 def _tell(coord: Coordination, sender: str, recipient: str | None, message_id: str, body: str) -> None:
     if recipient and not coord.call("message", "show", message_id).get("ok"):
         coord.call("message", "send", "--id", message_id, "--sender", sender, "--recipient", recipient,
@@ -222,9 +260,13 @@ def _log(project: Project, task_id: str, action: str, actor: str, reason: str) -
 
 
 def recent_settlements(project: Project, hours: float = 24) -> list[dict[str, Any]]:
+    return _recent(project, "settlements.jsonl", hours)
+
+
+def _recent(project: Project, name: str, hours: float) -> list[dict[str, Any]]:
     since = _now() - timedelta(hours=hours)
     try:
-        lines = (state_dir(project) / "settlements.jsonl").read_text(encoding="utf-8").splitlines()
+        lines = (state_dir(project) / name).read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
     rows = []

@@ -153,6 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--decision", required=True, help="What the owner decided")
     p.add_argument("--where", required=True, help="Where the owner said it: a thread, message, or date")
     p.add_argument("--context", help="Background")
+    p.add_argument("--review", metavar="ID", help="Also record it as the owner's accepted review of this unit")
+    p.add_argument("--escalation", metavar="ESC", help="Also close this open escalation with it")
     p.add_argument("--actor", help="Who records it (default: $SOFTORY_ROLE)")
 
     p = sub.add_parser("drop", help="Close a unit nobody will build, as won't do or superseded")
@@ -363,7 +365,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps(owner.approve(project, coord, _split(args.proposal), args.reject, args.every)), end="")
     elif args.command == "ruling":
         actor = work.actor_of(args.actor)
-        result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor)
+        result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor,
+                              args.review, args.escalation)
         print(ops.dumps(result), end="")
     elif args.command == "drop":
         result = lifecycle.drop(project, coord, args.id, args.reason, args.superseded_by, work.actor_of(args.actor),
