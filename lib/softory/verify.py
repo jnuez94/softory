@@ -50,6 +50,17 @@ def ledger(project: Project) -> dict[str, Any]:
         return {}
 
 
+def current(project: Project, charter: dict[str, Any], sha: str | None) -> dict[str, Any] | None:
+    """The ledger entry for ``sha`` if it ran the tests the charter names now. A result from an older
+    ``verify.command`` or ``verify.setup`` says nothing about today's tests, so it reads as never run."""
+    entry = ledger(project).get(sha or "")
+    settings = charter["verify"]
+    setup = settings.get("setup") or ""
+    if not entry or entry.get("command") != settings.get("command") or entry.get("setup", setup) != setup:
+        return None
+    return entry
+
+
 def commit_of(root: Path, task: dict[str, Any]) -> str | None:
     """The full hash of the newest code evidence that names exactly one commit this repository has.
 
@@ -122,7 +133,8 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     entries = ledger(project)
     previous = entries.get(sha) or {}
     # The tests are the commit's; a design result is one unit's, so another unit's run at this commit keeps it.
-    entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command, "by": actor,
+    entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command,
+             "setup": settings.get("setup") or "", "by": actor,
              "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
              "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
              "designs": dict(previous.get("designs") or {})}
@@ -160,7 +172,8 @@ def run_at(project: Project, charter: dict[str, Any], sha: str, label: str, acto
         outcome = _run_in_tree(project, settings, label, sha)
         entries = ledger(project)
         entries[sha] = {"task": label, "passed": outcome["code"] == 0 and outcome["stage"] == "test",
-                        "exit": outcome["code"], "command": settings["command"], "by": actor, "stage": outcome["stage"],
+                        "exit": outcome["code"], "command": settings["command"], "setup": settings.get("setup") or "",
+                        "by": actor, "stage": outcome["stage"],
                         "at": outcome["started"].isoformat(timespec="seconds"), "log": outcome["log"]}
         ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return entries[sha]
@@ -319,7 +332,7 @@ def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any],
     """'passed', 'failed', or 'not run' at the unit's commit; 'n/a' when the charter has no tests or it isn't code."""
     if not charter["verify"]["command"] or not needs_tests(task, gates):
         return "n/a"
-    entry = ledger(project).get(commit_of(project.root, task) or "")
+    entry = current(project, charter, commit_of(project.root, task))
     if not entry:
         return "not run"
     if entry.get("setup_failed"):
@@ -363,7 +376,7 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
         return []
     sha = commit_of(project.root, task)
     if command and lane_of(task) not in NO_TEST_LANES:
-        entry = ledger(project).get(sha or "")
+        entry = current(project, charter, sha)
         if not sha:
             result.append(_check("verified", False, "no commit evidence with a hash this repository has"))
         elif not entry:

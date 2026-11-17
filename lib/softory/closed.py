@@ -32,12 +32,17 @@ def path(project: Project) -> Path:
     return project.state / "closed.json"
 
 
-def commits(project: Project) -> dict[str, str]:
-    """Unit id to the commit it closed at."""
+def entries(project: Project) -> dict[str, dict[str, str]]:
+    """Unit id to ``{"commit", "by", "at"}``: the commit it closed at, who closed it, and when."""
     try:
-        return {unit: row["commit"] for unit, row in json.loads(path(project).read_text(encoding="utf-8")).items()}
+        return json.loads(path(project).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def commits(project: Project) -> dict[str, str]:
+    """Unit id to the commit it closed at."""
+    return {unit: row["commit"] for unit, row in entries(project).items()}
 
 
 def record(project: Project, unit: str, commit: str | None, actor: str) -> None:

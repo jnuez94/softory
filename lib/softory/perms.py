@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .errors import SoftoryError
+from .gitlocal import git
 from .project import Project
 from .runstate import state_dir
 
@@ -56,20 +58,40 @@ def settings_for(charter: dict[str, Any], role: str) -> dict[str, Any]:
     paths = role_paths(charter, role)
     edit = ["Edit", "Write"] if paths is None else [f"{tool}(./{glob})" for glob in paths for tool in ("Edit", "Write")]
     extra = charter.get("permissions") or {}
-    bash = [*COMMON_BASH, *([charter["verify"]["command"]] if charter["verify"].get("command") else []),
-            *(extra.get("allow_bash") or [])]
+    guarded = base_pushes(charter)
+    bash = [*(c for c in COMMON_BASH if c not in guarded),
+            *([charter["verify"]["command"]] if charter["verify"].get("command") else []), *(extra.get("allow_bash") or [])]
     allow = ["Read", "Grep", "Glob", "TodoWrite", *edit, *(f"Bash({command} *)" for command in bash)]
     deny = [*(f"{tool}(./{path})" for path in NEVER_EDIT for tool in ("Edit", "Write")), "Read(./.env*)",
-            *(f"Bash({command} *)" for command in [*(extra.get("deny_bash") or []), *base_pushes(charter)])]
+            *(f"Bash({command} *)" for command in [*(extra.get("deny_bash") or []), *guarded])]
     return {"permissions": {"defaultMode": "default", "allow": allow, "deny": deny}}
 
 
 def base_pushes(charter: dict[str, Any]) -> list[str]:
-    """With softory merging, only softory ship moves the base: roles may push their own branches, not it."""
-    if (charter.get("merge") or {}).get("by") != "softory":
-        return []
-    base, remote = charter["git"]["base"], (charter.get("merge") or {}).get("push") or "origin"
-    return [f"git push {remote} {base}", f"git push {remote} HEAD:{base}", f"git push {remote} :{base}"]
+    """With softory merging, only softory ship moves the base. ``git push`` has too many spellings of a
+    destination to deny one by one (``-u origin main``, ``HEAD:refs/heads/main``), so roles lose the
+    command and push their branches with ``softory push``, which checks where the push lands."""
+    return ["git push"] if (charter.get("merge") or {}).get("by") == "softory" else []
+
+
+def push(project: Project, charter: dict[str, Any], branch: str | None, remote: str | None) -> dict[str, Any]:
+    """Push one local branch to the same name on a configured remote. Never the base branch."""
+    root = project.root
+    branch = branch or git(root, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
+    ref = f"refs/heads/{branch}"
+    if not branch or git(root, "show-ref", "--verify", "--quiet", ref).returncode != 0:
+        raise SoftoryError(f"{branch or 'A detached HEAD'} is not a local branch; name the branch to push", "not_found")
+    base = git(root, "rev-parse", "--symbolic-full-name", charter["git"]["base"]).stdout.strip()
+    if ref in (base, f"refs/heads/{charter['git']['base']}"):
+        raise SoftoryError(f"{branch} is the base branch: the owner or softory ship moves it, never a role",
+                           "not_allowed")
+    remote = remote or (charter.get("merge") or {}).get("push") or "origin"
+    if remote not in git(root, "remote").stdout.split():
+        raise SoftoryError(f"{remote} is not a remote of this repository", "not_found")
+    done = git(root, "push", "--quiet", "-u", remote, f"{ref}:{ref}")
+    if done.returncode != 0:
+        raise SoftoryError(f"git push failed: {done.stderr.strip()[:300]}", "git_error")
+    return {"pushed": branch, "remote": remote, "commit": git(root, "rev-parse", ref).stdout.strip()}
 
 
 def write_settings(project: Project, charter: dict[str, Any], role: str) -> Path:

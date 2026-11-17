@@ -71,22 +71,24 @@ def waiting(project: Project, coord: Coordination, charter: dict[str, Any]) -> l
     base = charter["git"]["base"]
     gates = project.gates()
     tasks = {task["id"]: task for task in coord.all_tasks()}
-    approved = closed.commits(project)
+    closes = closed.entries(project)
+    approved = {unit: row["commit"] for unit, row in closes.items()}
     recorded: dict[str, set[str]] = {}  # every commit an unclosed unit ever recorded, read once if needed
     found = []
     for task in tasks.values():
         if unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
             continue
-        if not _closed(task) or parse_time(str(task.get("updated_at"))) < since_at:
+        # When it closed comes from the close record: the task's updated_at moves with any later edit to it.
+        if not _closed(task) or task["id"] not in closes or parse_time(closes[task["id"]]["at"]) < since_at:
             continue
-        sha = approved.get(task["id"])  # the commit its gate passed at, never evidence added after it closed
+        sha = approved[task["id"]]  # the commit its gate passed at, never evidence added after it closed
         # Merged or held counts only for the commit it happened at: a unit closed again at a new one ships again.
-        if not sha or (seen.get(task["id"]) or {}).get("commit") == sha or _contains(project.root, base, sha):
+        if (seen.get(task["id"]) or {}).get("commit") == sha or _contains(project.root, base, sha):
             continue
         if not recorded:
             recorded.update(_recorded(project, coord, tasks))
         found.append({"id": task["id"], "title": task["title"], "commit": sha, "lane": lane_of(task),
-                      "closed": task.get("updated_at"),
+                      "closed": closes[task["id"]]["at"],
                       "waits_on": open_below(project, coord, base, sha, task["id"], tasks, approved, recorded)})
     return sorted(found, key=lambda row: (row["closed"] or "", row["id"]))
 
@@ -279,11 +281,10 @@ def build_candidate(project: Project, base_sha: str, units: list[dict[str, Any]]
 
 
 def _verified(project: Project, coord: Coordination, charter: dict[str, Any], sha: str, label: str) -> bool:
-    """Whether softory verify passed at ``sha``, running it once if it never ran there."""
-    entry = verify.ledger(project).get(sha)
+    """Whether softory verify passed at ``sha`` with the charter's current tests, running them if it hasn't."""
+    entry = verify.current(project, charter, sha)
     if entry is None:
-        verify.run_at(project, charter, sha, label, project.roster()["owner"]["id"])
-        entry = verify.ledger(project).get(sha) or {}
+        entry = verify.run_at(project, charter, sha, label, project.roster()["owner"]["id"])
     return bool(entry.get("passed"))
 
 

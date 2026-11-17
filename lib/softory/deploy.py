@@ -101,9 +101,10 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
         if confirm is None:
             raise SoftoryError("Only the owner deploys to production, at a terminal", "not_allowed")
         confirm(f"Deploy {release} ({sha[:12]}) to production?")
-    entry = verify.ledger(project).get(sha) or {}
+    entry = verify.current(project, charter, sha) or {}
     if not entry.get("passed"):
-        raise SoftoryError(f"softory verify hasn't passed at {sha[:12]}; deploy only tested commits", "not_verified")
+        raise SoftoryError(f"softory verify hasn't passed at {sha[:12]} with the charter's current tests; deploy "
+                           "only tested commits", "not_verified")
     with verifyenv.turn(project, f"deploy:{name}", actor):
         outcome = _deploy(project, charter, target, sha)
     row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
