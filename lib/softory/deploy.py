@@ -107,10 +107,11 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
                            "only tested commits", "not_verified")
     with verifyenv.turn(project, f"deploy:{name}", actor):
         outcome = _deploy(project, charter, target, sha)
-    row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
-           "release": release, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "log": outcome["log"]}
-    with log_path(project).open("a", encoding="utf-8") as out:
-        out.write(json.dumps(row) + "\n")
+        row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
+               "release": release, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "log": outcome["log"]}
+        with log_path(project).open("a", encoding="utf-8") as out:  # inside the lock: rows are in the order run
+            out.write(json.dumps(row) + "\n")
     if release:
         verdict = "pass" if outcome["passed"] else "fail"
         coord.run("evidence", "add", "--task", release, "--uri", f"softory-deploy:{name}:{verdict}:{sha}",

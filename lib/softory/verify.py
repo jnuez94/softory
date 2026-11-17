@@ -17,8 +17,10 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -248,19 +250,39 @@ def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
 
 
 def _shell(command: str, cwd: Path, timeout: float, extra: dict[str, str] | None = None) -> tuple[int, str]:
+    """Run the owner's command in its own process group. On a timeout the whole group is stopped and
+    reaped before this returns, so no child outlives the checkout or the lock its caller holds."""
     env = {**{k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)}, **(extra or {})}
+    run = subprocess.Popen(command, shell=True, cwd=cwd, stdout=subprocess.PIPE,  # noqa: S602 - owner's command
+                           stderr=subprocess.STDOUT, text=True, env=env, start_new_session=True)
     try:
-        done = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True,  # noqa: S602 - owner's command
-                              timeout=timeout, check=False, env=env)
-        return done.returncode, done.stdout + done.stderr
-    except subprocess.TimeoutExpired as error:
-        return 124, f"{_text(error.stdout)}{_text(error.stderr)}\n(timed out)"
+        output, _ = run.communicate(timeout=timeout)
+        return run.returncode, output
+    except subprocess.TimeoutExpired:
+        for sign, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
+            try:
+                os.killpg(run.pid, sign)
+            except ProcessLookupError:
+                break
+            try:
+                run.wait(timeout=wait)
+            except subprocess.TimeoutExpired:
+                continue
+            if not _group_alive(run.pid):
+                break
+        output, _ = run.communicate()
+        ends = time.monotonic() + 5
+        while _group_alive(run.pid) and time.monotonic() < ends:  # killed children still being reaped
+            time.sleep(0.05)
+        return 124, f"{output}\n(timed out)"
 
 
-def _text(value: Any) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value or ""
+def _group_alive(group: int) -> bool:
+    try:
+        os.killpg(group, 0)
+    except OSError:
+        return False
+    return True
 
 
 def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None = None) -> list[str] | None:

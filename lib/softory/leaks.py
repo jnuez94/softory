@@ -71,16 +71,25 @@ def findings(root: Path, base: str, sha: str, inherited: list[str], allow: list[
     return list(dict.fromkeys(found))
 
 
+_HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
 def _scan(patch: str, allowed: list[re.Pattern[str]], found: list[str]) -> None:
-    path, line = "", 0
-    for text in patch.splitlines():
-        if text.startswith("+++ "):
-            path = text[6:] if text.startswith("+++ b/") else ""
+    """Check each added line. A hunk header says how many lines it holds, and only outside a hunk is
+    ``+++ `` a file header: inside one it is an added line that starts with ``++`` (C's ``++ counter;``)."""
+    path, line, left = "", 0, 0
+    for text in patch.split("\n"):  # not splitlines: a form feed inside a line is no line break
+        if left == 0:
+            hunk = _HUNK.match(text)
+            if hunk:
+                left = int(hunk.group(1) or 1) + int(hunk.group(3) or 1)
+                line = int(hunk.group(2))
+            elif text.startswith("+++ "):
+                path = text[6:] if text.startswith("+++ b/") else ""
             continue
-        if text.startswith("@@"):
-            match = re.search(r"\+(\d+)", text)
-            line = int(match.group(1)) if match else 0
+        if text.startswith("\\"):  # "\ No newline at end of file" is no line of the hunk
             continue
+        left -= 1
         if not text.startswith("+") or not path:
             continue
         kind = _kind(text[1:], allowed)

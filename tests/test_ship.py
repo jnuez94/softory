@@ -313,6 +313,36 @@ class ShipTest(unittest.TestCase):
         self.assertEqual(self.ship()["merge"], {"merged": []})
         self.assertFalse(self.on_base("a.txt"))
 
+    def test_a_timed_out_deploy_leaves_no_child_running(self) -> None:
+        late = self.marks / "late"
+        self.ship()
+        self.charter({"deploy": {"targets": [{"name": "slow", "timeout_minutes": 0.02,  # 1.2 seconds
+                                              "command": f"(sleep 3; touch {late}) && echo done"}]}})
+        project = Project(self.root)
+        row = deploys.run(project, Coordination(project.coordination_bin, self.root), charters.load(project), "slow",
+                          "gold")
+        self.assertFalse(row["passed"])
+        time.sleep(3)
+        self.assertFalse(late.exists())  # the child was stopped with its shell, before the lock was released
+
+    def test_deploy_rows_are_logged_in_the_order_they_ran(self) -> None:
+        self.ship()
+        gate_file = self.marks / "fail-next"
+        self.charter({"deploy": {"targets": [{"name": "staging", "command": f"sleep 1; test ! -f {gate_file}"}]}})
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+
+        def deploy(_n: int) -> bool:
+            row = deploys.run(project, board, charters.load(project), "staging", "gold")
+            gate_file.write_text("x\n")  # whoever runs second fails
+            return row["passed"]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(sorted(pool.map(deploy, range(2))), [False, True])
+        rows = deploys.history(project)
+        self.assertEqual([r["passed"] for r in rows[-2:]], [True, False])  # the failure ran last and is logged last
+        self.assertFalse(deploys.passed_at(project, "staging", rows[-1]["commit"]))
+
     def test_a_paused_project_doesnt_ship(self) -> None:
         self.deliver("A", {"a.txt": "a\n"})
         project = Project(self.root)
@@ -498,6 +528,12 @@ class ShipTest(unittest.TestCase):
         check = next(c for c in gate(self.root, task, "gold")["checks"] if c["check"] == "no_secrets")
         self.assertFalse(check["pass"])
         self.assertIn("settings.py:1: AWS access key", check["detail"])
+
+    def test_an_added_line_that_looks_like_a_header_doesnt_hide_a_key(self) -> None:
+        sha = self.commit("cpp", {"count.cc": 'int main() {\n++ counter;\n-- other;\nauto k = "AKIAABCDEFGHIJKLMNOP";\n}\n'})
+        check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
+        self.assertFalse(check["pass"])
+        self.assertIn("count.cc:4: AWS access key", check["detail"])
 
     def test_a_binary_key_bundle_fails_the_scan(self) -> None:
         run(["git", "checkout", "-q", "-b", "bundle", self.base], self.root)
