@@ -265,6 +265,21 @@ class ShipTest(unittest.TestCase):
         self.assertFalse(again["base_check"]["green"])
         self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), pushed)
 
+    def test_a_retried_push_needs_the_tests_to_pass_as_they_are_now(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})  # no such remote yet: the push fails
+        self.deliver("A", {"a.txt": "a\n"})
+        self.assertIn("push failed", self.ship()["merge"]["push"])
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"verify": {"command": "false"}})  # the tests changed, and the merged commit fails them
+        again = self.ship()
+        self.assertIn("not pushed", again["push"])
+        self.assertFalse(again["base_check"]["green"])
+        self.assertNotEqual(run(["git", "rev-parse", "--verify", "--quiet", self.base], remote, check=False).returncode, 0)
+        self.charter({"verify": {"command": "sh check.sh"}})
+        self.assertEqual(self.ship()["push"], "pushed")
+
     def test_softory_push_takes_a_branch_and_never_the_base(self) -> None:
         remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
         run(["git", "init", "-q", "--bare", str(remote)], self.root)
@@ -568,6 +583,13 @@ class ShipTest(unittest.TestCase):
         check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
         self.assertFalse(check["pass"])
         self.assertIn("count.cc:4: AWS access key", check["detail"])
+
+    def test_a_key_in_a_file_git_quotes_the_name_of_is_found(self) -> None:
+        for name in ("caf\u00e9.py", 'tab\there "x".py'):
+            sha = self.commit(f"quoted{len(name)}", {name: 'k = "AKIAABCDEFGHIJKLMNOP"\n'})
+            check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
+            self.assertFalse(check["pass"])
+            self.assertIn(f"{name}:1: AWS access key", check["detail"])
 
     def test_a_binary_key_bundle_fails_the_scan(self) -> None:
         run(["git", "checkout", "-q", "-b", "bundle", self.base], self.root)

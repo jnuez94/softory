@@ -167,10 +167,9 @@ def ship(project: Project, coord: Coordination, charter: dict[str, Any], dry_run
             report["waiting"] = waiting(project, coord, charter) if charter["merge"].get("by") == "softory" else []
             return report
         data = ledger(project)
+        report["base_check"] = check_base(project, coord, charter)  # first: a retried push needs today's verdict
         if charter["merge"].get("by") == "softory":
             report["push"] = _push(project, charter, data)
-        report["base_check"] = check_base(project, coord, charter)
-        if charter["merge"].get("by") == "softory":
             report["merge"] = merge(project, coord, charter)
         return report
 
@@ -303,13 +302,15 @@ def _advance(project: Project, base: str, before: str, candidate: str) -> None:
 
 
 def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> str | None:
-    """Push the base to the charter's remote when it is still the last candidate softory verified and
-    merged. A failure is reported and tried again next time."""
+    """Push the base to the charter's remote when it is still the last candidate softory merged and softory
+    verify passes there with the charter's current tests. A failure is reported and tried again next time."""
     remote, base = charter["merge"].get("push"), charter["git"]["base"]
     sha = head(project, base)
     # Only a candidate softory verified: a commit made on the base by hand waits for check_base and the owner.
     if not remote or sha != data.get("last_candidate") or data.get("pushed") == sha:
         return None
+    if not (verify.current(project, charter, sha) or {}).get("passed"):  # a retry too: the tests may have changed
+        return f"not pushed: softory verify hasn't passed at {sha[:12]} with the charter's current tests"
     done = git(project.root, "push", "--quiet", remote, f"refs/heads/{base}:refs/heads/{base}")
     if done.returncode != 0:
         return f"push failed: {done.stderr.strip()[:200]}"

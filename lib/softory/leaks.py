@@ -85,7 +85,7 @@ def _scan(patch: str, allowed: list[re.Pattern[str]], found: list[str]) -> None:
                 left = int(hunk.group(1) or 1) + int(hunk.group(3) or 1)
                 line = int(hunk.group(2))
             elif text.startswith("+++ "):
-                path = text[6:] if text.startswith("+++ b/") else ""
+                path = _named(text[4:])
             continue
         if text.startswith("\\"):  # "\ No newline at end of file" is no line of the hunk
             continue
@@ -96,6 +96,31 @@ def _scan(patch: str, allowed: list[re.Pattern[str]], found: list[str]) -> None:
         if kind:
             found.append(f"{path}:{line}: {kind}")
         line += 1
+
+
+_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _named(header: str) -> str:
+    """The file a ``+++`` header names, or "" for /dev/null. Git quotes a name with non-ASCII or control
+    characters C-style (``"b/src/caf\\303\\251.py"``), and such a file's added lines are scanned like any other."""
+    name = header.split("\t")[0] if not header.startswith('"') else header
+    if name.startswith('"') and name.rstrip().endswith('"'):
+        raw, body, i = bytearray(), name.rstrip()[1:-1], 0
+        while i < len(body):
+            if body[i] != "\\" or i + 1 == len(body):
+                raw += body[i].encode("utf-8")
+                i += 1
+            elif body[i + 1] in "01234567":
+                raw.append(int(body[i + 1:i + 4], 8) & 0xFF)
+                i += 4
+            else:
+                raw.append(_ESCAPES.get(body[i + 1], ord(body[i + 1])))
+                i += 2
+        name = raw.decode("utf-8", "replace")
+    if name == "/dev/null":
+        return ""
+    return name[2:] if name.startswith("b/") else name
 
 
 def _secret_file(path: str) -> bool:
