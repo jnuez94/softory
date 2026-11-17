@@ -224,6 +224,9 @@ class ShipTest(unittest.TestCase):
         self.assertTrue(closed["closed"], closed)
         return task
 
+    def queue(self, agent: str) -> dict:
+        return json.loads(softory(self.root, "queue", "--agent", agent).stdout)
+
     def ship(self) -> dict:
         return json.loads(softory(self.root, "ship").stdout)
 
@@ -341,7 +344,7 @@ class ShipTest(unittest.TestCase):
             self.assertEqual(sorted(pool.map(deploy, range(2))), [False, True])
         rows = deploys.history(project)
         self.assertEqual([r["passed"] for r in rows[-2:]], [True, False])  # the failure ran last and is logged last
-        self.assertFalse(deploys.passed_at(project, "staging", rows[-1]["commit"]))
+        self.assertFalse(deploys.passed_at(project, deploys.targets(charters.load(project))["staging"], rows[-1]["commit"]))
 
     def test_a_paused_project_doesnt_ship(self) -> None:
         self.deliver("A", {"a.txt": "a\n"})
@@ -462,6 +465,28 @@ class ShipTest(unittest.TestCase):
         from softory.ship import owner_items  # noqa: PLC0415
         self.assertTrue(any("red" in row["text"] for row in owner_items(project)[0]))
 
+    def test_a_held_fix_for_a_red_base_hands_over_to_its_replacement(self) -> None:
+        before = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        (self.root / "broken").write_text("x\n")
+        (self.root / "b.txt").write_text("base\n")
+        run(["git", "add", "broken", "b.txt"], self.root)
+        run([*GIT, "commit", "-qm", "broken by hand"], self.root)
+        red = self.ship()["base_check"]["bug"]
+        self.close_bug(red, {"b.txt": "fix\n"}, on=before)  # built on the old base: it conflicts
+        follow_up = self.ship()["merge"]["held"][red]
+        other = self.deliver("Unrelated", {"u.txt": "u\n"}, on=before)
+        self.close_bug(follow_up, {"check.sh": "true\n"})
+        shipped = self.ship()["merge"]
+        self.assertEqual(shipped["merged"], [follow_up])  # the replacement fixes the base; nothing else goes first
+        self.assertEqual(self.ship()["merge"]["merged"], [other])
+
+    def close_bug(self, bug: str, files: dict[str, str], on: str | None = None) -> None:
+        _task, sha, env = self.build("", files, on, task=bug)
+        softory(self.root, "handoff", bug, "--actor", "gold", env=env)
+        coord(self.root, "review", "add", "--id", f"REV-{bug}", "--task", bug, "--reviewer", "jade",
+              "--artifact", sha, "--scope", "test", "--decision", "accepted")
+        self.assertTrue(json.loads(softory(self.root, "close", bug, "--actor", "gold", env=env, check=False).stdout)["closed"])
+
     def test_a_release_closes_after_staging_and_production_is_the_owners(self) -> None:
         self.ship()  # verifies the base, so it can be deployed
         made = json.loads(softory(self.root, "new", "release", "--title", "First", "--actor", "greg").stdout)
@@ -476,14 +501,23 @@ class ShipTest(unittest.TestCase):
         plan.write_text("Reinstall the previous build.\n")
         softory(self.root, "report", release, str(plan), "--type", "rollback", "--actor", "gold")
         softory(self.root, "deploy", "staging", "--release", release, "--actor", "gold")
+        self.assertNotIn("staged", failing(gate(self.root, release, "greg")))
+        staging = {"name": "staging", "command": f"echo $SOFTORY_DEPLOY_COMMIT >> {self.marks}/log", "auto": True}
+        self.charter({"deploy": {"targets": [{**staging, "smoke": "test -f check.sh"}]}})
+        self.assertIn("staged", failing(gate(self.root, release, "greg")))  # the pass was for another smoke test
+        softory(self.root, "deploy", "staging", "--release", release, "--actor", "gold")
+        self.assertNotIn("staged", failing(gate(self.root, release, "greg")))
         for reviewer in ("toby", "quinn"):
             coord(self.root, "review", "add", "--id", f"REV-{release}-{reviewer}", "--task", release, "--reviewer",
                   reviewer, "--artifact", made["commit"], "--scope", "release", "--decision", "accepted")
         greg = {"COORDINATION_SESSION": start(self.root, "greg")["COORDINATION_SESSION"]}
+        self.assertEqual([self.queue(who)["reviews_waiting"] for who in ("toby", "quinn")], [[], []])
         swap = self.commit("swap", {"s.txt": "s\n"})  # another commit recorded after both sign-offs
         row = coord(self.root, "evidence", "add", "--task", release, "--uri", f"commit:{swap}", "--type", "commit",
                     "--actor", "gold")["data"]
         self.assertIn("reviews_cover_commit", failing(gate(self.root, release, "greg")))
+        for reviewer in ("toby", "quinn"):  # their sign-offs are for the old commit, so the review is theirs again
+            self.assertIn(release, [r["id"] for r in self.queue(reviewer)["reviews_waiting"]])
         self.assertFalse(json.loads(softory(self.root, "close", release, "--actor", "greg", env=greg,
                                             check=False).stdout)["closed"])
         softory(self.root, "supersede", release, str(row["id"]), "--reason", "not the release commit",

@@ -207,9 +207,10 @@ def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     data = ledger(project)
     red = data.get("base") or {}
     if red.get("green") is False:  # stop the line: only the fix for the red base merges
-        units = [u for u in units if u["id"] == red.get("bug")]
+        fixes = _fixes(data, red.get("bug"))
+        units = [u for u in units if u["id"] in fixes]
         if not units:
-            return {"merged": [], "waiting": f"the base is red; {red.get('bug') or 'its fix'} merges first"}
+            return {"merged": [], "waiting": f"the base is red; {fixes[-1] if fixes else 'its fix'} merges first"}
     size = 1 if data.get("split") else max(1, int(charter["merge"].get("batch_max") or 1))
     batch = units[:size]
     base = charter["git"]["base"]
@@ -316,6 +317,15 @@ def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> st
     saved["pushed"] = sha
     _save(project, saved)
     return "pushed"
+
+
+def _fixes(data: dict[str, Any], bug: str | None) -> list[str]:
+    """The red base's bug, then each bug filed because the one before it was held: any of them may carry the fix."""
+    chain: list[str] = []
+    while bug and bug not in chain:
+        chain.append(bug)
+        bug = ((data.get("units") or {}).get(bug) or {}).get("bug")
+    return chain
 
 
 def _hold(project: Project, coord: Coordination, unit: dict[str, Any], why: str, title: str, stage: str) -> str:

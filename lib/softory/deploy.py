@@ -66,10 +66,16 @@ def history(project: Project) -> list[dict[str, Any]]:
     return rows
 
 
-def passed_at(project: Project, name: str, sha: str) -> bool:
-    """Whether the latest deploy of ``sha`` to ``name`` passed, smoke test included."""
-    rows = [r for r in history(project) if r.get("target") == name and r.get("commit") == sha]
-    return bool(rows) and bool(rows[-1].get("passed"))
+def _definition(target: dict[str, Any]) -> dict[str, Any]:
+    """What a deploy to the target runs: a pass counts only for the command and smoke test it ran."""
+    return {"command": target.get("command"), "smoke": target.get("smoke")}
+
+
+def passed_at(project: Project, target: dict[str, Any], sha: str) -> bool:
+    """Whether the latest deploy of ``sha`` to the target passed, smoke test included, as the charter defines
+    the target now."""
+    rows = [r for r in history(project) if r.get("target") == target.get("name") and r.get("commit") == sha]
+    return bool(rows) and bool(rows[-1].get("passed")) and rows[-1].get("ran") == _definition(target)
 
 
 def run(project: Project, coord: Coordination, charter: dict[str, Any], name: str, actor: str, sha: str | None = None,
@@ -108,7 +114,7 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
     with verifyenv.turn(project, f"deploy:{name}", actor):
         outcome = _deploy(project, charter, target, sha)
         row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
-               "release": release, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "release": release, "ran": _definition(target), "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "log": outcome["log"]}
         with log_path(project).open("a", encoding="utf-8") as out:  # inside the lock: rows are in the order run
             out.write(json.dumps(row) + "\n")
@@ -176,18 +182,24 @@ def release_checks(project: Project, charter: dict[str, Any], task: dict[str, An
     elif not staged:
         result.append({"check": "staged", "pass": True, "detail": "the charter declares no target before production"})
     else:
-        missing = [n for n in staged if not passed_at(project, n, sha)]
+        missing = [n for n in staged if not passed_at(project, targets(charter)[n], sha)]
         result.append({"check": "staged", "pass": not missing,
-                       "detail": f"not deployed and smoke-tested at {sha[:12]}: {', '.join(missing)}. Run softory "
+                       "detail": f"not deployed and smoke-tested at {sha[:12]} as the charter defines it now: {', '.join(missing)}. Run softory "
                                  f"deploy <target> --release {task['id']}" if missing else
                                  f"{', '.join(staged)} passed at {sha[:12]}"})
     if sha:  # a sign-off covers one commit: recording another one afterwards sends the release back to review
-        stale = sorted(who for who, review in latest_reviews(task).items()
-                       if "accepted" in str(review.get("decision")) and not _covers(project, review, sha))
+        stale = stale_reviews(project, task)
         result.append({"check": "reviews_cover_commit", "pass": not stale,
                        "detail": f"accepted for another commit, not {sha[:12]}: {', '.join(stale)}. Each reviews again "
                                  f"with --artifact {sha}" if stale else f"every accepted review names {sha[:12]}"})
     return result
+
+
+def stale_reviews(project: Project, task: dict[str, Any]) -> list[str]:
+    """Reviewers whose accepted review of a release names another commit than the one it ships now."""
+    sha = verify.commit_of(project.root, task)
+    return sorted(who for who, review in latest_reviews(task).items()
+                  if sha and "accepted" in str(review.get("decision")) and not _covers(project, review, sha))
 
 
 def _covers(project: Project, review: dict[str, Any], sha: str) -> bool:
