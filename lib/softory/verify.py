@@ -58,7 +58,8 @@ def current(project: Project, charter: dict[str, Any], sha: str | None) -> dict[
     entry = ledger(project).get(sha or "")
     settings = charter["verify"]
     setup = settings.get("setup") or ""
-    if not entry or entry.get("command") != settings.get("command") or entry.get("setup", setup) != setup:
+    # An entry from before softory recorded the setup doesn't say what it ran, so it reads as never run too.
+    if not entry or entry.get("command") != settings.get("command") or entry.get("setup") != setup:
         return None
     return entry
 

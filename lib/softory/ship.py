@@ -311,7 +311,8 @@ def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> st
         return None
     if not (verify.current(project, charter, sha) or {}).get("passed"):  # a retry too: the tests may have changed
         return f"not pushed: softory verify hasn't passed at {sha[:12]} with the charter's current tests"
-    done = git(project.root, "push", "--quiet", remote, f"refs/heads/{base}:refs/heads/{base}")
+    # The checked commit, not the branch: the base can move between the check and the push.
+    done = git(project.root, "push", "--quiet", remote, f"{sha}:refs/heads/{base}")
     if done.returncode != 0:
         return f"push failed: {done.stderr.strip()[:200]}"
     saved = ledger(project)

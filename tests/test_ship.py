@@ -20,6 +20,7 @@ from softory import backups, closed, leaks, parents, perms, runner  # noqa: E402
 from softory import verify as verifies  # noqa: E402
 from softory import charter as charters  # noqa: E402
 from softory import deploy as deploys  # noqa: E402
+from softory import ship as ships  # noqa: E402
 from softory.coordination import Coordination  # noqa: E402
 from softory.project import Project  # noqa: E402
 
@@ -264,6 +265,51 @@ class ShipTest(unittest.TestCase):
         self.assertIsNone(again["push"])
         self.assertFalse(again["base_check"]["green"])
         self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), pushed)
+
+    def test_a_fully_qualified_base_ref_ships_and_pushes(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"git": {"base": f"refs/heads/{self.base}"}, "merge": {"by": "softory", "push": "origin"}})
+        first, second = self.deliver("A", {"a.txt": "a\n"}), self.deliver("B", {"b.txt": "b\n"})
+        shipped = self.ship()["merge"]  # two units: a built candidate, not a fast-forward
+        self.assertEqual((shipped["merged"], shipped["push"]), ([first, second], "pushed"))
+        self.assertTrue(self.on_base("a.txt") and self.on_base("b.txt"))
+        self.assertEqual(run(["git", "rev-parse", f"refs/heads/{self.base}"], remote).stdout.strip(), shipped["base"])
+
+    def test_the_push_sends_the_checked_commit_even_if_the_base_moves(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})  # no such remote yet: the push fails
+        self.deliver("A", {"a.txt": "a\n"})
+        checked = self.ship()["merge"]["base"]
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        project = Project(self.root)
+        real = verifies.current
+
+        def then_the_owner_commits(*args: object) -> object:
+            verdict = real(*args)
+            (self.root / "late.txt").write_text("x\n")  # lands after the check, before git push runs
+            run(["git", "add", "late.txt"], self.root)
+            run([*GIT, "commit", "-qm", "by hand"], self.root)
+            return verdict
+
+        with mock.patch.object(ships.verify, "current", then_the_owner_commits):
+            self.assertEqual(ships._push(project, charters.load(project), ships.ledger(project)), "pushed")
+        self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), checked)
+
+    def test_a_result_from_before_setups_were_recorded_is_stale(self) -> None:
+        self.ship()
+        project = Project(self.root)
+        sha = run(["git", "rev-parse", self.base], self.root).stdout.strip()
+        path = verifies.ledger_path(project)
+        rows = json.loads(path.read_text())
+        self.assertTrue(verifies.current(project, charters.load(project), sha)["passed"])
+        del rows[sha]["setup"]  # as softory wrote it before it recorded the setup
+        path.write_text(json.dumps(rows))
+        self.charter({"verify": {"setup": "touch broken"}})  # same command, a setup that breaks the tests
+        self.assertIsNone(verifies.current(project, charters.load(project), sha))
+        self.assertFalse(self.ship()["base_check"]["green"])  # tested again with the setup, not read from the cache
 
     def test_a_retried_push_needs_the_tests_to_pass_as_they_are_now(self) -> None:
         remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
