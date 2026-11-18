@@ -225,12 +225,21 @@ def _refuse_wrong_record(project: Project, args: list[str]) -> None:
 
 
 def _option(args: list[str], name: str) -> str | None:
-    for i, arg in enumerate(args):
-        if arg == name and i + 1 < len(args):
-            return args[i + 1]
-        if arg.startswith(name + "="):
-            return arg.split("=", 1)[1]
-    return None
+    """The option's value, in either spelling. Given twice it is refused: the coordination CLI keeps the last
+    one, so a check of any single one could pass a value the record doesn't get."""
+    from .errors import SoftoryError  # noqa: PLC0415
+
+    values, i = [], 0
+    while i < len(args):
+        if args[i] == name and i + 1 < len(args):
+            values.append(args[i + 1])
+            i += 1  # its value is not read as an option
+        elif args[i].startswith(name + "="):
+            values.append(args[i].split("=", 1)[1])
+        i += 1
+    if len(values) > 1:
+        raise SoftoryError(f"{name} is given {len(values)} times; give it once", "invalid_arguments")
+    return values[0] if values else None
 
 
 def _without_refused_actor(binary: str, args: list[str]) -> list[str]:

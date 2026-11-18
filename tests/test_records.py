@@ -109,6 +109,29 @@ class RecordsTest(unittest.TestCase):
                           "TASK-99", "--actor", "darwin", check=False)
         self.assertNotEqual(missing.returncode, 0)
 
+    def test_a_checked_option_given_twice_is_refused_in_either_order_and_spelling(self) -> None:
+        real, missing = f"commit:{self.sha}", "commit:" + "0" * 40
+        for n, pair in enumerate([["--artifact", missing, "--artifact", real], ["--artifact", real, "--artifact", missing],
+                                  [f"--artifact={real}", f"--artifact={missing}"],
+                                  [f"--artifact={missing}", "--artifact", real]]):
+            twice = self.review("--id", f"REV-A{n}", "--reviewer", "jade", *pair)
+            self.assertNotEqual(twice.returncode, 0, pair)
+            self.assertIn("--artifact is given 2 times", twice.stderr)
+        for n, pair in enumerate([["--reviewer", "jade", "--reviewer", "gold"], ["--reviewer", "gold", "--reviewer=jade"]]):
+            twice = self.review("--id", f"REV-R{n}", "--artifact", real, *pair)
+            self.assertNotEqual(twice.returncode, 0, pair)
+            self.assertIn("--reviewer is given 2 times", twice.stderr)
+        sent = softory(self.root, "coord", "message", "send", "--id", "M-2", "--sender=jade", "--sender", "gold",
+                       "--recipient", "quinn", "--body", "ready", env=self.jade, check=False)
+        self.assertIn("--sender is given 2 times", sent.stderr)
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["reviews"], [])
+        wrong = self.review("--id", "REV-E1", "--reviewer=gold", f"--artifact={real}")  # one, with =: still checked
+        self.assertIn("You are jade", wrong.stderr)
+        gone = self.review("--id", "REV-E2", "--reviewer=jade", f"--artifact={missing}")
+        self.assertIn("is not a commit", gone.stderr)
+        fine = self.review("--id", "REV-E3", "--reviewer=jade", f"--artifact={real}")
+        self.assertEqual(fine.returncode, 0, fine.stderr)
+
     def escalate(self, ask: str, tasks: str = "TASK-1", *more: str):
         return softory(self.root, "escalate", "--issue", "The outline rows are 20px tall.", "--ask", ask,
                        "--recommend", "Yes, 24px for both", "--reversible", "no", "--tasks", tasks, *more,
