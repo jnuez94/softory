@@ -66,13 +66,12 @@ def settings_key(settings: dict[str, Any]) -> str:
 
 
 def current(project: Project, charter: dict[str, Any], sha: str | None) -> dict[str, Any] | None:
-    """The ledger entry for ``sha`` if it ran the tests the charter names now. A result from an older
-    ``verify.command`` or ``verify.setup`` says nothing about today's tests, so it reads as never run."""
+    """The ledger entry for ``sha`` if it ran under the verify settings the charter names now. A result from
+    an older command, setup, retry, or set of shared folders says nothing about today's tests, so it reads
+    as never run."""
     entry = ledger(project).get(sha or "")
-    settings = charter["verify"]
-    setup = settings.get("setup") or ""
-    # An entry from before softory recorded the setup doesn't say what it ran, so it reads as never run too.
-    if not entry or entry.get("command") != settings.get("command") or entry.get("setup") != setup:
+    # An entry from before softory recorded its settings doesn't say what it ran, so it reads as never run too.
+    if not entry or entry.get("settings") != settings_key(charter["verify"]):
         return None
     return entry
 
@@ -142,9 +141,11 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
             ui = design.ui_files(files)
             scan = {"launcher": design.detector(project), "files": ui,
                     "lines": changed_lines(project.root, charter["git"]["base"], sha, _others(project, task_id), ui)}
-    previous = ledger(project).get(sha) or {}
-    if not fresh and previous.get("passed") and previous.get("settings") == settings_key(settings):
-        return _reuse(project, coord, task, sha, previous, scan, found, actor)
+    previous = current(project, charter, sha) or {}
+    if not fresh and previous.get("passed"):
+        reused = _reuse(project, coord, charter, task, sha, previous, scan, found, actor)
+        if reused:
+            return reused  # otherwise a newer run failed or the settings changed meanwhile: run the tests
     with verifyenv.turn(project, task_id, actor):
         outcome = _run_in_tree(project, settings, task_id, sha, scan)
         # The verdict is published before the lock is released: whoever waits for the lock reads it.
@@ -195,10 +196,12 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     return result
 
 
-def _reuse(project: Project, coord: Coordination, task: dict[str, Any], sha: str, previous: dict[str, Any],
-           scan: dict[str, Any] | None, found: dict[str, Any] | None, actor: str) -> dict[str, Any]:
+def _reuse(project: Project, coord: Coordination, charter: dict[str, Any], task: dict[str, Any], sha: str,
+           previous: dict[str, Any], scan: dict[str, Any] | None, found: dict[str, Any] | None,
+           actor: str) -> dict[str, Any] | None:
     """Answer a verify from the pass already recorded at this commit. The tests are the commit's, so they
-    don't run again; the design detector is one unit's, so it runs alone when this unit has no clean result."""
+    don't run again; the design detector is one unit's, so it runs alone when this unit has no clean result.
+    None when the pass no longer stands by the time the verify lock is held."""
     task_id = task["id"]
     mine = (previous.get("designs") or {}).get(task_id)
     if found is None and scan is not None and not (mine and mine["passed"]):
@@ -209,7 +212,10 @@ def _reuse(project: Project, coord: Coordination, task: dict[str, Any], sha: str
         # The ledger is one file: a write outside the verify lock could drop the verdict a running verify publishes.
         with verifyenv.turn(project, task_id, actor):
             entries = ledger(project)
-            entry = entries.get(sha) or previous
+            entry = current(project, charter, sha)
+            if not entry or not entry.get("passed"):  # a retest finished while this waited, and it didn't pass
+                return None
+            previous = entry
             entry.setdefault("designs", {})[task_id] = {"passed": found["passed"], "detail": found["detail"],
                                                         "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
             entries[sha] = entry
