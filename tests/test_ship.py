@@ -298,14 +298,14 @@ class ShipTest(unittest.TestCase):
             self.assertEqual(ships._push(project, charters.load(project), ships.ledger(project)), "pushed")
         self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), checked)
 
-    def test_a_result_from_before_setups_were_recorded_is_stale(self) -> None:
+    def test_a_result_from_before_settings_were_recorded_is_stale(self) -> None:
         self.ship()
         project = Project(self.root)
         sha = run(["git", "rev-parse", self.base], self.root).stdout.strip()
         path = verifies.ledger_path(project)
         rows = json.loads(path.read_text())
         self.assertTrue(verifies.current(project, charters.load(project), sha)["passed"])
-        del rows[sha]["setup"]  # as softory wrote it before it recorded the setup
+        del rows[sha]["settings"]  # as softory wrote it before it recorded what the run was set to
         path.write_text(json.dumps(rows))
         self.charter({"verify": {"setup": "touch broken"}})  # same command, a setup that breaks the tests
         self.assertIsNone(verifies.current(project, charters.load(project), sha))

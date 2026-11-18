@@ -8,11 +8,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.helpers import REPO, coord, git_project, install, needs_sources, run, softory
 
 sys.path.insert(0, str(REPO / "lib"))
+from softory import charter as charters  # noqa: E402
 from softory import design, feasibility  # noqa: E402
+from softory import verify as verifies  # noqa: E402
+from softory.coordination import Coordination  # noqa: E402
+from softory.project import Project  # noqa: E402
 from softory.units import children_by_parent  # noqa: E402
 from tests.test_unattended import at_terminal  # noqa: E402
 from tests.test_workflow import failing, gate  # noqa: E402
@@ -192,6 +197,37 @@ class VerifyOnceTest(unittest.TestCase):
         self.assertIn("first", Path(rows[0]["log"]).read_text())
         self.approve({"command": "false", "retry": "false"})  # it fails twice: a failure
         self.assertFalse(self.verify(self.task)["passed"])
+
+    def test_a_pass_under_other_settings_does_not_pass_the_gate(self) -> None:
+        self.approve({"command": "false", "retry": "true"})
+        self.commit("web/data.ts", "export const a = 1\n")
+        self.assertTrue(self.verify(self.task)["passed"])  # on its retry
+        self.assertNotIn("verified", failing(gate(self.root, self.task, "jade")))
+        self.approve({"command": "false"})  # the owner drops the retry: that pass says nothing about these tests
+        self.assertIn("verified", failing(gate(self.root, self.task, "jade")))
+
+    def test_a_reused_pass_gives_way_to_a_retest_that_failed_meanwhile(self) -> None:
+        flag = self.outside / "down"
+        self.approve({"command": f"echo run >> {self.count}; test ! -f {flag}"})
+        sha = self.commit("web/new.css", "p {}\n")
+        self.assertTrue(self.verify(self.task)["passed"])
+        fake_launcher(self.root)  # so the reused pass still owes this unit a detector run
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        settings = charters.load(project)
+        real = verifies._scan_in_tree
+
+        def while_a_retest_fails(*args: object) -> object:  # a --fresh run finishes before this one holds the lock
+            flag.write_text("")
+            self.assertFalse(self.verify(self.task, "--fresh")["passed"])
+            return real(*args)
+
+        with mock.patch.object(verifies, "_scan_in_tree", while_a_retest_fails):
+            result = verifies.run(project, board, settings, self.task, "jade")
+        self.assertFalse(result["passed"], result)
+        self.assertNotIn("reused", result)
+        self.assertEqual(self.runs(), 3)  # the pass, the retest, and this run once the pass no longer stood
+        self.assertFalse(verifies.ledger(project)[sha]["passed"])
 
     def test_a_bug_under_a_story_does_not_run_its_feasibility_check_again(self) -> None:
         queue = json.loads(softory(self.root, "queue", "--agent", "quinn").stdout)
