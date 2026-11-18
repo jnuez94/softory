@@ -43,45 +43,84 @@ def findings(root: Path, base: str, sha: str, inherited: list[str], allow: list[
         return None
     mine = set(listed.stdout.split())
     below = [f"^{c}" for c in dict.fromkeys(inherited) if c in mine and c != sha]
-    shown = git(root, "log", "--no-merges", "--no-renames", "-p", "-U0", "--format=", sha, f"^{base}", *below, "--")
-    merges = git(root, "rev-list", "--merges", sha, f"^{base}", *below)
-    if shown.returncode != 0 or merges.returncode != 0:
+    scope = [sha, f"^{base}", *below]
+    shown = git(root, "log", "--no-merges", "--no-renames", "-p", "-U0", "--format=", *scope, "--")
+    names = git(root, "log", "--no-merges", "--no-renames", "--name-only", "--diff-filter=AM", "-z", "--format=",
+                *scope, "--")
+    merges = git(root, "rev-list", "--merges", *scope)
+    if shown.returncode != 0 or names.returncode != 0 or merges.returncode != 0:
         return None
-    patches = [shown.stdout]
+    patches, files = [shown.stdout], names.stdout
     for merge in merges.stdout.split():  # what a merge added itself, beyond git's automatic merge of its parents
         baselines = verify.merge_baselines(root, merge)
         if baselines is None:
             return None
         for against in baselines:
             added = git(root, "diff", "--no-renames", "-U0", against, merge, "--")
-            if added.returncode != 0:
+            named = git(root, "diff", "--no-renames", "--name-only", "--diff-filter=AM", "-z", against, merge, "--")
+            if added.returncode != 0 or named.returncode != 0:
                 return None
             patches.append(added.stdout)
+            files += named.stdout
+    # File names come from git's own list, not the patch text: a binary file (.p12, a DER .key) has no patch.
+    found = [f"{path}: a secret file is committed" for path in dict.fromkeys(files.replace("\n", "\0").split("\0"))
+             if path and _secret_file(path)]
     allowed = [re.compile(p) for p in allow]
-    found: list[str] = []
     for patch in patches:
         _scan(patch, allowed, found)
     return list(dict.fromkeys(found))
 
 
+_HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
 def _scan(patch: str, allowed: list[re.Pattern[str]], found: list[str]) -> None:
-    path, line = "", 0
-    for text in patch.splitlines():
-        if text.startswith("+++ "):
-            path = text[6:] if text.startswith("+++ b/") else ""
-            if path and _secret_file(path):
-                found.append(f"{path}: a secret file is committed")
+    """Check each added line. A hunk header says how many lines it holds, and only outside a hunk is
+    ``+++ `` a file header: inside one it is an added line that starts with ``++`` (C's ``++ counter;``)."""
+    path, line, left = "", 0, 0
+    for text in patch.split("\n"):  # not splitlines: a form feed inside a line is no line break
+        if left == 0:
+            hunk = _HUNK.match(text)
+            if hunk:
+                left = int(hunk.group(1) or 1) + int(hunk.group(3) or 1)
+                line = int(hunk.group(2))
+            elif text.startswith("+++ "):
+                path = _named(text[4:])
             continue
-        if text.startswith("@@"):
-            match = re.search(r"\+(\d+)", text)
-            line = int(match.group(1)) if match else 0
+        if text.startswith("\\"):  # "\ No newline at end of file" is no line of the hunk
             continue
+        left -= 1
         if not text.startswith("+") or not path:
             continue
         kind = _kind(text[1:], allowed)
         if kind:
             found.append(f"{path}:{line}: {kind}")
         line += 1
+
+
+_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _named(header: str) -> str:
+    """The file a ``+++`` header names, or "" for /dev/null. Git quotes a name with non-ASCII or control
+    characters C-style (``"b/src/caf\\303\\251.py"``), and such a file's added lines are scanned like any other."""
+    name = header.split("\t")[0] if not header.startswith('"') else header
+    if name.startswith('"') and name.rstrip().endswith('"'):
+        raw, body, i = bytearray(), name.rstrip()[1:-1], 0
+        while i < len(body):
+            if body[i] != "\\" or i + 1 == len(body):
+                raw += body[i].encode("utf-8")
+                i += 1
+            elif body[i + 1] in "01234567":
+                raw.append(int(body[i + 1:i + 4], 8) & 0xFF)
+                i += 4
+            else:
+                raw.append(_ESCAPES.get(body[i + 1], ord(body[i + 1])))
+                i += 2
+        name = raw.decode("utf-8", "replace")
+    if name == "/dev/null":
+        return ""
+    return name[2:] if name.startswith("b/") else name
 
 
 def _secret_file(path: str) -> bool:

@@ -16,6 +16,7 @@ Stacked work uses ``informs`` dependencies, which never block a claim.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -36,26 +37,44 @@ def config_path(root: Path) -> Path:
     return root / ".coordination" / "config.yml"
 
 
+def _before(root: Path) -> Path:
+    return root / ".coordination" / "softory" / "policy-before.json"
+
+
 def apply(root: Path) -> list[str]:
-    """Write the policy lines into the scaffold's config, keeping every other line. Returns what changed."""
+    """Write the policy lines into the scaffold's config, keeping every other line. Returns what changed.
+    What the project had set before the first install is kept aside for ``remove`` to put back."""
     path = config_path(root)
     if not path.is_file():
         raise SoftoryError(f"{path} is missing; the scaffold installer writes it", "configuration_error")
     found = _values(path.read_text(encoding="utf-8").splitlines())
-    remove(root)
-    kept = path.read_text(encoding="utf-8").splitlines()
+    if not _before(root).is_file():  # a reinstall finds softory's own lines, which aren't the project's
+        _before(root).parent.mkdir(parents=True, exist_ok=True)
+        _before(root).write_text(json.dumps(found, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    kept = _without(path.read_text(encoding="utf-8").splitlines())
     path.write_text("\n".join([*kept, *(f"{key}: {value}" for key, value in POLICY.items())]) + "\n",
                     encoding="utf-8")
     return [f"{key}: {found.get(key, 'unset')} -> {value}" for key, value in POLICY.items() if found.get(key) != value]
 
 
 def remove(root: Path) -> None:
-    """Take the policy lines back out, so a project that keeps the scaffold after softory runs it as before."""
+    """Take softory's policy lines back out and put back the ones the project had before softory, so a
+    project that keeps the scaffold runs it as it did."""
     path = config_path(root)
-    if path.is_file():
-        lines = path.read_text(encoding="utf-8").splitlines()
-        kept = [line for line in lines if not ((m := _LINE.match(line.strip())) and m.group(1) in POLICY)]
-        path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    if not path.is_file():
+        return
+    try:
+        before = json.loads(_before(root).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        before = {}
+    kept = _without(path.read_text(encoding="utf-8").splitlines())
+    restored = [f"{key}: {before[key]}" for key in POLICY if isinstance(before.get(key), str)]
+    path.write_text("\n".join([*kept, *restored]) + "\n", encoding="utf-8")
+    _before(root).unlink(missing_ok=True)
+
+
+def _without(lines: list[str]) -> list[str]:
+    return [line for line in lines if not ((m := _LINE.match(line.strip())) and m.group(1) in POLICY)]
 
 
 def problems(root: Path) -> list[str]:

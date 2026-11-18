@@ -71,21 +71,24 @@ def waiting(project: Project, coord: Coordination, charter: dict[str, Any]) -> l
     base = charter["git"]["base"]
     gates = project.gates()
     tasks = {task["id"]: task for task in coord.all_tasks()}
-    approved = closed.commits(project)
+    closes = closed.entries(project)
+    approved = {unit: row["commit"] for unit, row in closes.items()}
     recorded: dict[str, set[str]] = {}  # every commit an unclosed unit ever recorded, read once if needed
     found = []
     for task in tasks.values():
-        if task["id"] in seen or unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
+        if unit_of(task, gates) not in verify.CODE_UNITS or lane_of(task) in verify.NO_TEST_LANES:
             continue
-        if not _closed(task) or parse_time(str(task.get("updated_at"))) < since_at:
+        # When it closed comes from the close record: the task's updated_at moves with any later edit to it.
+        if not _closed(task) or task["id"] not in closes or parse_time(closes[task["id"]]["at"]) < since_at:
             continue
-        sha = approved.get(task["id"])  # the commit its gate passed at, never evidence added after it closed
-        if not sha or _contains(project.root, base, sha):
+        sha = approved[task["id"]]  # the commit its gate passed at, never evidence added after it closed
+        # Merged or held counts only for the commit it happened at: a unit closed again at a new one ships again.
+        if (seen.get(task["id"]) or {}).get("commit") == sha or _contains(project.root, base, sha):
             continue
         if not recorded:
             recorded.update(_recorded(project, coord, tasks))
         found.append({"id": task["id"], "title": task["title"], "commit": sha, "lane": lane_of(task),
-                      "closed": task.get("updated_at"),
+                      "closed": closes[task["id"]]["at"],
                       "waits_on": open_below(project, coord, base, sha, task["id"], tasks, approved, recorded)})
     return sorted(found, key=lambda row: (row["closed"] or "", row["id"]))
 
@@ -164,23 +167,24 @@ def ship(project: Project, coord: Coordination, charter: dict[str, Any], dry_run
             report["waiting"] = waiting(project, coord, charter) if charter["merge"].get("by") == "softory" else []
             return report
         data = ledger(project)
+        report["base_check"] = check_base(project, coord, charter)  # first: a retried push needs today's verdict
         if charter["merge"].get("by") == "softory":
             report["push"] = _push(project, charter, data)
-        report["base_check"] = check_base(project, coord, charter)
-        if charter["merge"].get("by") == "softory":
             report["merge"] = merge(project, coord, charter)
         return report
 
 
 def check_base(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, Any]:
-    """Verify the base head if it moved since the last check. A red base gets one priority 1 bug."""
+    """Verify the base head if softory verify never ran there, and record what the newest run says.
+    A red base gets one priority 1 bug; a passing retest at the same commit makes it green again."""
     data = ledger(project)
     state = data.get("base") or {}
     sha = head(project, charter["git"]["base"])
-    if state.get("sha") == sha:
+    green = _verified(project, coord, charter, sha, "base")  # read again each time: a retest at the same commit counts
+    if state.get("sha") == sha and state.get("green") == green:
         return state
-    green = _verified(project, coord, charter, sha, "base")
-    moved_outside = bool(state.get("sha")) and sha != data.get("last_candidate")
+    moved_outside = state.get("moved_outside") if state.get("sha") == sha else \
+        bool(state.get("sha")) and sha != data.get("last_candidate")
     state = {"sha": sha, "green": green, "checked_at": _now(), "bug": state.get("bug") if not green else None,
              "moved_outside": moved_outside and charter["merge"].get("by") == "softory"}
     if not green and not state["bug"]:
@@ -202,9 +206,10 @@ def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     data = ledger(project)
     red = data.get("base") or {}
     if red.get("green") is False:  # stop the line: only the fix for the red base merges
-        units = [u for u in units if u["id"] == red.get("bug")]
+        fixes = _fixes(data, red.get("bug"))
+        units = [u for u in units if u["id"] in fixes]
         if not units:
-            return {"merged": [], "waiting": f"the base is red; {red.get('bug') or 'its fix'} merges first"}
+            return {"merged": [], "waiting": f"the base is red; {fixes[-1] if fixes else 'its fix'} merges first"}
     size = 1 if data.get("split") else max(1, int(charter["merge"].get("batch_max") or 1))
     batch = units[:size]
     base = charter["git"]["base"]
@@ -228,7 +233,14 @@ def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
                 project, coord, merged[0], "red",
                 f"{merged[0]['id']} fails softory verify on top of {base}", "verify")
         return result
-    _advance(project, base, before, candidate)
+    # A retest of the candidate may be running: wait for it, and move the base only on the verdict it leaves.
+    with verifyenv.turn(project, "merge", project.roster()["owner"]["id"]):
+        still = (verify.current(project, charter, candidate) or {}).get("passed")
+        if still:
+            _advance(project, base, before, candidate)
+    if not still:
+        result["waiting"] = f"a retest of {candidate[:12]} failed while it waited to merge; the next run decides"
+        return result
     data = ledger(project)
     for unit in merged:
         data.setdefault("units", {})[unit["id"]] = {"commit": unit["commit"], "merged_as": candidate, "at": _now()}
@@ -276,11 +288,10 @@ def build_candidate(project: Project, base_sha: str, units: list[dict[str, Any]]
 
 
 def _verified(project: Project, coord: Coordination, charter: dict[str, Any], sha: str, label: str) -> bool:
-    """Whether softory verify passed at ``sha``, running it once if it never ran there."""
-    entry = verify.ledger(project).get(sha)
+    """Whether softory verify passed at ``sha`` with the charter's current tests, running them if it hasn't."""
+    entry = verify.current(project, charter, sha)
     if entry is None:
-        verify.run_at(project, charter, sha, label, project.roster()["owner"]["id"])
-        entry = verify.ledger(project).get(sha) or {}
+        entry = verify.run_at(project, charter, sha, label, project.roster()["owner"]["id"])
     return bool(entry.get("passed"))
 
 
@@ -298,20 +309,33 @@ def _advance(project: Project, base: str, before: str, candidate: str) -> None:
 
 
 def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> str | None:
-    """Push the base to the charter's remote when it is still the last candidate softory verified and
-    merged. A failure is reported and tried again next time."""
+    """Push the base to the charter's remote when it is still the last candidate softory merged and softory
+    verify passes there with the charter's current tests. A failure is reported and tried again next time."""
     remote, base = charter["merge"].get("push"), charter["git"]["base"]
     sha = head(project, base)
     # Only a candidate softory verified: a commit made on the base by hand waits for check_base and the owner.
     if not remote or sha != data.get("last_candidate") or data.get("pushed") == sha:
         return None
-    done = git(project.root, "push", "--quiet", remote, f"refs/heads/{base}:refs/heads/{base}")
+    with verifyenv.turn(project, "push", project.roster()["owner"]["id"]):  # a running retest finishes first
+        if not (verify.current(project, charter, sha) or {}).get("passed"):  # a retry too: the tests may have changed
+            return f"not pushed: softory verify hasn't passed at {sha[:12]} with the charter's current tests"
+        # The checked commit, not the branch: the base can move between the check and the push.
+        done = git(project.root, "push", "--quiet", remote, f"{sha}:refs/heads/{base}")
     if done.returncode != 0:
         return f"push failed: {done.stderr.strip()[:200]}"
     saved = ledger(project)
     saved["pushed"] = sha
     _save(project, saved)
     return "pushed"
+
+
+def _fixes(data: dict[str, Any], bug: str | None) -> list[str]:
+    """The red base's bug, then each bug filed because the one before it was held: any of them may carry the fix."""
+    chain: list[str] = []
+    while bug and bug not in chain:
+        chain.append(bug)
+        bug = ((data.get("units") or {}).get(bug) or {}).get("bug")
+    return chain
 
 
 def _hold(project: Project, coord: Coordination, unit: dict[str, Any], why: str, title: str, stage: str) -> str:
