@@ -4,7 +4,8 @@ Both follow the design standard's gates. A todo ``ui`` or ``frontend`` task unde
 ``lane:design`` task isn't done waits, as for the feasibility check: its builder isn't woken and
 ``queue`` says why. ``softory verify`` on a ``ui`` unit also scans the unit's own UI files with the
 Impeccable detector when the project has the ``impeccable`` skill installed. Its error and warning
-findings fail the verify, so they block the close; advisory findings are only counted.
+findings on lines the unit's own commits wrote fail the verify, so they block the close. Advisory
+findings, and findings on lines the unit didn't change, are only counted.
 """
 
 from __future__ import annotations
@@ -64,11 +65,17 @@ def ui_files(files: list[str] | None) -> list[str]:
     return [f for f in files or [] if f.endswith(UI_SUFFIXES)]
 
 
-def scan(launcher: Path, tree: Path, files: list[str]) -> dict[str, Any]:
-    """Run the detector on ``files`` in ``tree``. Passes when nothing but advisory findings remain."""
+def scan(launcher: Path, tree: Path, files: list[str],
+         lines: dict[str, set[int] | None] | None = None) -> dict[str, Any]:
+    """Run the detector on ``files`` in ``tree``. Passes when nothing but advisory findings remain.
+
+    ``lines`` names, per file, the lines the unit changed: a finding on any other line was there before
+    the unit, so it is counted and doesn't block. Without it, or for a finding with no line, every line counts.
+    """
     present = [f for f in files if (tree / f).is_file()]  # a deleted file has nothing to scan
     if not present:
-        return {"passed": True, "scanned": 0, "blocking": [], "advisory": 0, "detail": "no UI files changed"}
+        return {"passed": True, "scanned": 0, "blocking": [], "advisory": 0, "unchanged": 0,
+                "detail": "no UI files changed"}
     try:
         done = subprocess.run([str(launcher), "detect", "--json", *present], cwd=tree, capture_output=True,
                               text=True, timeout=SCAN_SECONDS, check=False)
@@ -84,16 +91,31 @@ def scan(launcher: Path, tree: Path, files: list[str]) -> dict[str, Any]:
         findings = findings.get("findings") or []
     advisory = [f for f in findings if f.get("advisory") is True or f.get("severity") == "advisory"]
     blocking = [f for f in findings if f not in advisory]
+    older = [f for f in blocking if _unchanged(f, tree, lines)]
+    blocking = [f for f in blocking if f not in older]
     listed = [f"{f.get('file')}:{f.get('line')} {f.get('antipattern') or f.get('id')} ({f.get('severity', 'warning')})"
               for f in blocking[:MAX_LISTED]]
     detail = (f"{len(blocking)} finding(s) to fix: " + "; ".join(listed) if blocking
               else f"{len(present)} UI file(s) clean") + (f", {len(advisory)} advisory" if advisory else "")
+    if older:
+        detail += f", {len(older)} on lines this unit didn't change"
     return {"passed": not blocking, "scanned": len(present), "blocking": listed, "advisory": len(advisory),
-            "detail": detail}
+            "unchanged": len(older), "detail": detail}
+
+
+def _unchanged(finding: dict[str, Any], tree: Path, lines: dict[str, set[int] | None] | None) -> bool:
+    """True when the finding sits on a line the unit's commits didn't write."""
+    if lines is None or not isinstance(finding.get("line"), int):
+        return False
+    name = str(finding.get("file") or "")
+    if name.startswith(str(tree)):
+        name = str(Path(name).relative_to(tree))
+    mine = lines.get(name.removeprefix("./"))
+    return mine is not None and finding["line"] not in mine
 
 
 def _broken(count: int, why: str) -> dict[str, Any]:
-    return {"passed": False, "scanned": count, "blocking": [], "advisory": 0, "detail": why}
+    return {"passed": False, "scanned": count, "blocking": [], "advisory": 0, "unchanged": 0, "detail": why}
 
 
 def unscanned(why: str) -> dict[str, Any]:

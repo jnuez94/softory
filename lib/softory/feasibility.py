@@ -13,7 +13,8 @@ tasks after that runs the check again.
 A verdict records a hash of what it read (the charter's vision, scope, and environment; the titles, acceptance,
 and descriptions of the story and its tasks). A pass
 holds only while the plan still hashes the same, so a new task or a new requirement after a pass is checked again
-before it starts.
+before it starts. A bug filed under the story repairs work the plan already holds, so it isn't part of the plan:
+Tablet's STORY-21 ran the check 44 times, once per bug.
 """
 
 from __future__ import annotations
@@ -68,8 +69,14 @@ def _scope(charter: dict[str, Any]) -> list[Any]:
     return [charter.get("vision") or "", charter.get("out_of_scope") or [], environment]
 
 
+def _planned(tasks: list[dict[str, Any]], gates: dict[str, Any]) -> list[dict[str, Any]]:
+    """The children that are the plan: tasks, not the bugs filed against them later."""
+    return [t for t in tasks if unit_of(t, gates) != "bug"]
+
+
 def _current(board: Any, story_id: str, charter: dict[str, Any]) -> str:
-    return plan_hash(board.show, story_id, [t["id"] for t in board.children.get(story_id, [])], charter)
+    return plan_hash(board.show, story_id, [t["id"] for t in _planned(board.children.get(story_id, []), board.gates)],
+                     charter)
 
 
 def required(charter: dict[str, Any]) -> bool:
@@ -127,8 +134,8 @@ def held(board: Any, charter: dict[str, Any]) -> set[str]:
     return waiting
 
 
-def _plan_of(coord: Coordination, story_id: str, charter: dict[str, Any]) -> str:
-    children = [t["id"] for t in coord.all_tasks("--tag", f"parent:{story_id}")]
+def _plan_of(project: Project, coord: Coordination, story_id: str, charter: dict[str, Any]) -> str:
+    children = [t["id"] for t in _planned(coord.all_tasks("--tag", f"parent:{story_id}"), project.gates())]
     return plan_hash(coord.task, story_id, children, charter)
 
 
@@ -163,7 +170,7 @@ def record(project: Project, coord: Coordination, story_id: str, passed: bool, n
     needs = [" ".join(n.split())[:MAX_NEED] for n in needs if n.strip()]
     if passed == bool(needs):
         raise SoftoryError("Give either --pass or one --needs per missing thing", "invalid_arguments")
-    plan = (plan or "").strip() or _plan_of(coord, story_id, charters.load(project))
+    plan = (plan or "").strip() or _plan_of(project, coord, story_id, charters.load(project))
     uri = MARK + ("pass" if passed else "needs") + f"@{plan}" + ("" if passed else ":" + " | ".join(needs))
     coord.run("evidence", "add", "--task", story_id, "--uri", uri, "--type", "review", "--actor", actor)
     result: dict[str, Any] = {"story": story_id, "verdict": "pass" if passed else "needs", "needs": needs,
@@ -182,8 +189,18 @@ def record(project: Project, coord: Coordination, story_id: str, passed: bool, n
     return result
 
 
+def asks(board: Any) -> list[dict[str, Any]]:
+    """The owner's provisioning requests, one per missing thing however many stories need it."""
+    found: dict[str, dict[str, Any]] = {}
+    for row in requests(board):
+        for need in row["needs"]:
+            ask = found.setdefault(" ".join(need.lower().split()).rstrip("."), {"need": need, "stories": []})
+            ask["stories"].append(row["story"])
+    return [{"key": hashlib.sha256(key.encode("utf-8")).hexdigest()[:10], **ask} for key, ask in found.items()]
+
+
 def requests(board: Any) -> list[dict[str, Any]]:
-    """Open stories whose latest check found something missing: the owner's provisioning requests."""
+    """Open stories whose latest check found something missing."""
     rows = []
     for summary in board.tasks:
         if unit_of(summary, board.gates) != "story":
@@ -199,8 +216,9 @@ def requests(board: Any) -> list[dict[str, Any]]:
 def prompt(project: Project, coord: Coordination, charter: dict[str, Any], story_id: str) -> str:
     """Everything the check may read, and nothing else: the plan, the scope, and the environment."""
     story = coord.task(story_id)
-    plan_id = _plan_of(coord, story_id, charter)  # the verdict names this, so a change while it runs is checked again
-    tasks = [t for t in coord.all_tasks("--tag", f"parent:{story_id}") if t["status"] != "done"]
+    plan_id = _plan_of(project, coord, story_id, charter)  # the verdict names this, so a change while it runs is checked again
+    tasks = [t for t in _planned(coord.all_tasks("--tag", f"parent:{story_id}"), project.gates())
+             if t["status"] != "done"]
     environment = {k: v for k, v in (charter.get("environment") or {}).items() if k != "description"}
     plan = [f"{story_id}: {story['title']}", f"Acceptance: {_acceptance(story) or '(none)'}",
             f"Description: {' '.join(str(story.get('description') or '').split())}", "Tasks:"]
