@@ -442,7 +442,8 @@ class ShipTest(unittest.TestCase):
             return real(*args)
 
         with mock.patch.object(verifies, "_run_in_tree", once_the_deploy_waits), ThreadPoolExecutor(2) as pool:
-            retest = pool.submit(verifies.run, project, board, settings, task, "gold")
+            # --fresh: since 0.6.3 a verify at a commit that already passed reuses the pass
+            retest = pool.submit(verifies.run, project, board, settings, task, "gold", None, True)
             for _ in range(200):
                 if verifyenv.waiting(project):
                     break
