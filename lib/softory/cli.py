@@ -192,6 +192,10 @@ def build_parser() -> argparse.ArgumentParser:
                                     "(the runner starts it)")
     p.add_argument("--dry-run", action="store_true", help="Only list the units waiting to merge")
 
+    p = sub.add_parser("push", help="Push your branch to the remote; never the base branch")
+    p.add_argument("branch", nargs="?", help="Default: the branch you are on")
+    p.add_argument("--remote", help="Default: the charter's merge.push, else origin")
+
     p = sub.add_parser("deploy", help="Deploy a tested commit to one of the charter's targets, then smoke-test it")
     p.add_argument("target")
     p.add_argument("--release", help="The release unit it deploys; required for production")
@@ -391,6 +395,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         from .ship import ship  # noqa: PLC0415
 
         print(ops.dumps(ship(project, coord, charter.load(project), args.dry_run)), end="")
+    elif args.command == "push":
+        from . import perms  # noqa: PLC0415
+
+        print(ops.dumps(perms.push(project, charter.load(project), args.branch, args.remote, Path.cwd())), end="")
     elif args.command == "deploy":
         from . import deploy  # noqa: PLC0415
 

@@ -30,6 +30,8 @@ def load(project: Project) -> dict[str, Any]:
     saved = project.local().get("charter", {})
     merged = merge(defaults(project), saved.get("settings", {}))
     merged["approved"] = saved.get("approved")
+    # The base is a local branch name everywhere it is used: refs/heads/main means main.
+    merged["git"]["base"] = str(merged["git"].get("base") or "").removeprefix("refs/heads/")
     merged["merge"]["since"] = saved.get("merge_since")  # when softory began merging; older work stays the owner's
     return merged
 

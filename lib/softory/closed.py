@@ -7,7 +7,9 @@ A unit closed without a commit, or closed any other way, has no entry and doesn'
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,21 +32,34 @@ def path(project: Project) -> Path:
     return project.state / "closed.json"
 
 
-def commits(project: Project) -> dict[str, str]:
-    """Unit id to the commit it closed at."""
+def entries(project: Project) -> dict[str, dict[str, str]]:
+    """Unit id to ``{"commit", "by", "at"}``: the commit it closed at, who closed it, and when."""
     try:
-        return {unit: row["commit"] for unit, row in json.loads(path(project).read_text(encoding="utf-8")).items()}
+        return json.loads(path(project).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
+def commits(project: Project) -> dict[str, str]:
+    """Unit id to the commit it closed at."""
+    return {unit: row["commit"] for unit, row in entries(project).items()}
+
+
 def record(project: Project, unit: str, commit: str | None, actor: str) -> None:
-    """Called by softory close after the unit reached done. A reopened unit's next close replaces its entry."""
-    try:
-        data = json.loads(path(project).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        data = {}
-    data.pop(unit, None)
-    if commit:
-        data[unit] = {"commit": commit, "by": actor, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    path(project).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    """Called by softory close after the unit reached done; ``None`` (a drop) removes the entry.
+
+    Roles close units in separate processes, so the read, change, and write happen under one lock, and
+    the file is replaced whole: a reader sees the old ledger or the new one, never half of either.
+    """
+    with (project.state / "closed.lock").open("w", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            data = json.loads(path(project).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        data.pop(unit, None)
+        if commit:
+            data[unit] = {"commit": commit, "by": actor, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        fresh = path(project).with_name(f"closed.json.{os.getpid()}.tmp")
+        fresh.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(fresh, path(project))
