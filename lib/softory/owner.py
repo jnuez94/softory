@@ -331,6 +331,9 @@ def ruling(project: Project, coord: Coordination, title: str, decision: str, whe
                                   decision, background + (f" {context}" if context else ""), recorded_by=actor)
     result = {"decision": decision_id, "owner": owner, "recorded_by": actor,
               "note": "A ruling is a record. It doesn't change the gate; a stand-in or waiver still needs softory approve."}
+    if asked:  # first: when the owner answered it meanwhile, nothing else is written on their behalf
+        decide.close_as_told(project, coord, asked, decision, decision_id, actor)
+        result["escalation"] = asked["id"]
     if task:
         sha = verify.commit_of(project.root, task)
         review_id = f"REV-{task['id']}-{owner}-{decision_id.rsplit('-', 1)[-1]}"
@@ -340,9 +343,6 @@ def ruling(project: Project, coord: Coordination, title: str, decision: str, whe
                   "--accepted-items", decision)
         result.update(review=review_id, note=f"Recorded as the owner's accepted review of {task['id']}. The owner "
                                              "sees it in the digest.")
-    if asked:
-        decide.close_as_told(project, coord, asked, decision, decision_id, actor)
-        result["escalation"] = asked["id"]
     if task or asked:
         decide.note_on_behalf(project, {"by": actor, "decision": decision_id, "where": where, "said": decision[:200],
                                         **({"review": task["id"]} if task else {}),

@@ -8,11 +8,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.helpers import REPO, coord, git_project, install, needs_sources, run, softory
 
 sys.path.insert(0, str(REPO / "lib"))
+from softory import decide, owner  # noqa: E402
 from softory.coordination import Coordination, transient  # noqa: E402
+from softory.errors import SoftoryError  # noqa: E402
+from softory.project import Project  # noqa: E402
 from tests.test_workflow import start  # noqa: E402
 
 SIDECAR = ('{"ok": false, "error": {"code": "database_configuration_error", '
@@ -105,10 +109,46 @@ class RecordsTest(unittest.TestCase):
                           "TASK-99", "--actor", "darwin", check=False)
         self.assertNotEqual(missing.returncode, 0)
 
-    def escalate(self, ask: str):
+    def escalate(self, ask: str, tasks: str = "TASK-1", *more: str):
         return softory(self.root, "escalate", "--issue", "The outline rows are 20px tall.", "--ask", ask,
-                       "--recommend", "Yes, 24px for both", "--reversible", "no", "--tasks", "TASK-1",
+                       "--recommend", "Yes, 24px for both", "--reversible", "no", "--tasks", tasks, *more,
                        "--actor", "darwin", check=False)
+
+    def test_the_same_words_about_other_work_or_to_another_owner_are_another_question(self) -> None:
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Week list",
+                "--actor", "quinn")
+        first = self.escalate("May we proceed?")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        elsewhere = self.escalate("May we proceed?", "TASK-2", "--holds", "TASK-2")
+        self.assertEqual(elsewhere.returncode, 0, elsewhere.stderr)
+        self.assertEqual(json.loads(elsewhere.stdout)["holds"], ["TASK-2"])  # and its units are held
+        to_greg = self.escalate("May we proceed?", "TASK-1", "--owner", "greg")
+        self.assertEqual(to_greg.returncode, 0, to_greg.stderr)
+        again = self.escalate("may we  proceed?")
+        self.assertNotEqual(again.returncode, 0)
+        self.assertIn(json.loads(first.stdout)["escalation"], again.stderr)
+        self.assertEqual(len(coord(self.root, "escalation", "list", "--status", "open")["data"]), 3)
+
+    def test_a_ruling_does_not_replace_an_answer_the_owner_gave_meanwhile(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        real = decide.open_escalation
+
+        def then_the_owner_answers(*args: object) -> object:  # after the ruling's check, before its write
+            seen = real(*args)
+            coord(self.root, "escalation", "resolve", asked, "--actor", "owner", "--resolution", "No, 20px stays")
+            return seen
+
+        with mock.patch.object(decide, "open_escalation", then_the_owner_answers):
+            with self.assertRaises(SoftoryError) as refused:
+                owner.ruling(project, board, "24px covers calendar events", "Yes, 24px for both",
+                             "project chat", None, "greg", review="TASK-1", escalation=asked)
+        self.assertEqual(refused.exception.code, "conflict")
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["status"], shown["resolution"]), ("resolved", "No, 20px stays"))
+        task = coord(self.root, "task", "show", "TASK-1")["data"]
+        self.assertFalse([r for r in task.get("reviews") or [] if r.get("reviewer") == "owner"])
 
     def test_the_owner_is_not_asked_the_same_question_twice(self) -> None:
         first = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
