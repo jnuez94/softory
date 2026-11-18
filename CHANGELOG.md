@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.2] - 2026-11-13
+
+Sessions the owner opens are first-class. Since 10 Nov, Tablet has run every role as a long-lived session with a heartbeat instead of runner runs, and softory hid work from those sessions. All from Tablet's BUG-157 and its related notes.
+
+- **A session is told about its work during a pause** (attended mode). A pause stops the runner from starting roles; with `run.mode: attended`, `softory pending <role>` run by a session the owner opened now exits 0 when work waits, and says `paused_for: runner starts only`. In Tablet every check-in stopped on exit 3 for about an hour. In unattended mode a pause still stops check-ins, and the runner holds off in both. A scoped resume still limits the role to its tasks.
+- **`softory pending` says which of four states it is in** (`state`): `work`, `running` (another session of the role is live), `paused`, or `idle`. Exit codes are unchanged.
+- **A session sees mail sent to it.** An unread message addressed to the role counts for the role's own open session when it checks in, tagged or not, and `softory queue` shows the count. Four handoffs to Quinn sat unread for 90 minutes. The runner still starts nobody for an untagged note.
+- **Quinn's session sees feasibility checks that are due.** The runner won't start a check beside a live Quinn session, so in Tablet nobody ran them. `softory queue` for Quinn lists each due story with the plan it would read, the plan the last verdict covered, and the command (`softory run-check STORY-n`); `softory pending quinn` counts them.
+- **One open review record per reviewer and task.** `softory new review` refuses a second open record by the same reviewer for a task the first already names, and returns the first one's ID. Two workers under one Avery session opened REVIEW-329 and REVIEW-330 for the same commit.
+- **`softory flow` leaves out what it didn't measure.** Sessions opened outside the runner log no minutes, tokens, or cost. While any worked in the window, runs, minutes, tokens, and dollars per unit and the idle share are empty, and `unmeasured` says why; time to delivery, review rounds, and disk still hold. Tablet's flow showed cost per unit falling for two days after its runner stopped. Sage's check-in also counts open sessions as the team having worked.
+- **Stand-ins can start sessions and get a review workspace.** `softory start` and `softory workspace` accept an agent with an active stand-in grant; both refused Avery as an unknown role.
+- **`softory coord` keeps `--actor` out of commands that don't take it.** It uses the flag to find the role's session, then drops it when the command's own help has no `--actor`. Greg's read calls failed five times in a row.
+- **`softory new` prints the ID last**, so reading the tail of its output gives the right one.
+- **Doctor doesn't call attended sessions a second scheduler** when `run.mode` is `attended`.
+
 ## [0.6.1] - 2026-11-13
 
 The standards the owner set while running Tablet, now in softory, so every project gets them. Text, one charter setting, and one doctor warning: no new role, workflow, or kind of document.

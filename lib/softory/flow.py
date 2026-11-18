@@ -16,7 +16,7 @@ from typing import Any
 from . import clutter
 from .coordination import Coordination
 from .project import Project
-from .runstate import all_runs, state_dir
+from .runstate import all_runs, manual_starts, state_dir
 from .gate import spec_for
 from .units import resolution_of, tags_of
 from .work import Board
@@ -40,7 +40,11 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
     measured = [r for r in runs if r.get("changes") is not None]
     closed = len(done_at)
     found = clutter.report(project)
-    per = (lambda total: round(total / closed, 1) if closed else None)
+    # Sessions the owner or an app opened leave no run rows: no minutes, tokens, or cost. While any worked in
+    # the window, the per-unit run numbers would cover only part of the work, so they are left out, not guessed.
+    # Tablet's showed a falling cost per unit for two days after its runner had stopped.
+    outside = _outside_sessions(project, coord, since)
+    per = (lambda total: round(total / closed, 1) if closed and not outside else None)
     numbers = {
         "closed": closed,
         "lead_hours": round(median(lead), 1) if lead else None,
@@ -50,7 +54,8 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
         "minutes_per_unit": per(sum(float(r.get("minutes") or 0) for r in runs)),
         "tokens_per_unit": per(sum(_tokens(r) for r in runs)),
         "usd_per_unit": per(sum(float(r.get("usd") or 0) for r in runs)),
-        "idle_share": round(sum(1 for r in measured if not r["changes"]) / len(measured), 2) if measured else None,
+        "idle_share": round(sum(1 for r in measured if not r["changes"]) / len(measured), 2)
+        if measured and not outside else None,
         "process_mib": round(_mib(project) + clutter.archive_bytes(project) / 1048576, 1),  # each byte once
         "untracked": found["counts"]["untracked"],
         "archives": found["counts"]["archives"],
@@ -69,6 +74,12 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
     previous = _last(path)
     result = {"days": days, "since": since, **numbers, "by_role": dict(sorted(by_role.items())),
               "storage_mib": _storage(project), "open_process_units": process_units}
+    if outside:
+        result["unmeasured"] = {
+            "sessions": len(outside), "roles": sorted({s["agent_id"] for s in outside}),
+            "note": "These sessions ran outside the runner, which logs no minutes, tokens, or cost for them. "
+                    "Runs, minutes, tokens, dollars per unit and idle share are left out; time to delivery, "
+                    "review rounds, and disk still hold."}
     if previous:
         result["previous"] = {"at": previous["at"], **{k: previous.get(k) for k in COMPARED}}
         result["worse"] = [k for k in COMPARED if _worse(k, numbers.get(k), previous.get(k))]
@@ -76,6 +87,15 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
         with path.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"at": now.isoformat(timespec="seconds"), "days": days, **numbers}) + "\n")
     return result
+
+
+def _outside_sessions(project: Project, coord: Coordination, since: str) -> list[dict[str, Any]]:
+    """Role sessions started outside the runner (``softory start``) and seen inside the window."""
+    started = {row.get("session") for row in manual_starts(project, hours=24 * 3650)}
+    if not started:
+        return []
+    return [s for s in coord.all_rows("session", "list") if s.get("id") in started
+            and str(s.get("last_seen_at") or s.get("started_at") or "") >= since]
 
 
 def _done_at(coord: Coordination, since: str) -> dict[str, str]:

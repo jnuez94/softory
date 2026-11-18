@@ -31,7 +31,7 @@ def _folder(project: Project) -> Path:
 
 def workspace(project: Project, role: str, commit: str | None = None) -> dict[str, Any]:
     """The role's workspace, at ``commit`` (default: HEAD)."""
-    project.role(role)  # must be a role
+    project.member(role)  # a role, or the owner's stand-in for one
     found = git(project.root, "rev-parse", "--verify", "--quiet", f"{commit or 'HEAD'}^{{commit}}")
     if found.returncode != 0:
         raise SoftoryError(f"{commit} is not a commit in this repository", "not_found")
