@@ -86,6 +86,33 @@ class SessionTest(unittest.TestCase):
         self.assertNotEqual(again["plan"], again["checked_plan"])
         self.assertNotIn("feasibility_due", json.loads(softory(self.root, "queue", "--agent", "jade").stdout))
 
+    def test_a_feasibility_check_hands_quinns_own_session_back(self) -> None:
+        verdict = ".agents/softory/bin/softory feasible STORY-1 --pass --actor quinn"
+        self.charter({"run": {"harnesses": {"fake": ["sh", "-c", verdict]}},
+                      "feasibility": {"harness": "fake", "model": "m2"}})
+        own = start(self.root, "quinn")["COORDINATION_SESSION"]
+        remembered = self.root / ".coordination/softory/sessions/quinn.json"
+        ran = json.loads(softory(self.root, "run-check", "STORY-1").stdout)  # the command the queue names
+        self.assertEqual(ran["job"], "feasibility")
+        self.assertNotIn("feasibility_due", json.loads(softory(self.root, "queue", "--agent", "quinn").stdout))
+        self.assertEqual(json.loads(remembered.read_text()), {"session": own})
+        self.assertEqual(coord(self.root, "session", "show", own)["data"]["status"], "active")
+        # A fresh shell that names only the role still finds Quinn's own session, not "another run".
+        fresh = softory(self.root, "pending", "quinn", "--actor", "quinn", check=False)
+        self.assertNotEqual(json.loads(fresh.stdout)["state"], "running", fresh.stdout)
+        softory(self.root, "end", "--actor", "quinn")
+        self.assertFalse(remembered.exists())
+
+    def test_the_unread_count_reads_past_a_page_of_team_news(self) -> None:
+        session = start(self.root, "jade")["COORDINATION_SESSION"]
+        for n in range(100):
+            coord(self.root, "--session", session, "message", "send", "--id", f"NEWS-{n}", "--sender", "jade",
+                  "--recipient", "team", "--body", "News for everyone.")
+        coord(self.root, "--session", session, "message", "send", "--id", "MSG-1", "--sender", "jade",
+              "--recipient", "darwin", "--body", "Handoff: the list needs a sort order.")
+        queue = json.loads(softory(self.root, "queue", "--agent", "darwin").stdout)
+        self.assertEqual(queue["unread"]["count"], 1)
+
     def test_a_role_cannot_open_two_review_records_for_one_task(self) -> None:
         first = json.loads(softory(self.root, "new", "review", "--for", "TASK-1", "--title", "Review the list",
                                    "--actor", "gold").stdout)

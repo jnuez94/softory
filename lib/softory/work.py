@@ -30,6 +30,9 @@ from .units import (
 )
 
 
+INBOX_PAGE = 100
+
+
 def actor_of(explicit: str | None) -> str:
     actor = explicit or os.environ.get("SOFTORY_ROLE")
     if not actor:
@@ -540,8 +543,14 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         checks = [row for row in feasibility.due_rows(board, settings) if scope is None or row["story"] in scope]
         if checks:
             result["feasibility_due"] = checks
-    inbox = coord.run("inbox", "list", "--agent", agent, "--limit", "100")
-    unread = [m for m in (inbox.get("messages", []) if isinstance(inbox, dict) else inbox) if m.get("recipient") == agent]
+    unread, offset = [], 0
+    while True:  # every page: the inbox lists team news too, oldest first, so one page can hide direct mail
+        inbox = coord.run("inbox", "list", "--agent", agent, "--limit", str(INBOX_PAGE), "--offset", str(offset))
+        page = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
+        unread += [m for m in page if m.get("recipient") == agent]
+        if len(page) < INBOX_PAGE:
+            break
+        offset += INBOX_PAGE
     if unread:
         result["unread"] = {"count": len(unread), "read": "softory inbox"}
     return result
