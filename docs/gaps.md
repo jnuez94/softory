@@ -6,7 +6,13 @@ Found while building softory on scaffold **1.4.0** (`172df83`) and the tracker a
 
 Scaffold **1.4.1** (`9e534a6`, tag `v1.4.1`) fixed S1 to S3, S6 to S13, S16, S17, and S19 to S22, and its tags and `1.x` branch settle S7 and S8. Softory 0.3.1 pins it; [the changelog](../CHANGELOG.md) says what softory now uses from each fix. The entries below are kept for the record.
 
-Still open: S4, S5, S14, S15, S18, and the new S23 and S24.
+After 1.4.1, still open: S4, S5, S14, S15, S18, and the new S23 and S24.
+
+## Fixed in scaffold 1.4.2
+
+Scaffold **1.4.2** (`a62ee30`, merged into `1.x`) fixed S5, S15, S23, and S24. Softory 0.6.0 pins it and turns the strict policies on: `closure_policy: strict` with `closure_review_waiver: decision` (drops cite their decision, and `softory close` cites the gate's verdict where softory's rules differ from one accepted review) and `closure_exempt_tags: unit:review`, plus `dependency_policy: strict`, with stacks linked by `informs`. Parents are marked active with `task activate` (S5), and `task show` orders reviews by sequence (S23), so softory no longer re-reads them on ties. S18's `cancelled` status wasn't added, since schema 1 constrains statuses; the decision waiver covers drops.
+
+Still open: S4, S14, and S18.
 
 ## Scaffold (agentic-project-scaffold-lite 1.4.0)
 
@@ -49,4 +55,4 @@ Still open: S4, S5, S14, S15, S18, and the new S23 and S24.
 | T6 | **No view of finished-but-open work.** There's no filter for open tasks whose latest review accepts them. | The tracker shows a large todo list that is mostly done | `softory triage` | A filter or health card: open tasks with an accepted latest review and no open rejection. |
 | T7 | **Its tests expect CLI version `1.4.0` exactly.** Against scaffold 1.4.1, 510 of 514 tests pass at `ee3dee6`; the other four assert the version string. The console itself accepts `>=1.4.0,<2.0.0` and works. | Its suite reads as failing on any newer 1.x | None needed; softory doesn't run the tracker's tests. | Compare against `SUPPORTED_CLI_VERSION` or the installed CLI's version instead of a literal. |
 
-S1 matters most. Scaffold 1.4.1 can now enforce closure, but not in a form that allows softory's review records and dropped work (S24), so softory's boundaries still hold only as long as agents follow the operating loop.
+S1 mattered most. Since scaffold 1.4.2 (S24) softory runs with strict closure and dependencies, so a raw close needs an accepted review from a non-builder and no open blocking work. Softory's finer rules (tag reviews, lanes, verify, secrets) still hold only through `softory close`.

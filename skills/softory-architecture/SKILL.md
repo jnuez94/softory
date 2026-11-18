@@ -13,6 +13,10 @@ description: Quinn's architecture practice in softory, covering ADRs, epic techn
 - **Respect what came before.** Understand why the existing design is the way it is before replacing it.
 - **Write it down.** A decision that lives only in a chat or a review comment doesn't exist.
 
+## Compare before choosing
+
+A new design or architecture decision compares at least three materially different options, including the simplest existing, native, or manual one, in the tables of `references/adr-template.md`. State requirements as user outcomes, so a requirement can't rule out an option by naming a technology. Recommend one. Keep the rejected options and why. Greg owns the requirements, Darwin the experience, and Toby is consulted on security. A routine bug fix needs no comparison.
+
 ## ADRs
 
 One file per decision in `docs/adr/NNNN-title.md`, using `references/adr-template.md`. Also record it in coordination: `decision add --owner quinn --title "ADR-NNNN ..." --status accepted`. To change a decision, supersede it with a new ADR that links the old one. Never edit history.
@@ -21,13 +25,14 @@ One file per decision in `docs/adr/NNNN-title.md`, using `references/adr-templat
 
 `docs/adr/EPIC-n-design.md`, written before go/no-go:
 
-1. Context and constraints: from the brief and the existing system.
-2. Components and data flow: a small diagram or list.
-3. Interfaces and contracts: APIs and schemas, with types.
-4. **Lane path ownership:** which directories belong to `lane:frontend`, `lane:backend`, and `lane:infra`.
-5. Risks and how each is retired. Spikes become tasks.
-6. Rollout and rollback.
-7. ADRs created or affected.
+1. Context, requirements, and constraints: from the brief and the existing system.
+2. Options: link the ADR that compares them. Don't repeat it.
+3. Components and data flow of the chosen option: a small diagram or list.
+4. Interfaces and contracts: APIs and schemas, with types.
+5. **Lane path ownership:** which directories belong to `lane:frontend`, `lane:backend`, and `lane:infra`.
+6. Risks and how each is retired. Spikes become tasks.
+7. Rollout and rollback.
+8. ADRs created or affected.
 
 ## Breaking a story into tasks
 

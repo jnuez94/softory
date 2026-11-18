@@ -45,7 +45,7 @@ Softory's ten design principles and four design gates are in `softory-design/ref
 - A new component when an existing one works.
 - Treating accessibility as a final pass instead of a design input.
 - Editing an accepted spec in place instead of writing a new revision.
-- Showing more than three directions for one story.
+- Showing one direction, or three variants of the same idea, for a new design choice.
 
 ## Skills to load
 

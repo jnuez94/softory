@@ -14,6 +14,8 @@ Create it with `softory new epic --title "<outcome, not feature>" --actor greg -
 - **Success metric:** one measurable signal and a target.
 - **Scope and non-goals:** the non-goals stop scope creep later.
 - **Risks:** one line each for value, usability, feasibility, and security, so Darwin, Quinn, and Toby know where to look.
+- **Requirements:** each with an ID, Must or Should, its source, and a testable target. State the user outcome, never the solution, and mark assumptions as assumptions.
+- **Options:** for a new approach, link Quinn's or Darwin's comparison of at least three options before go/no-go. Don't write a second one.
 
 Get the owner's go/no-go and record it: `decision add --owner greg --title "EPIC-n go" ...`.
 

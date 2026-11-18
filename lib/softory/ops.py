@@ -11,7 +11,7 @@ from typing import Any
 
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
 from .coordination import Coordination
-from .install import SKILL_ROOTS
+from .install import SKILL_ROOTS, content_hashes
 from .project import Project
 
 
@@ -52,6 +52,12 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
         warnings.append("Leftover files beside the database: " + ", ".join(report["filesystem_fuse_leftovers"])
                         + ". Delete them only when nothing in a VM or container has the folder open.")
     warnings += _scheduler_warnings(project)
+    edited = _edited_content(project)
+    if edited:
+        warnings.append(f"{len(edited)} installed skill or template file(s) differ from softory {project.manifest().get('softory_version')}: "
+                        + ", ".join(edited[:8]) + (", ..." if len(edited) > 8 else "")
+                        + ". The gate doesn't read them, so work goes on. Re-run the installer to restore them; "
+                        "a change that should last goes into softory itself (softory feedback).")
     older = _older_scaffold_block(project)
     if older:
         warnings.append(older)
@@ -74,6 +80,16 @@ def doctor(project: Project, coord: Coordination) -> dict[str, Any]:
           else "installed before integrity checks; re-run the installer" if changed is None
           else "changed since install: " + ", ".join(changed) + ". The gate fails until it's restored or reinstalled.")
     return {"pass": all(c["pass"] for c in checks), "checks": checks, "warnings": warnings, "installed_paths": paths}
+
+
+def _edited_content(project: Project) -> list[str]:
+    """Installed skills, templates, and workflows that no longer match the install (none known before 0.6.1)."""
+    manifest = project.manifest()
+    recorded = manifest.get("content")
+    if recorded is None:
+        return []
+    current = content_hashes(project.root, manifest.get("skills", []))
+    return sorted(name for name in set(recorded) | set(current) if recorded.get(name) != current.get(name))
 
 
 def _scheduler_warnings(project: Project) -> list[str]:
@@ -261,6 +277,10 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
     if purge:
         shutil.rmtree(root / ".coordination", ignore_errors=True)
         removed.append(".coordination")
+    else:
+        from .policy import remove as remove_policies  # noqa: PLC0415
+
+        remove_policies(root)  # the strict policies are softory's choice, not the project's
     hidden = ([] if purge else ["/.coordination/"]) + ([f"/{SCAFFOLD_DIR}/"] if keep_scaffold else [])
     gitlocal.write_exclude_block(root, hidden)
     kept = ([] if purge else [".coordination (your coordination history)"])

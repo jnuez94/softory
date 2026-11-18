@@ -372,7 +372,7 @@ print(json.dumps({"ok": True, "data": data}))
 
 
 class ReviewOrderTest(unittest.TestCase):
-    """``task show`` sorts reviews by whole seconds, then ID, so REV-10 can come before REV-9."""
+    """``task show`` is one call: scaffold 1.4.2 orders its reviews by sequence (S23)."""
 
     def setUp(self) -> None:
         import os
@@ -391,14 +391,6 @@ class ReviewOrderTest(unittest.TestCase):
         self.environ = dict(os.environ)
         self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.environ)))
         os.environ["FAKE_CLI_LOG"] = str(self.log)
-
-    def test_a_tie_reads_reviews_in_the_order_they_were_recorded(self) -> None:
-        import os
-
-        os.environ["FAKE_CLI_TIE"] = "1"
-        task = self.coord.task("TASK-1")
-        self.assertEqual([r["id"] for r in task["reviews"]], ["REV-9", "REV-10"])
-        self.assertEqual(gate.latest_reviews(task)["gold"]["decision"], "changes_requested")
 
     def test_no_tie_costs_no_extra_call(self) -> None:
         import os

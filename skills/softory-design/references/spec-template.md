@@ -11,8 +11,24 @@ Revision: r1 · Changes from the last revision: <none, or what changed and why>
 3. <Goal reached>
 - Exits: <cancel, back, error>
 
-## Directions
-<At most three. Mark one RECOMMENDED, with the reason. Delete this section once one is accepted, keeping the choice.>
+## Options considered
+At least three materially different options, including the simplest existing, native, or manual one. No renamed variants. This section stays after the choice.
+
+| Option | How it works | Pros | Cons |
+| --- | --- | --- | --- |
+| A (RECOMMENDED) | | | |
+| B | | | |
+| C | | | |
+
+## Requirements comparison
+One row per requirement, stated as a user outcome, never as a technology. Each cell says Meets, Partly, Fails, or Unknown, then how and on what evidence. Unknown stays unknown, with no invented scores. A failed Must is never traded for other strengths.
+
+| Requirement (ID, Must or Should, source, target) | A | B | C |
+| --- | --- | --- | --- |
+| FR-1 <behavior> | | | |
+| NFR-1 <quality: privacy, reliability, speed, setup, upkeep, reversibility> | | | |
+
+**Recommendation:** <the option, why by requirement ID, and what evidence would change the choice>
 
 ## Screens and components
 

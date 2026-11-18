@@ -1,4 +1,4 @@
-"""Install softory, scaffold 1.4.1, and the tracker into a project, hidden from git."""
+"""Install softory, the pinned scaffold, and the tracker into a project, hidden from git."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, STATE_DIR, __version__, gitlocal, instructions
+from . import BUNDLE_DIR, COORDINATION_BIN, SCAFFOLD_DIR, STATE_DIR, __version__, gitlocal, instructions, policy
 from .coordination import Coordination
 from .errors import SoftoryError
-from .project import PROTECTED_DIRS, Project, integrity_hashes, make_read_only, write_protected
+from .project import PROTECTED_DIRS, Project, file_hash, integrity_hashes, make_read_only, write_protected
 from .registration import register_roster
 from .sources import fetch_sources, version_tuple
 
@@ -51,6 +51,7 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         owner = json.loads((source / "factory" / "roles" / "roster.json").read_text(encoding="utf-8"))["owner"]["id"]
         backup = _backup_before_upgrade(target, scaffold_found, deps["scaffold"]["version"], owner)
         _install_scaffold(scaffold_src, target)
+        enforcement = policy.apply(target)
         bundle = target / BUNDLE_DIR
         _copy_bundle(source, bundle)
         _move_state(bundle, target / STATE_DIR)
@@ -92,12 +93,33 @@ def install(source: Path, target: Path, options: dict[str, Any]) -> dict[str, An
         "exclude_patterns": patterns,
         # The owner runs the installer, so what it finds is what the gate trusts.
         "integrity": _protect(bundle),
+        "content": content_hashes(target, skills),
     }
     write_protected(bundle / "manifest.json", json.dumps(manifest, indent=2) + "\n")
 
     leaked = sorted(gitlocal.status_entries(target) - status_before)
     return {"target": str(target), "scaffold_found": scaffold_found, "scaffold_installed": deps["scaffold"]["version"],
-            "scaffold_backup": backup, "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
+            "scaffold_backup": backup, "enforcement": enforcement, "registered": registered, "skills": skills, "instruction_files": actions, "git_status_changes": leaked}
+
+
+#: Softory's text that agents load but the gate doesn't hash: its skills, templates, workflows, and instructions.
+CONTENT_PARTS = ("factory/templates", "factory/workflows", "factory/INSTRUCTIONS.md")
+
+
+def content_hashes(target: Path, skills: list[str]) -> dict[str, str]:
+    """The hash of every installed skill, template, and workflow file, by path from the project root.
+
+    The gate doesn't read these, so a change never fails it. ``softory doctor`` compares them with the
+    install and names what differs: in Tablet a role rewrote softory's skills in place and nothing showed it.
+    """
+    roots = [target / BUNDLE_DIR / part for part in CONTENT_PARTS]
+    roots += [target / root / name for name in skills for root in SKILL_ROOTS]
+    hashes = {}
+    for root in roots:
+        for path in sorted([root] if root.is_file() else root.rglob("*") if root.is_dir() else []):
+            if path.is_file() and not path.is_symlink() and "__pycache__" not in path.parts:
+                hashes[path.relative_to(target).as_posix()] = file_hash(path)
+    return hashes
 
 
 def _protect(bundle: Path) -> dict[str, str]:

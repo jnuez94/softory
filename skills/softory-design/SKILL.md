@@ -13,7 +13,7 @@ Read `references/standard.md` (softory's ten principles and four design gates) a
 2. **Flow.** List the steps from entry to goal, plus every exit: cancel, error, and back. Keep the flow short, and remove steps before polishing them.
 3. **States.** For every screen or component in the flow, design these states: **empty, loading, partial, success, error, stale, and no-permission**. Add offline if the app works offline.
 4. **Worst-case data.** List the worst real data for each screen and check the design against it, using `docs/design/fixtures/`.
-5. **Layout and components.** Use existing design-system components and tokens first. A new component needs a reason in the spec. Show at most three directions, with one recommended.
+5. **Options and layout.** For a new design choice, compare at least three materially different options with the tables in `references/spec-template.md`, and recommend one. Use existing design-system components and tokens first. A new component needs a reason in the spec.
 6. **Copy.** Write every label, button, empty state, error, and confirmation (rules below), and add new wording to DESIGN.md's copy table.
 7. **Accessibility.** Bake it into each decision (checklist below). It's not a final pass.
 8. **Spec.** Write `docs/design/STORY-n.md` using `references/spec-template.md`, and link it as evidence on the design task. After acceptance, revise with `STORY-n-r2.md`, never in place.
@@ -61,7 +61,7 @@ From Nielsen's ten usability heuristics:
 
 Emil Kowalski's skills (`softory skills add prototype break-ui emil-design-eng review-animations remove-animations`) fit inside softory's rules. Where they differ, the standard, DESIGN.md, and your lane win. `prototype` and `review-animations` are manual-only in Claude, so read their `SKILL.md` from `.claude/skills/` (Codex: `.agents/skills/`).
 
-- **`prototype` (Darwin):** use its static-file branch. Build the directions in one HTML file at `docs/design/STORY-n/directions.html`, never in app code. Show at most three, and recommend one, which overrides its "never pre-pick" rule. Greg chooses at acceptance, and the file stays as part of the spec.
+- **`prototype` (Darwin):** use its static-file branch. Build the directions in one HTML file at `docs/design/STORY-n/directions.html`, never in app code. Show at least three, built only as far as it takes to tell them apart, and recommend one, which overrides its "never pre-pick" rule. Greg chooses at acceptance, and the file stays as part of the spec.
 - **`break-ui`:** Darwin lists each value's worst case and writes `docs/design/fixtures/`. Jade wires the dev-only toggle in a `frontend` task and attaches the report as `visual` evidence.
 - **`emil-design-eng`, `review-animations` (Jade, Darwin):** Jade checks against them while building and before review. Darwin uses `review-animations` in design review.
 - **`remove-animations` (Jade):** only in a `frontend` task, and only to remove motion the standard rules out.

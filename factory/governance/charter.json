@@ -68,6 +68,10 @@
     "process_paths": ["scripts/**", "bin/**", ".github/**", ".gitlab-ci.yml", "Makefile", "*.mk", "Dockerfile*", "docker-compose*"],
     "clean_handoff": true
   },
+  "review": {
+    "description": "rotation is the order softory reviewers uses to name one reviewer to ask (its ask field) when several may give the same review, so requests spread instead of all going to the first name. Builders are skipped, and whoever already reviewed the unit is asked again. Empty uses the gate's own order. Any eligible reviewer's verdict still counts.",
+    "rotation": []
+  },
   "review_batch": {
     "description": "Wake a reviewer once this many reviews wait, or once the oldest has waited this long, so one run clears several. Reviews also wait until softory verify passes at the commit.",
     "min": 2,
@@ -95,8 +99,27 @@
     "deny_bash": ["git push --force", "git push -f", "git reset --hard", "rm -rf"]
   },
   "git": {"base": "main"},
-  "merge": {"by": "owner"},
-  "deploy": {"targets": [], "production": "owner"},
+  "merge": {
+    "description": "by owner: the owner merges finished units. by softory: softory ship merges units that closed through the gate, up to batch_max at a time, as one candidate commit on the base, and moves the base only when softory verify passes there; a failing batch is retried one unit at a time, and a unit that conflicts or fails alone gets a bug. push names a remote to push the base to after each merge (empty: local only). Roles never push to the base. The base itself is checked whenever it moves: a red base gets a priority 1 bug.",
+    "by": "owner",
+    "batch_max": 5,
+    "push": ""
+  },
+  "deploy": {
+    "description": "Each target is {name, command, smoke, auto, timeout_minutes}. command and smoke run in a clean checkout of the commit, with SOFTORY_DEPLOY_TARGET and SOFTORY_DEPLOY_COMMIT set; smoke runs after command and its failure fails the deploy. An auto target gets every commit softory ship merges. A release unit closes only when every target but production passed at its commit. A target named production deploys only with softory deploy production --release <ID>, by the owner at a terminal.",
+    "targets": [],
+    "production": "owner"
+  },
+  "secrets": {
+    "description": "Where secrets live and who reads them, as the owner declares it: softory never stores or fetches a secret, the harness does. stores lists each place (a keychain item, an environment variable, a vault path) with the roles that may read it. With scan, the gate's no_secrets check scans the lines a unit's own commits add for keys, tokens, private keys, and secret files; allow lists regular expressions for known safe matches.",
+    "stores": [],
+    "scan": true,
+    "allow": []
+  },
+  "backups": {
+    "description": "The runner backs up the coordination database once a day into .coordination/backups and keeps keep_days of them. 0 turns it off.",
+    "keep_days": 7
+  },
   "paging": {
     "command": "",
     "digest_hour": 8,

@@ -31,7 +31,7 @@ Pulled skills go into `.claude/skills/` and `.agents/skills/` next to softory's 
 | --- | --- | --- | --- | --- |
 | `frontend-design` | [anthropics/skills](https://github.com/anthropics/skills) | Apache-2.0 | Yes | Aesthetic direction for new UI. `softory-design` covers flows, states, and accessibility, but not visual taste. |
 | `web-design-guidelines` | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) | MIT | Yes | Automated review of built UI against the Web Interface Guidelines. It fetches the rules at run time, so it needs network access. Leave it out where DESIGN.md allows nothing remote. |
-| `prototype` | [emilkowalski/skills](https://github.com/emilkowalski/skills) | MIT | Yes | Darwin's up-to-three directions behind a picker, as a static file under `docs/design/` |
+| `prototype` | [emilkowalski/skills](https://github.com/emilkowalski/skills) | MIT | Yes | Darwin's three or more directions behind a picker, as a static file under `docs/design/` |
 | `break-ui` | emilkowalski/skills | MIT | Yes | Worst-case data behind a toggle: Darwin's fixtures, Jade's dev-only toggle |
 | `emil-design-eng` | emilkowalski/skills | MIT | Yes | Polish and motion judgement while building. 27 KB, so `ui` tasks only |
 | `review-animations` | emilkowalski/skills | MIT | Yes | A strict motion review, for Darwin's design review and Jade's self-check |

@@ -17,13 +17,15 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import design, verifyenv
+from . import design, leaks, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gate import builders, with_stand_ins
@@ -50,6 +52,18 @@ def ledger(project: Project) -> dict[str, Any]:
         return {}
 
 
+def current(project: Project, charter: dict[str, Any], sha: str | None) -> dict[str, Any] | None:
+    """The ledger entry for ``sha`` if it ran the tests the charter names now. A result from an older
+    ``verify.command`` or ``verify.setup`` says nothing about today's tests, so it reads as never run."""
+    entry = ledger(project).get(sha or "")
+    settings = charter["verify"]
+    setup = settings.get("setup") or ""
+    # An entry from before softory recorded the setup doesn't say what it ran, so it reads as never run too.
+    if not entry or entry.get("command") != settings.get("command") or entry.get("setup") != setup:
+        return None
+    return entry
+
+
 def commit_of(root: Path, task: dict[str, Any]) -> str | None:
     """The full hash of the newest code evidence that names exactly one commit this repository has.
 
@@ -67,6 +81,16 @@ def commit_of(root: Path, task: dict[str, Any]) -> str | None:
         if len(set(found)) == 1:
             return found[0]
     return None
+
+
+def commits_of(root: Path, task: dict[str, Any]) -> set[str]:
+    """Every commit of this repository the task's standing code evidence names, old rows included."""
+    found = set()
+    for row in live_evidence(task.get("evidence")):
+        if str(row.get("evidence_type", "")).lower() in CODE_EVIDENCE:
+            uri = str(row.get("uri", "")).lower()
+            found |= {_resolve(root, c) for c in _HEAD.findall(uri)[-1:] or _SHA.findall(uri)}
+    return found - {None}
 
 
 def _resolve(root: Path, candidate: str) -> str | None:
@@ -104,27 +128,29 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
             scan = {"launcher": design.detector(project), "files": design.ui_files(files)}
     with verifyenv.turn(project, task_id, actor):
         outcome = _run_in_tree(project, settings, task_id, sha, scan)
-    tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
-    found = found or outcome.get("design")
-    if found and tests_passed and not found["passed"]:
-        outcome["stage"] = "design"
-    passed = tests_passed and (found is None or found["passed"])
-    entries = ledger(project)
-    previous = entries.get(sha) or {}
-    # The tests are the commit's; a design result is one unit's, so another unit's run at this commit keeps it.
-    entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command, "by": actor,
-             "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
-             "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
-             "designs": dict(previous.get("designs") or {})}
-    if outcome["stage"] == "setup":
-        entry["setup_failed"] = True
-    if found and tests_passed:
-        entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
-    if not entry["designs"]:
-        del entry["designs"]
-    entries[sha] = entry
-    ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
-    ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        # The verdict is published before the lock is released: whoever waits for the lock reads it.
+        tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
+        found = found or outcome.get("design")
+        if found and tests_passed and not found["passed"]:
+            outcome["stage"] = "design"
+        passed = tests_passed and (found is None or found["passed"])
+        entries = ledger(project)
+        previous = entries.get(sha) or {}
+        # The tests are the commit's; a design result is one unit's, so another unit's run at this commit keeps it.
+        entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command,
+                 "setup": settings.get("setup") or "", "by": actor,
+                 "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
+                 "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
+                 "designs": dict(previous.get("designs") or {})}
+        if outcome["stage"] == "setup":
+            entry["setup_failed"] = True
+        if found and tests_passed:
+            entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
+        if not entry["designs"]:
+            del entry["designs"]
+        entries[sha] = entry
+        ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
+        ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     verdict = "pass" if passed else ("setup-fail" if outcome["stage"] == "setup" else "fail")
     coord.run("evidence", "add", "--task", task_id, "--uri", f"softory-verify:{verdict}:{sha}",
               "--type", "test", "--actor", actor)
@@ -141,6 +167,20 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
     if found:
         result["design"] = found
     return result
+
+
+def run_at(project: Project, charter: dict[str, Any], sha: str, label: str, actor: str) -> dict[str, Any]:
+    """Run the verify command at a commit no unit owns (a merge candidate, the base) and record it."""
+    settings = charter["verify"]
+    with verifyenv.turn(project, label, actor):
+        outcome = _run_in_tree(project, settings, label, sha)
+        entries = ledger(project)
+        entries[sha] = {"task": label, "passed": outcome["code"] == 0 and outcome["stage"] == "test",
+                        "exit": outcome["code"], "command": settings["command"], "setup": settings.get("setup") or "",
+                        "by": actor, "stage": outcome["stage"],
+                        "at": outcome["started"].isoformat(timespec="seconds"), "log": outcome["log"]}
+        ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return entries[sha]
 
 
 def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: str,
@@ -211,20 +251,40 @@ def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
     return False
 
 
-def _shell(command: str, cwd: Path, timeout: float) -> tuple[int, str]:
-    env = {k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)}
+def _shell(command: str, cwd: Path, timeout: float, extra: dict[str, str] | None = None) -> tuple[int, str]:
+    """Run the owner's command in its own process group. On a timeout the whole group is stopped and
+    reaped before this returns, so no child outlives the checkout or the lock its caller holds."""
+    env = {**{k: v for k, v in os.environ.items() if k not in ("COORDINATION_SESSION",)}, **(extra or {})}
+    run = subprocess.Popen(command, shell=True, cwd=cwd, stdout=subprocess.PIPE,  # noqa: S602 - owner's command
+                           stderr=subprocess.STDOUT, text=True, env=env, start_new_session=True)
     try:
-        done = subprocess.run(command, shell=True, cwd=cwd, capture_output=True, text=True,  # noqa: S602 - owner's command
-                              timeout=timeout, check=False, env=env)
-        return done.returncode, done.stdout + done.stderr
-    except subprocess.TimeoutExpired as error:
-        return 124, f"{_text(error.stdout)}{_text(error.stderr)}\n(timed out)"
+        output, _ = run.communicate(timeout=timeout)
+        return run.returncode, output
+    except subprocess.TimeoutExpired:
+        for sign, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
+            try:
+                os.killpg(run.pid, sign)
+            except ProcessLookupError:
+                break
+            try:
+                run.wait(timeout=wait)
+            except subprocess.TimeoutExpired:
+                continue
+            if not _group_alive(run.pid):
+                break
+        output, _ = run.communicate()
+        ends = time.monotonic() + 5
+        while _group_alive(run.pid) and time.monotonic() < ends:  # killed children still being reaped
+            time.sleep(0.05)
+        return 124, f"{output}\n(timed out)"
 
 
-def _text(value: Any) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value or ""
+def _group_alive(group: int) -> bool:
+    try:
+        os.killpg(group, 0)
+    except OSError:
+        return False
+    return True
 
 
 def changed_files(root: Path, base: str, sha: str, inherited: list[str] | None = None) -> list[str] | None:
@@ -259,24 +319,31 @@ def merge_changes(root: Path, merge: str) -> set[str] | None:
     whole file and so drops the other side's change, which ``--cc`` misses because the result equals a parent.
     Files the automatic merge would have produced anyway stay with the parents that brought them.
     """
-    parents = git(root, "rev-parse", f"{merge}^@")
-    if parents.returncode != 0:
+    against_all = merge_baselines(root, merge)
+    if against_all is None:
         return None
-    heads = parents.stdout.split()
-    automatic = None
-    if len(heads) == 2:
-        tried = git(root, "merge-tree", "--write-tree", "--no-messages", *heads)
-        if tried.returncode in (0, 1) and tried.stdout.split():  # 1: conflicts; the tree holds conflict markers
-            automatic = tried.stdout.split()[0]
-    # An octopus merge, or a git too old for merge-tree --write-tree: no automatic result to compare with,
-    # so count every file that differs from any parent. That can over-count, never miss a dropped change.
     files: set[str] = set()
-    for against in [automatic] if automatic else heads:
+    for against in against_all:
         found = git(root, "diff", "--no-renames", "--name-only", against, merge, "--")
         if found.returncode != 0:
             return None
         files |= {line for line in found.stdout.splitlines() if line}
     return files
+
+
+def merge_baselines(root: Path, merge: str) -> list[str] | None:
+    """What a merge commit's own changes are measured against: git's automatic merge of its two parents.
+    An octopus merge, or a git too old for merge-tree --write-tree, has none, so every parent counts. That
+    can over-count, never miss a change. None if git can't read the parents."""
+    parents = git(root, "rev-parse", f"{merge}^@")
+    if parents.returncode != 0:
+        return None
+    heads = parents.stdout.split()
+    if len(heads) == 2:
+        tried = git(root, "merge-tree", "--write-tree", "--no-messages", *heads)
+        if tried.returncode in (0, 1) and tried.stdout.split():  # 1: conflicts; the tree holds conflict markers
+            return [tried.stdout.split()[0]]
+    return heads
 
 
 def unit_files(project: Project, charter: dict[str, Any], task_id: str, sha: str) -> list[str] | None:
@@ -289,7 +356,7 @@ def tests_state(project: Project, charter: dict[str, Any], task: dict[str, Any],
     """'passed', 'failed', or 'not run' at the unit's commit; 'n/a' when the charter has no tests or it isn't code."""
     if not charter["verify"]["command"] or not needs_tests(task, gates):
         return "n/a"
-    entry = ledger(project).get(commit_of(project.root, task) or "")
+    entry = current(project, charter, commit_of(project.root, task))
     if not entry:
         return "not run"
     if entry.get("setup_failed"):
@@ -328,11 +395,12 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
     command = charter["verify"]["command"]
     globs = (charter.get("lanes") or {}).get(lane_of(task) or "", [])
     process = (charter.get("simplify") or {}).get("process_paths") or []
-    if not command and not globs and not process:
+    scan = (charter.get("secrets") or {}).get("scan", True)
+    if not command and not globs and not process and not scan:
         return []
     sha = commit_of(project.root, task)
     if command and lane_of(task) not in NO_TEST_LANES:
-        entry = ledger(project).get(sha or "")
+        entry = current(project, charter, sha)
         if not sha:
             result.append(_check("verified", False, "no commit evidence with a hash this repository has"))
         elif not entry:
@@ -349,6 +417,11 @@ def checks(project: Project, charter: dict[str, Any], task: dict[str, Any], unit
         result.append(_lane_check(project, charter, task, sha, globs, gates))
     if process and lane_of(task) not in NO_TEST_LANES:
         result.append(_process_check(project, charter, task, sha, process))
+    if scan:
+        others = [c for c, entry in ledger(project).items() if entry.get("task") != task["id"]]
+        found = leaks.check(project.root, charter, sha, others)
+        if found:
+            result.append(found)
     return result
 
 

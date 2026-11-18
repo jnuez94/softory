@@ -50,6 +50,20 @@
       },
       "children_must_be_done": false
     },
+    "release": {
+      "id_prefix": "RELEASE",
+      "description": "One commit of the base branch on its way to production. Gold prepares it and writes the rollback plan; Toby and Quinn sign off; it closes once every target but production passed at its commit. Production is the owner's: softory deploy production --release <ID> after it closes.",
+      "closer": ["greg"],
+      "dropper": ["greg", "owner"],
+      "default_assignee": "gold",
+      "required_reviews": [
+        {"reviewers": ["toby"], "why": "security sign-off on what ships", "not_self": true},
+        {"reviewers": ["quinn"], "why": "architecture and rollback sign-off", "not_self": true}
+      ],
+      "tag_reviews": false,
+      "children_must_be_done": false,
+      "release": {"rollback_evidence": ["rollback"]}
+    },
     "review": {
       "id_prefix": "REVIEW",
       "description": "A record of one review run, kept as its own task so the reviewer can claim it and attach the report. Its for:<ID> tags name what it reviewed. Its verdicts are its output: they never block it, and it is not reviewed again.",
@@ -92,7 +106,7 @@
     "if_builder": "When the specialist a tag review names is the only builder (Toby wrote the threat model, Quinn built the architecture change), the tag's if_builder roles review it instead: Quinn for Toby's own security work, Jade or Gold for Quinn's architecture work, the owner for Darwin's own design work. A role-wide stand-in for the specialist does not count on the specialist's own work; a stand-in the owner scoped to that task does. If the specialist only co-built the task, the backup does not apply and the specialist must come off the task or the owner must grant a scoped stand-in. The owner chose named backups on 2026-10-23.",
     "review_records": "A review unit (unit:review) is a record of a review run. It closes when it holds reports and no code evidence, names the tasks it reviewed (for:<ID>) and none of them were built by its reviewer, carries the reviewer's verdict (on the record or on every reviewed task), and every reviewer whose latest verdict on it requests changes names follow-up tasks that exist. Tag reviews do not apply, and nobody reviews the review. It may close from review, blocked, or todo.",
     "stand_ins": "An agent the owner names with softory standin add (or approves with softory approve) counts wherever the roles it stands in for count, as a reviewer or a closer. A grant may name tasks and an end date; outside them it does not count. Grants live in .agents/softory/local.json, each recorded as a decision.",
-    "waivers": "The owner may waive one review check (review:*, no_open_rejections, findings_tracked, verdicts_recorded, independent, verified, lane_paths, process_paths, ui_reference) on one task with softory approve. The gate shows the waiver and its reason. Status, evidence, blockers, children, closer, and config checks cannot be waived.",
+    "waivers": "The owner may waive one review check (review:*, no_open_rejections, findings_tracked, verdicts_recorded, independent, verified, lane_paths, process_paths, no_secrets, ui_reference, rollback_plan, staged) on one task with softory approve. The gate shows the waiver and its reason. Status, evidence, blockers, children, closer, and config checks cannot be waived.",
     "drop": "softory drop closes a unit nobody will build, as won't do or superseded, with a recorded decision. Only the unit's dropper may, and not while it has open children.",
     "stacks": "softory stack groups work built on top of other work. softory close --stack closes every member together, bottom first, only if each passes the gate when the other members count as done.",
     "design_lane": "A task or bug with lane:design is a design deliverable Darwin builds: Greg's product review replaces the peer code review, and softory verify does not apply. Tag reviews still apply.",
@@ -100,6 +114,9 @@
     "ui_reference": "A task or bug tagged ui needs an evidence row of a ui_reference type: a rendered check against its design reference, so a green suite that never renders the screen can't close it.",
     "process_paths": "When the charter sets simplify.process_paths, a unit whose own commits change one of those files (scripts, CI, packaging) must carry the process tag, so Sage reviews whether the process needs it at all.",
     "lane_paths": "When the charter sets paths for the task's lane, every file the unit's own commits change must be in the lane or shared_paths, unless the task is tagged cross-lane and Quinn accepted it (Quinn's arch backup, Jade or Gold, when Quinn built it). Own commits are those since git.base that no other unit's verified commit already holds.",
+    "no_secrets": "When the charter's secrets.scan is on, a task or bug's own commits add no line that looks like a key, token, or private key, and no secret file (.env, *.pem). Placeholders and the charter's secrets.allow patterns don't count.",
+    "release": "A release unit records the base commit it ships. It closes when Toby and Quinn accepted it, it holds a rollback evidence row (how to undo it), and every deploy target but production passed its deploy and smoke test at that commit.",
+    "merge": "With the charter's merge.by softory, only softory ship moves the base branch: it merges units that closed through this gate, as one candidate commit that softory verify passed. Roles never push to the base.",
     "config": "These rules change only through a softory release. The installer records the hash of this file, softory's code, and local.json, and makes them read-only; the gate fails closed (config_intact) if any of them changes."
   }
 }

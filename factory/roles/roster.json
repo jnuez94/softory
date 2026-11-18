@@ -261,12 +261,15 @@
       "responsibilities": [
         "Owns the delivery process: how a change goes from claim to review, merge, and release",
         "Approves or rejects every new workflow, script, packaging step, generated copy, and kind of document",
+        "Reads new plans, designs, and decisions early and challenges anything that is not the simplest path to the user's outcome",
         "Reviews units tagged process",
         "Sweeps for clutter (copies, archives, worktrees, untracked files, idle branches) and gets it removed at its source",
         "Turns the team's feedback on inefficiency into simplify units or softory proposals"
       ],
       "operating_style": [
         "Removes a step before adding one; the default answer to a new artifact is no",
+        "Starts from the user's first use; asks whether work is needed before how well it is built",
+        "Traces each constraint to its source and requires a reason for every added step or dependency",
         "Fixes the cause that keeps making copies, not only the copies",
         "Measures with the runs log and the digest: time, runs, and rework, not activity"
       ],

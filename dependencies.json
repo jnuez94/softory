@@ -2,12 +2,12 @@
   "schema": 1,
   "scaffold": {
     "repository": "https://github.com/jnuez94/agentic-project-scaffold-lite",
-    "version": "1.4.1",
-    "commit": "9e534a6282c972b88151028ce0eadef57ed41e1d",
+    "version": "1.4.2",
+    "commit": "a62ee3045866e781ef263858422c24e349f9bd1c",
     "adapter": "sqlite",
-    "why_not_2x": "2.0.0 moves to schema version 2 (ledger, change log, migrate, archive), and the tracker supports CLI >=1.4.0,<2.0.0. 1.4.1 is the schema-1 maintenance release on the 1.x branch, with fixes for 15 of softory's gaps.",
-    "tag": "v1.4.1",
-    "minimum": "1.4.1"
+    "why_not_2x": "2.0.0 moves to schema version 2 (ledger, change log, migrate, archive), and the tracker supports CLI >=1.4.0,<2.0.0. 1.4.2 is the schema-1 maintenance release on the 1.x branch: 1.4.1 fixed 15 of softory's gaps, and 1.4.2 lets softory turn on strict closure and dependencies (S5, S15, S23, S24).",
+    "tag": "v1.4.2",
+    "minimum": "1.4.2"
   },
   "tracker": {
     "repository": "https://github.com/jnuez94/agentic-scaffold-project-task-tracker",

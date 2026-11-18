@@ -235,8 +235,10 @@ class WorkflowTest(unittest.TestCase):
         softory(self.root, "close", "TASK-1", "--actor", "jade")
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", "Quick fix", "--actor", "quinn")
         self.build("TASK-2", "gold")
+        coord(self.root, "decision", "add", "--id", "DEC-ME", "--title", "Ship it", "--owner", "gold", "--status",
+              "accepted", "--context", "x", "--decision", "done")
         coord(self.root, "task", "status", "TASK-2", "done", "--actor", "gold", "--if-revision", revision(self.root, "TASK-2"),
-              "--note", "done, trust me")  # the scaffold allows this; softory's gate never ran
+              "--note", "done, trust me", "--because", "decision:DEC-ME")  # strict closure takes any decision; softory's gate never ran
         flagged = json.loads(softory(self.root, "triage").stdout)["closed_outside_softory"]
         self.assertEqual([(t["id"], t["notes"]) for t in flagged], [("TASK-2", "done, trust me")])
 
@@ -447,9 +449,9 @@ class WorkflowTest(unittest.TestCase):
         self.assertNotIn("reminder", made)
 
     def test_a_stack_closes_together_or_not_at_all(self) -> None:
+        self.build("TASK-1", "jade")  # strict dependencies: TASK-1 is built before it waits on BUG-1
         softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--blocks-source", "--title", "On top", "--actor", "quinn")
         softory(self.root, "stack", "TASK-1", "BUG-1", "--actor", "jade")
-        self.build("TASK-1", "jade")
         session = self.build("BUG-1", "jade")["session"]
         self.review("TASK-1", "gold", "accepted", 1)
         self.assertEqual(failing(gate(self.root, "TASK-1", "jade")), {"blocks_resolved"})  # waits for BUG-1

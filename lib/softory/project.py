@@ -130,7 +130,10 @@ class Project:
             return None
         current = integrity_hashes(self.bundle)
         names = sorted(set(recorded) | set(current))
-        return [name for name in names if recorded.get(name) != current.get(name)]
+        changed = [name for name in names if recorded.get(name) != current.get(name)]
+        from .policy import problems  # noqa: PLC0415 - policy imports the coordination wrapper
+
+        return changed + [f".coordination/config.yml ({p})" for p in problems(self.root)]
 
     def role_ids(self) -> list[str]:
         roster = self.roster()
