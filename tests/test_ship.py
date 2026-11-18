@@ -341,6 +341,21 @@ class ShipTest(unittest.TestCase):
         self.assertIn("not a remote", softory(self.root, "push", "feature", "--remote", str(remote), "--actor", "gold",
                                               check=False).stderr)
 
+    def test_a_bare_softory_push_takes_the_callers_worktree_branch(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        sha = self.commit("gold/feature", {"f.txt": "f\n"})
+        tree = Path(tempfile.mkdtemp(prefix="softory-worktree-")) / "tree"
+        run(["git", "worktree", "add", "-q", str(tree), "gold/feature"], self.root)
+        command = [str(self.root / ".agents/softory/bin/softory"), "push", "--actor", "gold"]
+        for main_checkout in (self.base, "other"):  # the main checkout on the base, then on an unrelated branch
+            if main_checkout != self.base:
+                run(["git", "checkout", "-q", "-b", main_checkout], self.root)
+            pushed = json.loads(run(command, tree).stdout)
+            self.assertEqual((pushed["pushed"], pushed["commit"]), ("gold/feature", sha))
+        self.assertEqual(run(["git", "for-each-ref", "--format=%(refname:short)"], remote).stdout.split(), ["gold/feature"])
+
     def test_the_owner_can_waive_a_release_check(self) -> None:
         self.ship()
         release = json.loads(softory(self.root, "new", "release", "--title", "First", "--actor", "greg").stdout)["id"]

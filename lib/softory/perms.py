@@ -74,10 +74,13 @@ def base_pushes(charter: dict[str, Any]) -> list[str]:
     return ["git push"] if (charter.get("merge") or {}).get("by") == "softory" else []
 
 
-def push(project: Project, charter: dict[str, Any], branch: str | None, remote: str | None) -> dict[str, Any]:
-    """Push one local branch to the same name on a configured remote. Never the base branch."""
+def push(project: Project, charter: dict[str, Any], branch: str | None, remote: str | None,
+         here: Path | None = None) -> dict[str, Any]:
+    """Push one local branch to the same name on a configured remote. Never the base branch.
+    With no branch named it is the one checked out in ``here``, the caller's worktree: the project root is
+    the main checkout, which holds some other branch."""
     root = project.root
-    branch = branch or git(root, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
+    branch = branch or git(here or root, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
     ref = f"refs/heads/{branch}"
     if not branch or git(root, "show-ref", "--verify", "--quiet", ref).returncode != 0:
         raise SoftoryError(f"{branch or 'A detached HEAD'} is not a local branch; name the branch to push", "not_found")

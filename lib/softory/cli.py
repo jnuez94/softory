@@ -393,7 +393,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "push":
         from . import perms  # noqa: PLC0415
 
-        print(ops.dumps(perms.push(project, charter.load(project), args.branch, args.remote)), end="")
+        print(ops.dumps(perms.push(project, charter.load(project), args.branch, args.remote, Path.cwd())), end="")
     elif args.command == "deploy":
         from . import deploy  # noqa: PLC0415
 
