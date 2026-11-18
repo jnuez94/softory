@@ -210,9 +210,11 @@ def _stack_siblings(project: Project, coordination: Coordination, args: list[str
     i = 0
     while i < len(args) and args[i].startswith("-"):
         i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    if tuple(args[i:i + 2]) != ("review", "add"):
+        return []
     named = re.search(r"\bstack:(\S+)", _option(args, "--scope") or "")
     target, reviewer = _option(args, "--task"), _option(args, "--reviewer")
-    if tuple(args[i:i + 2]) != ("review", "add") or not named or not target:
+    if not named or not target:
         return []
     shown = coordination.call("task", "show", target)
     gates = project.gates()
