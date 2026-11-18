@@ -18,6 +18,7 @@ from typing import Any, Callable
 from . import closed, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
+from .gate import latest_reviews
 from .gitlocal import git
 from .project import Project
 from .units import live_evidence, unit_of
@@ -65,10 +66,16 @@ def history(project: Project) -> list[dict[str, Any]]:
     return rows
 
 
-def passed_at(project: Project, name: str, sha: str) -> bool:
-    """Whether the latest deploy of ``sha`` to ``name`` passed, smoke test included."""
-    rows = [r for r in history(project) if r.get("target") == name and r.get("commit") == sha]
-    return bool(rows) and bool(rows[-1].get("passed"))
+def _definition(target: dict[str, Any]) -> dict[str, Any]:
+    """What a deploy to the target runs: a pass counts only for the command and smoke test it ran."""
+    return {"command": target.get("command"), "smoke": target.get("smoke")}
+
+
+def passed_at(project: Project, target: dict[str, Any], sha: str) -> bool:
+    """Whether the latest deploy of ``sha`` to the target passed, smoke test included, as the charter defines
+    the target now."""
+    rows = [r for r in history(project) if r.get("target") == target.get("name") and r.get("commit") == sha]
+    return bool(rows) and bool(rows[-1].get("passed")) and rows[-1].get("ran") == _definition(target)
 
 
 def run(project: Project, coord: Coordination, charter: dict[str, Any], name: str, actor: str, sha: str | None = None,
@@ -100,20 +107,26 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
         if confirm is None:
             raise SoftoryError("Only the owner deploys to production, at a terminal", "not_allowed")
         confirm(f"Deploy {release} ({sha[:12]}) to production?")
-    entry = verify.ledger(project).get(sha) or {}
-    if not entry.get("passed"):
-        raise SoftoryError(f"softory verify hasn't passed at {sha[:12]}; deploy only tested commits", "not_verified")
+    _need_verified(project, charter, sha)
     with verifyenv.turn(project, f"deploy:{name}", actor):
+        _need_verified(project, charter, sha)  # again with the lock held: a retest may have finished meanwhile
         outcome = _deploy(project, charter, target, sha)
-    row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
-           "release": release, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "log": outcome["log"]}
-    with log_path(project).open("a", encoding="utf-8") as out:
-        out.write(json.dumps(row) + "\n")
+        row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
+               "release": release, "ran": _definition(target), "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "log": outcome["log"]}
+        with log_path(project).open("a", encoding="utf-8") as out:  # inside the lock: rows are in the order run
+            out.write(json.dumps(row) + "\n")
     if release:
         verdict = "pass" if outcome["passed"] else "fail"
         coord.run("evidence", "add", "--task", release, "--uri", f"softory-deploy:{name}:{verdict}:{sha}",
                   "--type", "deploy", "--actor", actor)
     return {**row, "tail": outcome["tail"]}
+
+
+def _need_verified(project: Project, charter: dict[str, Any], sha: str) -> None:
+    if not (verify.current(project, charter, sha) or {}).get("passed"):
+        raise SoftoryError(f"softory verify hasn't passed at {sha[:12]} with the charter's current tests; deploy "
+                           "only tested commits", "not_verified")
 
 
 def _deploy(project: Project, charter: dict[str, Any], target: dict[str, Any], sha: str) -> dict[str, Any]:
@@ -158,7 +171,8 @@ def _full(project: Project, ref: str) -> str:
 
 def release_checks(project: Project, charter: dict[str, Any], task: dict[str, Any],
                    gates: dict[str, Any]) -> list[dict[str, Any]]:
-    """A release's own checks: a rollback plan, and a passing deploy to every target but production."""
+    """A release's own checks: a rollback plan, a passing deploy to every target but production, and
+    accepted reviews that name the commit it ships."""
     spec = (gates["units"].get("release") or {}).get("release") or {}
     kinds = set(spec.get("rollback_evidence") or ["rollback"])
     plans = [r for r in live_evidence(task.get("evidence")) if str(r.get("evidence_type", "")).lower() in kinds]
@@ -172,9 +186,26 @@ def release_checks(project: Project, charter: dict[str, Any], task: dict[str, An
     elif not staged:
         result.append({"check": "staged", "pass": True, "detail": "the charter declares no target before production"})
     else:
-        missing = [n for n in staged if not passed_at(project, n, sha)]
+        missing = [n for n in staged if not passed_at(project, targets(charter)[n], sha)]
         result.append({"check": "staged", "pass": not missing,
-                       "detail": f"not deployed and smoke-tested at {sha[:12]}: {', '.join(missing)}. Run softory "
+                       "detail": f"not deployed and smoke-tested at {sha[:12]} as the charter defines it now: {', '.join(missing)}. Run softory "
                                  f"deploy <target> --release {task['id']}" if missing else
                                  f"{', '.join(staged)} passed at {sha[:12]}"})
+    if sha:  # a sign-off covers one commit: recording another one afterwards sends the release back to review
+        stale = stale_reviews(project, task)
+        result.append({"check": "reviews_cover_commit", "pass": not stale,
+                       "detail": f"accepted for another commit, not {sha[:12]}: {', '.join(stale)}. Each reviews again "
+                                 f"with --artifact {sha}" if stale else f"every accepted review names {sha[:12]}"})
     return result
+
+
+def stale_reviews(project: Project, task: dict[str, Any]) -> list[str]:
+    """Reviewers whose accepted review of a release names another commit than the one it ships now."""
+    sha = verify.commit_of(project.root, task)
+    return sorted(who for who, review in latest_reviews(task).items()
+                  if sha and "accepted" in str(review.get("decision")) and not _covers(project, review, sha))
+
+
+def _covers(project: Project, review: dict[str, Any], sha: str) -> bool:
+    named = verify._SHA.findall(str(review.get("artifact_uri") or "").lower())  # noqa: SLF001
+    return any(verify._resolve(project.root, candidate) == sha for candidate in named)  # noqa: SLF001
