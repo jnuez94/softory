@@ -107,11 +107,9 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
         if confirm is None:
             raise SoftoryError("Only the owner deploys to production, at a terminal", "not_allowed")
         confirm(f"Deploy {release} ({sha[:12]}) to production?")
-    entry = verify.current(project, charter, sha) or {}
-    if not entry.get("passed"):
-        raise SoftoryError(f"softory verify hasn't passed at {sha[:12]} with the charter's current tests; deploy "
-                           "only tested commits", "not_verified")
+    _need_verified(project, charter, sha)
     with verifyenv.turn(project, f"deploy:{name}", actor):
+        _need_verified(project, charter, sha)  # again with the lock held: a retest may have finished meanwhile
         outcome = _deploy(project, charter, target, sha)
         row = {"target": name, "commit": sha, "passed": outcome["passed"], "stage": outcome["stage"], "by": actor,
                "release": release, "ran": _definition(target), "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -123,6 +121,12 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
         coord.run("evidence", "add", "--task", release, "--uri", f"softory-deploy:{name}:{verdict}:{sha}",
                   "--type", "deploy", "--actor", actor)
     return {**row, "tail": outcome["tail"]}
+
+
+def _need_verified(project: Project, charter: dict[str, Any], sha: str) -> None:
+    if not (verify.current(project, charter, sha) or {}).get("passed"):
+        raise SoftoryError(f"softory verify hasn't passed at {sha[:12]} with the charter's current tests; deploy "
+                           "only tested commits", "not_verified")
 
 
 def _deploy(project: Project, charter: dict[str, Any], target: dict[str, Any], sha: str) -> dict[str, Any]:

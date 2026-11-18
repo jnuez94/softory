@@ -16,7 +16,7 @@ from tests.helpers import REPO, coord, git_project, install, needs_sources, revi
 from tests.test_workflow import at_terminal, failing, gate, start
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import backups, closed, leaks, parents, perms, runner  # noqa: E402
+from softory import backups, closed, leaks, parents, perms, runner, verifyenv  # noqa: E402
 from softory import verify as verifies  # noqa: E402
 from softory import charter as charters  # noqa: E402
 from softory import deploy as deploys  # noqa: E402
@@ -406,6 +406,38 @@ class ShipTest(unittest.TestCase):
         rows = deploys.history(project)
         self.assertEqual([r["passed"] for r in rows[-2:]], [True, False])  # the failure ran last and is logged last
         self.assertFalse(deploys.passed_at(project, deploys.targets(charters.load(project))["staging"], rows[-1]["commit"]))
+
+    def test_a_deploy_waiting_on_a_retest_reads_its_verdict(self) -> None:
+        flag = self.marks / "down"
+        (self.root / "check.sh").write_text(f"test ! -f {flag}\n")
+        run(["git", "add", "check.sh"], self.root)
+        run([*GIT, "commit", "-qm", "check the environment"], self.root)
+        task, sha, _env = self.build("A", {"a.txt": "a\n"})  # verified, and it passed
+        flag.write_text("x\n")
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        settings = charters.load(project)
+        real = verifies._run_in_tree
+
+        def once_the_deploy_waits(*args: object) -> object:  # the retest holds the lock; the deploy queues behind it
+            for _ in range(200):
+                if any(str(row.get("task")).startswith("deploy:") for row in verifyenv.waiting(project)):
+                    break
+                time.sleep(0.05)
+            return real(*args)
+
+        with mock.patch.object(verifies, "_run_in_tree", once_the_deploy_waits), ThreadPoolExecutor(2) as pool:
+            retest = pool.submit(verifies.run, project, board, settings, task, "gold")
+            for _ in range(200):
+                if verifyenv.waiting(project):
+                    break
+                time.sleep(0.05)
+            deploy = pool.submit(deploys.run, project, board, settings, "staging", "gold", sha)
+            self.assertFalse(retest.result()["passed"])
+            with self.assertRaises(Exception) as refused:
+                deploy.result()
+        self.assertIn("current tests", str(getattr(refused.exception, "message", refused.exception)))
+        self.assertFalse((self.marks / "log").exists())  # nothing was deployed
 
     def test_a_paused_project_doesnt_ship(self) -> None:
         self.deliver("A", {"a.txt": "a\n"})

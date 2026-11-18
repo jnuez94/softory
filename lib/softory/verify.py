@@ -128,28 +128,29 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
             scan = {"launcher": design.detector(project), "files": design.ui_files(files)}
     with verifyenv.turn(project, task_id, actor):
         outcome = _run_in_tree(project, settings, task_id, sha, scan)
-    tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
-    found = found or outcome.get("design")
-    if found and tests_passed and not found["passed"]:
-        outcome["stage"] = "design"
-    passed = tests_passed and (found is None or found["passed"])
-    entries = ledger(project)
-    previous = entries.get(sha) or {}
-    # The tests are the commit's; a design result is one unit's, so another unit's run at this commit keeps it.
-    entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command,
-             "setup": settings.get("setup") or "", "by": actor,
-             "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
-             "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
-             "designs": dict(previous.get("designs") or {})}
-    if outcome["stage"] == "setup":
-        entry["setup_failed"] = True
-    if found and tests_passed:
-        entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
-    if not entry["designs"]:
-        del entry["designs"]
-    entries[sha] = entry
-    ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
-    ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        # The verdict is published before the lock is released: whoever waits for the lock reads it.
+        tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
+        found = found or outcome.get("design")
+        if found and tests_passed and not found["passed"]:
+            outcome["stage"] = "design"
+        passed = tests_passed and (found is None or found["passed"])
+        entries = ledger(project)
+        previous = entries.get(sha) or {}
+        # The tests are the commit's; a design result is one unit's, so another unit's run at this commit keeps it.
+        entry = {"task": task_id, "passed": tests_passed, "exit": outcome["code"], "command": command,
+                 "setup": settings.get("setup") or "", "by": actor,
+                 "at": outcome["started"].isoformat(timespec="seconds"), "stage": outcome["stage"],
+                 "seconds": round((datetime.now(timezone.utc) - outcome["started"]).total_seconds(), 1),
+                 "designs": dict(previous.get("designs") or {})}
+        if outcome["stage"] == "setup":
+            entry["setup_failed"] = True
+        if found and tests_passed:
+            entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
+        if not entry["designs"]:
+            del entry["designs"]
+        entries[sha] = entry
+        ledger_path(project).parent.mkdir(parents=True, exist_ok=True)
+        ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     verdict = "pass" if passed else ("setup-fail" if outcome["stage"] == "setup" else "fail")
     coord.run("evidence", "add", "--task", task_id, "--uri", f"softory-verify:{verdict}:{sha}",
               "--type", "test", "--actor", actor)
