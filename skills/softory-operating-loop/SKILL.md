@@ -81,7 +81,7 @@ $S close TASK-7             # runs the gate; moves to done only if it passes
 $S close <top-ID> --stack   # a whole stack, bottom first, or none of it
 ```
 
-The closer is the assignee for tasks, bugs, and review records, and Greg for stories, epics, and releases. Never merge or push to the base branch: with `merge.by softory` in the charter, `softory ship` merges what closed. Releases: `softory new release --title "..."` (Gold), a rollback plan with `$S report RELEASE-n <file> --type rollback`, and `$S deploy <target> --release RELEASE-n` for a target it never reached. A gate rule that truly can't be met goes to the owner: `$S propose waiver <ID> --check <check> --why "..."` or `$S propose standin <agent> --for <role> --task <ID> --until <date> --why "..."`. When the owner rules on something in chat: `$S ruling --title "..." --decision "..." --where "<where and when>"`.
+The closer is the assignee for tasks, bugs, and review records, and Greg for stories, epics, and releases. Push your branch with `$S push`. Never merge or push to the base branch: with `merge.by softory` in the charter, `softory ship` merges what closed. Releases: `softory new release --title "..."` (Gold), a rollback plan with `$S report RELEASE-n <file> --type rollback`, and `$S deploy <target> --release RELEASE-n` for a target it never reached. A gate rule that truly can't be met goes to the owner: `$S propose waiver <ID> --check <check> --why "..."` or `$S propose standin <agent> --for <role> --task <ID> --until <date> --why "..."`. When the owner rules on something in chat: `$S ruling --title "..." --decision "..." --where "<where and when>"`.
 
 ## 8. Block or escalate
 

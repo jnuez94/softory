@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,9 +16,11 @@ from tests.helpers import REPO, coord, git_project, install, needs_sources, revi
 from tests.test_workflow import at_terminal, failing, gate, start
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import backups, leaks, parents, perms, runner  # noqa: E402
+from softory import backups, closed, leaks, parents, perms, runner, verifyenv  # noqa: E402
+from softory import verify as verifies  # noqa: E402
 from softory import charter as charters  # noqa: E402
 from softory import deploy as deploys  # noqa: E402
+from softory import ship as ships  # noqa: E402
 from softory.coordination import Coordination  # noqa: E402
 from softory.project import Project  # noqa: E402
 
@@ -36,9 +40,13 @@ class LeakUnitTest(unittest.TestCase):
 
     def test_roles_never_push_the_base_when_softory_merges(self) -> None:
         mine = charters.merge(DEFAULTS, {"merge": {"by": "softory", "push": "origin"}})
-        deny = perms.settings_for(mine, "gold")["permissions"]["deny"]
-        self.assertIn("Bash(git push origin main *)", deny)
-        self.assertNotIn("Bash(git push origin main *)", perms.settings_for(DEFAULTS, "gold")["permissions"]["deny"])
+        rules = perms.settings_for(mine, "gold")["permissions"]
+        self.assertIn("Bash(git push *)", rules["deny"])  # every spelling: -u origin main, HEAD:refs/heads/main
+        self.assertNotIn("Bash(git push *)", rules["allow"])
+        self.assertIn("Bash(.agents/softory/bin/softory *)", rules["allow"])  # softory push checks the destination
+        plain = perms.settings_for(DEFAULTS, "gold")["permissions"]
+        self.assertIn("Bash(git push *)", plain["allow"])
+        self.assertNotIn("Bash(git push *)", plain["deny"])
 
     def test_deploy_targets_are_checked(self) -> None:
         bad = charters.merge(DEFAULTS, {"deploy": {"targets": [{"name": "production", "command": "x", "auto": True},
@@ -217,6 +225,9 @@ class ShipTest(unittest.TestCase):
         self.assertTrue(closed["closed"], closed)
         return task
 
+    def queue(self, agent: str) -> dict:
+        return json.loads(softory(self.root, "queue", "--agent", agent).stdout)
+
     def ship(self) -> dict:
         return json.loads(softory(self.root, "ship").stdout)
 
@@ -254,6 +265,233 @@ class ShipTest(unittest.TestCase):
         self.assertIsNone(again["push"])
         self.assertFalse(again["base_check"]["green"])
         self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), pushed)
+
+    def test_a_fully_qualified_base_ref_ships_and_pushes(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"git": {"base": f"refs/heads/{self.base}"}, "merge": {"by": "softory", "push": "origin"}})
+        first, second = self.deliver("A", {"a.txt": "a\n"}), self.deliver("B", {"b.txt": "b\n"})
+        shipped = self.ship()["merge"]  # two units: a built candidate, not a fast-forward
+        self.assertEqual((shipped["merged"], shipped["push"]), ([first, second], "pushed"))
+        self.assertTrue(self.on_base("a.txt") and self.on_base("b.txt"))
+        self.assertEqual(run(["git", "rev-parse", f"refs/heads/{self.base}"], remote).stdout.strip(), shipped["base"])
+
+    def test_the_push_sends_the_checked_commit_even_if_the_base_moves(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})  # no such remote yet: the push fails
+        self.deliver("A", {"a.txt": "a\n"})
+        checked = self.ship()["merge"]["base"]
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        project = Project(self.root)
+        real = verifies.current
+
+        def then_the_owner_commits(*args: object) -> object:
+            verdict = real(*args)
+            (self.root / "late.txt").write_text("x\n")  # lands after the check, before git push runs
+            run(["git", "add", "late.txt"], self.root)
+            run([*GIT, "commit", "-qm", "by hand"], self.root)
+            return verdict
+
+        with mock.patch.object(ships.verify, "current", then_the_owner_commits):
+            self.assertEqual(ships._push(project, charters.load(project), ships.ledger(project)), "pushed")
+        self.assertEqual(run(["git", "rev-parse", self.base], remote).stdout.strip(), checked)
+
+    def test_a_result_from_before_setups_were_recorded_is_stale(self) -> None:
+        self.ship()
+        project = Project(self.root)
+        sha = run(["git", "rev-parse", self.base], self.root).stdout.strip()
+        path = verifies.ledger_path(project)
+        rows = json.loads(path.read_text())
+        self.assertTrue(verifies.current(project, charters.load(project), sha)["passed"])
+        del rows[sha]["setup"]  # as softory wrote it before it recorded the setup
+        path.write_text(json.dumps(rows))
+        self.charter({"verify": {"setup": "touch broken"}})  # same command, a setup that breaks the tests
+        self.assertIsNone(verifies.current(project, charters.load(project), sha))
+        self.assertFalse(self.ship()["base_check"]["green"])  # tested again with the setup, not read from the cache
+
+    def test_a_retried_push_needs_the_tests_to_pass_as_they_are_now(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})  # no such remote yet: the push fails
+        self.deliver("A", {"a.txt": "a\n"})
+        self.assertIn("push failed", self.ship()["merge"]["push"])
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"verify": {"command": "false"}})  # the tests changed, and the merged commit fails them
+        again = self.ship()
+        self.assertIn("not pushed", again["push"])
+        self.assertFalse(again["base_check"]["green"])
+        self.assertNotEqual(run(["git", "rev-parse", "--verify", "--quiet", self.base], remote, check=False).returncode, 0)
+        self.charter({"verify": {"command": "sh check.sh"}})
+        self.assertEqual(self.ship()["push"], "pushed")
+
+    def test_softory_push_takes_a_branch_and_never_the_base(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        sha = self.commit("feature", {"f.txt": "f\n"})
+        pushed = json.loads(softory(self.root, "push", "feature", "--actor", "gold").stdout)
+        self.assertEqual((pushed["pushed"], pushed["commit"]), ("feature", sha))
+        self.assertEqual(run(["git", "rev-parse", "feature"], remote).stdout.strip(), sha)
+        for target in ([self.base], []):  # by name, and as the branch it is on
+            refused = softory(self.root, "push", *target, "--actor", "gold", check=False)
+            self.assertIn("is the base branch", refused.stderr)
+        self.assertNotEqual(run(["git", "rev-parse", "--verify", "--quiet", self.base], remote, check=False).returncode, 0)
+        self.assertIn("not a remote", softory(self.root, "push", "feature", "--remote", str(remote), "--actor", "gold",
+                                              check=False).stderr)
+
+    def test_a_bare_softory_push_takes_the_callers_worktree_branch(self) -> None:
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        sha = self.commit("gold/feature", {"f.txt": "f\n"})
+        tree = Path(tempfile.mkdtemp(prefix="softory-worktree-")) / "tree"
+        run(["git", "worktree", "add", "-q", str(tree), "gold/feature"], self.root)
+        command = [str(self.root / ".agents/softory/bin/softory"), "push", "--actor", "gold"]
+        for main_checkout in (self.base, "other"):  # the main checkout on the base, then on an unrelated branch
+            if main_checkout != self.base:
+                run(["git", "checkout", "-q", "-b", main_checkout], self.root)
+            pushed = json.loads(run(command, tree).stdout)
+            self.assertEqual((pushed["pushed"], pushed["commit"]), ("gold/feature", sha))
+        self.assertEqual(run(["git", "for-each-ref", "--format=%(refname:short)"], remote).stdout.split(), ["gold/feature"])
+
+    def test_the_owner_can_waive_a_release_check(self) -> None:
+        self.ship()
+        release = json.loads(softory(self.root, "new", "release", "--title", "First", "--actor", "greg").stdout)["id"]
+        self.assertTrue({"rollback_plan", "staged"} <= failing(gate(self.root, release, "greg")))
+        for check in ("rollback_plan", "staged"):
+            proposal = json.loads(softory(self.root, "propose", "waiver", release, "--check", check,
+                                          "--why", "no staging target is reachable this week", "--actor", "gold").stdout)
+            at_terminal(self.root, "approve", proposal["proposal"])
+        self.assertFalse({"rollback_plan", "staged"} & failing(gate(self.root, release, "greg")))
+
+    def test_a_changed_test_command_means_testing_again(self) -> None:
+        self.ship()  # the base passes the first command
+        task = self.deliver("A", {"a.txt": "a\n"})  # so does the unit, a fast-forward
+        self.charter({"verify": {"command": "test -f never-there"}})
+        shipped = self.ship()
+        self.assertFalse(shipped["base_check"]["green"])  # tested again with the new command, not read from the cache
+        self.assertFalse(self.on_base("a.txt"))
+        project = Project(self.root)
+        with self.assertRaises(Exception) as refused:
+            deploys.run(project, Coordination(project.coordination_bin, self.root), charters.load(project), "staging",
+                        "gold")
+        self.assertIn("current tests", str(getattr(refused.exception, "message", refused.exception)))
+        self.assertIn("verified", failing(gate(self.root, task, "gold")))
+
+    def test_editing_an_old_closed_unit_doesnt_make_it_ship(self) -> None:
+        self.charter({"merge": {"by": "owner"}})
+        task = self.deliver("A", {"a.txt": "a\n"})  # closed while the owner still merges
+        time.sleep(1.1)  # times are kept to the second
+        self.charter({"merge": {"by": "softory"}})
+        time.sleep(1.1)
+        coord(self.root, "task", "update", task, "--title", "A, renamed", "--actor", "quinn",
+              "--if-revision", revision(self.root, task))
+        self.assertEqual(json.loads(softory(self.root, "ship", "--dry-run").stdout)["waiting"], [])
+        self.assertEqual(self.ship()["merge"], {"merged": []})
+        self.assertFalse(self.on_base("a.txt"))
+
+    def test_a_timed_out_deploy_leaves_no_child_running(self) -> None:
+        late = self.marks / "late"
+        self.ship()
+        self.charter({"deploy": {"targets": [{"name": "slow", "timeout_minutes": 0.02,  # 1.2 seconds
+                                              "command": f"(sleep 3; touch {late}) && echo done"}]}})
+        project = Project(self.root)
+        row = deploys.run(project, Coordination(project.coordination_bin, self.root), charters.load(project), "slow",
+                          "gold")
+        self.assertFalse(row["passed"])
+        time.sleep(3)
+        self.assertFalse(late.exists())  # the child was stopped with its shell, before the lock was released
+
+    def test_deploy_rows_are_logged_in_the_order_they_ran(self) -> None:
+        self.ship()
+        gate_file = self.marks / "fail-next"
+        self.charter({"deploy": {"targets": [{"name": "staging", "command": f"sleep 1; test ! -f {gate_file}"}]}})
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+
+        def deploy(_n: int) -> bool:
+            row = deploys.run(project, board, charters.load(project), "staging", "gold")
+            gate_file.write_text("x\n")  # whoever runs second fails
+            return row["passed"]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(sorted(pool.map(deploy, range(2))), [False, True])
+        rows = deploys.history(project)
+        self.assertEqual([r["passed"] for r in rows[-2:]], [True, False])  # the failure ran last and is logged last
+        self.assertFalse(deploys.passed_at(project, deploys.targets(charters.load(project))["staging"], rows[-1]["commit"]))
+
+    def test_a_deploy_waiting_on_a_retest_reads_its_verdict(self) -> None:
+        flag = self.marks / "down"
+        (self.root / "check.sh").write_text(f"test ! -f {flag}\n")
+        run(["git", "add", "check.sh"], self.root)
+        run([*GIT, "commit", "-qm", "check the environment"], self.root)
+        task, sha, _env = self.build("A", {"a.txt": "a\n"})  # verified, and it passed
+        flag.write_text("x\n")
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        settings = charters.load(project)
+        real = verifies._run_in_tree
+
+        def once_the_deploy_waits(*args: object) -> object:  # the retest holds the lock; the deploy queues behind it
+            for _ in range(200):
+                if any(str(row.get("task")).startswith("deploy:") for row in verifyenv.waiting(project)):
+                    break
+                time.sleep(0.05)
+            return real(*args)
+
+        with mock.patch.object(verifies, "_run_in_tree", once_the_deploy_waits), ThreadPoolExecutor(2) as pool:
+            retest = pool.submit(verifies.run, project, board, settings, task, "gold")
+            for _ in range(200):
+                if verifyenv.waiting(project):
+                    break
+                time.sleep(0.05)
+            deploy = pool.submit(deploys.run, project, board, settings, "staging", "gold", sha)
+            self.assertFalse(retest.result()["passed"])
+            with self.assertRaises(Exception) as refused:
+                deploy.result()
+        self.assertIn("current tests", str(getattr(refused.exception, "message", refused.exception)))
+        self.assertFalse((self.marks / "log").exists())  # nothing was deployed
+
+    def test_a_merge_waiting_on_a_retest_reads_its_verdict(self) -> None:
+        flag = self.marks / "down"
+        (self.root / "check.sh").write_text(f"test ! -f {flag}\n")
+        run(["git", "add", "check.sh"], self.root)
+        run([*GIT, "commit", "-qm", "check the environment"], self.root)
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})
+        self.ship()  # the base passes
+        task = self.deliver("A", {"a.txt": "a\n"})  # closed at a commit that passed: a fast-forward
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        settings = charters.load(project)
+        sha = closed.commits(project)[task]
+        flag.write_text("x\n")
+        real = verifies._run_in_tree
+
+        def once_the_merge_waits(*args: object) -> object:  # the retest holds the lock; the merge queues behind it
+            for _ in range(200):
+                if any(row.get("task") == "merge" for row in verifyenv.waiting(project)):
+                    break
+                time.sleep(0.05)
+            return real(*args)
+
+        with mock.patch.object(verifies, "_run_in_tree", once_the_merge_waits), ThreadPoolExecutor(2) as pool:
+            retest = pool.submit(verifies.run_at, project, settings, sha, "retest", "owner")
+            for _ in range(200):
+                if verifyenv.waiting(project):
+                    break
+                time.sleep(0.05)
+            shipped = pool.submit(ships.ship, project, board, settings).result()
+            self.assertFalse(retest.result()["passed"])
+        self.assertEqual(shipped["merge"]["merged"], [])
+        self.assertIn("retest", shipped["merge"]["waiting"])
+        self.assertFalse(self.on_base("a.txt"))
+        self.assertNotEqual(run(["git", "rev-parse", "--verify", "--quiet", self.base], remote, check=False).stdout.strip(), sha)
+        self.assertIn(task, self.ship()["merge"]["held"])  # the next run sees the failure and files the bug
 
     def test_a_paused_project_doesnt_ship(self) -> None:
         self.deliver("A", {"a.txt": "a\n"})
@@ -304,6 +542,44 @@ class ShipTest(unittest.TestCase):
         self.assertTrue(self.on_base("a.txt"))
         self.assertFalse(self.on_base("late.txt"))
 
+    def test_a_unit_closed_again_at_a_new_commit_ships_again(self) -> None:
+        task = self.deliver("A", {"a.txt": "a\n"})
+        self.assertEqual(self.ship()["merge"]["merged"], [task])
+        project = Project(self.root)
+        again = self.commit("again", {"a2.txt": "a2\n"})
+        softory(self.root, "verify", task, "--commit", again, "--actor", "gold")
+        closed.record(project, task, again, "gold")  # what a second softory close at a new commit records
+        self.assertEqual([u["commit"] for u in json.loads(softory(self.root, "ship", "--dry-run").stdout)["waiting"]],
+                         [again])
+        self.assertEqual(self.ship()["merge"]["merged"], [task])
+        self.assertTrue(self.on_base("a2.txt"))
+
+    def test_concurrent_closes_keep_both_records(self) -> None:
+        project = Project(self.root)
+        units = [f"TASK-{n}" for n in range(40)]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda unit: closed.record(project, unit, "c" * 40, "gold"), units))
+        self.assertEqual(set(closed.commits(project)), set(units))
+        self.assertEqual([p.name for p in project.state.glob("closed.json.*")], [])
+
+    def test_a_passing_retest_at_the_same_commit_clears_a_red_base(self) -> None:
+        flag = self.marks / "down"
+        (self.root / "check.sh").write_text(f"test ! -f {flag}\n")
+        run(["git", "add", "check.sh"], self.root)
+        run([*GIT, "commit", "-qm", "check the environment"], self.root)
+        task = self.deliver("A", {"a.txt": "a\n"})
+        flag.write_text("x\n")  # the environment is down, the code is fine
+        held = self.ship()
+        self.assertFalse(held["base_check"]["green"])
+        self.assertIn("the base is red", held["merge"]["waiting"])
+        flag.unlink()
+        project = Project(self.root)
+        sha = run(["git", "rev-parse", self.base], self.root).stdout.strip()
+        verifies.run_at(project, charters.load(project), sha, "base", "owner")  # the retest passes
+        shipped = self.ship()
+        self.assertTrue(shipped["base_check"]["green"])
+        self.assertEqual(shipped["merge"]["merged"], [task])
+
     def test_a_failing_batch_splits_and_the_unit_that_breaks_it_is_held(self) -> None:
         first = self.deliver("A", {"a.txt": "a\n"})
         second = self.deliver("C", {"c.txt": "c\n"})  # each passes alone; together they fail check.sh
@@ -336,6 +612,28 @@ class ShipTest(unittest.TestCase):
         from softory.ship import owner_items  # noqa: PLC0415
         self.assertTrue(any("red" in row["text"] for row in owner_items(project)[0]))
 
+    def test_a_held_fix_for_a_red_base_hands_over_to_its_replacement(self) -> None:
+        before = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        (self.root / "broken").write_text("x\n")
+        (self.root / "b.txt").write_text("base\n")
+        run(["git", "add", "broken", "b.txt"], self.root)
+        run([*GIT, "commit", "-qm", "broken by hand"], self.root)
+        red = self.ship()["base_check"]["bug"]
+        self.close_bug(red, {"b.txt": "fix\n"}, on=before)  # built on the old base: it conflicts
+        follow_up = self.ship()["merge"]["held"][red]
+        other = self.deliver("Unrelated", {"u.txt": "u\n"}, on=before)
+        self.close_bug(follow_up, {"check.sh": "true\n"})
+        shipped = self.ship()["merge"]
+        self.assertEqual(shipped["merged"], [follow_up])  # the replacement fixes the base; nothing else goes first
+        self.assertEqual(self.ship()["merge"]["merged"], [other])
+
+    def close_bug(self, bug: str, files: dict[str, str], on: str | None = None) -> None:
+        _task, sha, env = self.build("", files, on, task=bug)
+        softory(self.root, "handoff", bug, "--actor", "gold", env=env)
+        coord(self.root, "review", "add", "--id", f"REV-{bug}", "--task", bug, "--reviewer", "jade",
+              "--artifact", sha, "--scope", "test", "--decision", "accepted")
+        self.assertTrue(json.loads(softory(self.root, "close", bug, "--actor", "gold", env=env, check=False).stdout)["closed"])
+
     def test_a_release_closes_after_staging_and_production_is_the_owners(self) -> None:
         self.ship()  # verifies the base, so it can be deployed
         made = json.loads(softory(self.root, "new", "release", "--title", "First", "--actor", "greg").stdout)
@@ -350,10 +648,27 @@ class ShipTest(unittest.TestCase):
         plan.write_text("Reinstall the previous build.\n")
         softory(self.root, "report", release, str(plan), "--type", "rollback", "--actor", "gold")
         softory(self.root, "deploy", "staging", "--release", release, "--actor", "gold")
+        self.assertNotIn("staged", failing(gate(self.root, release, "greg")))
+        staging = {"name": "staging", "command": f"echo $SOFTORY_DEPLOY_COMMIT >> {self.marks}/log", "auto": True}
+        self.charter({"deploy": {"targets": [{**staging, "smoke": "test -f check.sh"}]}})
+        self.assertIn("staged", failing(gate(self.root, release, "greg")))  # the pass was for another smoke test
+        softory(self.root, "deploy", "staging", "--release", release, "--actor", "gold")
+        self.assertNotIn("staged", failing(gate(self.root, release, "greg")))
         for reviewer in ("toby", "quinn"):
             coord(self.root, "review", "add", "--id", f"REV-{release}-{reviewer}", "--task", release, "--reviewer",
                   reviewer, "--artifact", made["commit"], "--scope", "release", "--decision", "accepted")
         greg = {"COORDINATION_SESSION": start(self.root, "greg")["COORDINATION_SESSION"]}
+        self.assertEqual([self.queue(who)["reviews_waiting"] for who in ("toby", "quinn")], [[], []])
+        swap = self.commit("swap", {"s.txt": "s\n"})  # another commit recorded after both sign-offs
+        row = coord(self.root, "evidence", "add", "--task", release, "--uri", f"commit:{swap}", "--type", "commit",
+                    "--actor", "gold")["data"]
+        self.assertIn("reviews_cover_commit", failing(gate(self.root, release, "greg")))
+        for reviewer in ("toby", "quinn"):  # their sign-offs are for the old commit, so the review is theirs again
+            self.assertIn(release, [r["id"] for r in self.queue(reviewer)["reviews_waiting"]])
+        self.assertFalse(json.loads(softory(self.root, "close", release, "--actor", "greg", env=greg,
+                                            check=False).stdout)["closed"])
+        softory(self.root, "supersede", release, str(row["id"]), "--reason", "not the release commit",
+                "--actor", "gold")
         self.assertTrue(json.loads(softory(self.root, "close", release, "--actor", "greg", env=greg).stdout)["closed"])
         self.charter({"deploy": {"targets": [{"name": "production", "command": "true"}]}})
         refused = softory(self.root, "deploy", "production", "--release", release, "--actor", "gold", check=False)
@@ -394,6 +709,31 @@ class ShipTest(unittest.TestCase):
         check = next(c for c in gate(self.root, task, "gold")["checks"] if c["check"] == "no_secrets")
         self.assertFalse(check["pass"])
         self.assertIn("settings.py:1: AWS access key", check["detail"])
+
+    def test_an_added_line_that_looks_like_a_header_doesnt_hide_a_key(self) -> None:
+        sha = self.commit("cpp", {"count.cc": 'int main() {\n++ counter;\n-- other;\nauto k = "AKIAABCDEFGHIJKLMNOP";\n}\n'})
+        check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
+        self.assertFalse(check["pass"])
+        self.assertIn("count.cc:4: AWS access key", check["detail"])
+
+    def test_a_key_in_a_file_git_quotes_the_name_of_is_found(self) -> None:
+        for name in ("caf\u00e9.py", 'tab\there "x".py'):
+            sha = self.commit(f"quoted{len(name)}", {name: 'k = "AKIAABCDEFGHIJKLMNOP"\n'})
+            check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
+            self.assertFalse(check["pass"])
+            self.assertIn(f"{name}:1: AWS access key", check["detail"])
+
+    def test_a_binary_key_bundle_fails_the_scan(self) -> None:
+        run(["git", "checkout", "-q", "-b", "bundle", self.base], self.root)
+        (self.root / "certs").mkdir()
+        (self.root / "certs" / "signing.p12").write_bytes(bytes(range(256)) * 4)  # git shows no patch for it
+        run(["git", "add", "certs/signing.p12"], self.root)
+        run([*GIT, "commit", "-qm", "bundle"], self.root)
+        sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        run(["git", "checkout", "-q", self.base], self.root)
+        check = leaks.check(self.root, {"git": {"base": self.base}, "secrets": {}}, sha, [])
+        self.assertFalse(check["pass"])
+        self.assertIn("certs/signing.p12: a secret file is committed", check["detail"])
 
     def test_a_base_git_cant_read_fails_the_scan(self) -> None:
         sha = self.commit("leak", {"settings.py": 'AWS = "AKIAABCDEFGHIJKLMNOP"\n'})

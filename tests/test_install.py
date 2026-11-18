@@ -162,6 +162,26 @@ class PreexistingScaffoldTest(unittest.TestCase):
         self.assertFalse((root / ".agents/softory").exists())
         self.assertEqual(git_status(root), "")
 
+    def test_uninstall_puts_back_the_policies_the_project_had(self) -> None:
+        from tests.helpers import SCAFFOLD_SRC, run
+
+        holder, root = git_project()
+        self.addCleanup(holder.cleanup)
+        run([f"{SCAFFOLD_SRC}/scripts/install.sh", "--target", str(root), "--adapter", "sqlite"], root)
+        config = root / ".coordination/config.yml"
+        theirs = ["closure_policy: strict", "closure_exempt_tags: chore,docs", "dependency_policy: warn"]
+        config.write_text(config.read_text() + "\n".join(theirs) + "\n")
+        install(root)
+        install(root)  # a reinstall mustn't take softory's own lines for the project's
+        lines = config.read_text().splitlines()
+        self.assertIn("closure_exempt_tags: unit:review", lines)
+        self.assertNotIn("closure_exempt_tags: chore,docs", lines)
+        softory(root, "uninstall")
+        lines = config.read_text().splitlines()
+        for line in theirs:
+            self.assertIn(line, lines)
+        self.assertEqual([line for line in lines if line.startswith(("closure_", "dependency_policy"))], theirs)
+
 
 @needs_sources
 @unittest.skipUnless(PREVIOUS_SRC, "set SOFTORY_SCAFFOLD_PREVIOUS_SRC to a scaffold 1.4.0 checkout")

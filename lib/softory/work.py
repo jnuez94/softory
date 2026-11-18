@@ -489,6 +489,9 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
             continue  # not in review, or a ui unit whose builder still owes its reference check
         task = board.show(summary["id"])
         latest = gate_rules.latest_reviews(task)
+        if unit == "release":  # a sign-off for a commit the release no longer ships is owed again
+            for reviewer in deploy.stale_reviews(project, task):
+                del latest[reviewer]
         built_by = gate_rules.builders(task)
         for requirement in gate_rules.required_reviews(task, gates):
             if not gate_rules.may_review(requirement, agent, built_by):
