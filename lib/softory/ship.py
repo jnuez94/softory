@@ -233,7 +233,14 @@ def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
                 project, coord, merged[0], "red",
                 f"{merged[0]['id']} fails softory verify on top of {base}", "verify")
         return result
-    _advance(project, base, before, candidate)
+    # A retest of the candidate may be running: wait for it, and move the base only on the verdict it leaves.
+    with verifyenv.turn(project, "merge", project.roster()["owner"]["id"]):
+        still = (verify.current(project, charter, candidate) or {}).get("passed")
+        if still:
+            _advance(project, base, before, candidate)
+    if not still:
+        result["waiting"] = f"a retest of {candidate[:12]} failed while it waited to merge; the next run decides"
+        return result
     data = ledger(project)
     for unit in merged:
         data.setdefault("units", {})[unit["id"]] = {"commit": unit["commit"], "merged_as": candidate, "at": _now()}
@@ -309,10 +316,11 @@ def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> st
     # Only a candidate softory verified: a commit made on the base by hand waits for check_base and the owner.
     if not remote or sha != data.get("last_candidate") or data.get("pushed") == sha:
         return None
-    if not (verify.current(project, charter, sha) or {}).get("passed"):  # a retry too: the tests may have changed
-        return f"not pushed: softory verify hasn't passed at {sha[:12]} with the charter's current tests"
-    # The checked commit, not the branch: the base can move between the check and the push.
-    done = git(project.root, "push", "--quiet", remote, f"{sha}:refs/heads/{base}")
+    with verifyenv.turn(project, "push", project.roster()["owner"]["id"]):  # a running retest finishes first
+        if not (verify.current(project, charter, sha) or {}).get("passed"):  # a retry too: the tests may have changed
+            return f"not pushed: softory verify hasn't passed at {sha[:12]} with the charter's current tests"
+        # The checked commit, not the branch: the base can move between the check and the push.
+        done = git(project.root, "push", "--quiet", remote, f"{sha}:refs/heads/{base}")
     if done.returncode != 0:
         return f"push failed: {done.stderr.strip()[:200]}"
     saved = ledger(project)

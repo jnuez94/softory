@@ -439,6 +439,45 @@ class ShipTest(unittest.TestCase):
         self.assertIn("current tests", str(getattr(refused.exception, "message", refused.exception)))
         self.assertFalse((self.marks / "log").exists())  # nothing was deployed
 
+    def test_a_merge_waiting_on_a_retest_reads_its_verdict(self) -> None:
+        flag = self.marks / "down"
+        (self.root / "check.sh").write_text(f"test ! -f {flag}\n")
+        run(["git", "add", "check.sh"], self.root)
+        run([*GIT, "commit", "-qm", "check the environment"], self.root)
+        remote = Path(tempfile.mkdtemp(prefix="softory-remote-"))
+        run(["git", "init", "-q", "--bare", str(remote)], self.root)
+        run(["git", "remote", "add", "origin", str(remote)], self.root)
+        self.charter({"merge": {"by": "softory", "push": "origin"}})
+        self.ship()  # the base passes
+        task = self.deliver("A", {"a.txt": "a\n"})  # closed at a commit that passed: a fast-forward
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        settings = charters.load(project)
+        sha = closed.commits(project)[task]
+        flag.write_text("x\n")
+        real = verifies._run_in_tree
+
+        def once_the_merge_waits(*args: object) -> object:  # the retest holds the lock; the merge queues behind it
+            for _ in range(200):
+                if any(row.get("task") == "merge" for row in verifyenv.waiting(project)):
+                    break
+                time.sleep(0.05)
+            return real(*args)
+
+        with mock.patch.object(verifies, "_run_in_tree", once_the_merge_waits), ThreadPoolExecutor(2) as pool:
+            retest = pool.submit(verifies.run_at, project, settings, sha, "retest", "owner")
+            for _ in range(200):
+                if verifyenv.waiting(project):
+                    break
+                time.sleep(0.05)
+            shipped = pool.submit(ships.ship, project, board, settings).result()
+            self.assertFalse(retest.result()["passed"])
+        self.assertEqual(shipped["merge"]["merged"], [])
+        self.assertIn("retest", shipped["merge"]["waiting"])
+        self.assertFalse(self.on_base("a.txt"))
+        self.assertNotEqual(run(["git", "rev-parse", "--verify", "--quiet", self.base], remote, check=False).stdout.strip(), sha)
+        self.assertIn(task, self.ship()["merge"]["held"])  # the next run sees the failure and files the bug
+
     def test_a_paused_project_doesnt_ship(self) -> None:
         self.deliver("A", {"a.txt": "a\n"})
         project = Project(self.root)
