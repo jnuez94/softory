@@ -214,6 +214,16 @@ def text_problems(issue: str, ask: str) -> list[str]:
     return problems
 
 
+def _words(text: Any) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _listed(value: Any) -> list[str]:
+    """A scaffold list field, which reads back as a list or as comma-separated text."""
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
 def escalate(project: Project, coord: Coordination, issue: str, ask: str, tasks: str | None, owner: str | None,
              actor: str, recommend: str = "", reversible: bool = False, holds: str | None = None) -> dict[str, Any]:
     problems = text_problems(issue.strip(), ask.strip())
@@ -225,17 +235,19 @@ def escalate(project: Project, coord: Coordination, issue: str, ask: str, tasks:
         raise SoftoryError("Rewrite the escalation so the owner can read it at a glance: " + "; ".join(problems),
                            "invalid_arguments")
     held = unit_holds.check_units(coord, [h.strip() for h in (holds or "").split(",") if h.strip()])
-    asked = " ".join(ask.lower().split())
+    decider = owner or project.roster()["owner"]["id"]
+    related = list(dict.fromkeys([t.strip() for t in (tasks or "").split(",") if t.strip()] + held))
+    # The same question is the same words about the same issue and units, to the same owner.
+    asked = (_words(ask), _words(issue), decider, frozenset(related))
     same = next((row["id"] for row in coord.all_rows("escalation", "list", "--status", "open")
-                 if " ".join(str(row.get("requested_decision") or "").lower().split()) == asked), None)
+                 if (_words(row.get("requested_decision")), _words(row.get("issue")), row.get("owner"),
+                     frozenset(_listed(row.get("related_tasks")))) == asked), None)
     if same:  # Tablet's owner was asked one question twice, five seconds apart
         raise SoftoryError(f"{same} already asks the owner this and is still open. Wait for its answer; send what "
                            "is new as a message on its tasks.", "conflict", {"existing": same})
-    decider = owner or project.roster()["owner"]["id"]
     escalation_id = f"ESC-{actor.upper()}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
     args = ["escalation", "add", "--id", escalation_id, "--raised-by", actor, "--owner", decider,
             "--issue", issue.strip(), "--requested-decision", ask.strip()]
-    related = list(dict.fromkeys([t.strip() for t in (tasks or "").split(",") if t.strip()] + held))
     if related:
         args += ["--related-tasks", ",".join(related)]
     coord.run(*args)

@@ -160,8 +160,18 @@ def close_as_told(project: Project, coord: Coordination, escalation: dict[str, A
     owner = project.roster()["owner"]["id"]
     escalation_id = escalation["id"]
     row = recommendations(project).get(escalation_id, {})
-    coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
-              "--because", f"decision:{decision}")
+    # Only if it still waits as it did when it was read: the owner's own answer in the meantime stands.
+    closed = coord.call("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
+                        "--because", f"decision:{decision}", "--if-status", str(escalation.get("status")))
+    if not closed.get("ok"):
+        now = (coord.call("escalation", "show", escalation_id).get("data") or {}).get("status")
+        if now != escalation.get("status"):
+            raise SoftoryError(f"{escalation_id} became {now} while this ruling was being recorded, so its answer "
+                               f"stands. The ruling is kept as {decision}; only the owner replaces an answer, with "
+                               "softory answer", "conflict", {"decision": decision})
+        error = closed.get("error") or {}
+        raise SoftoryError(error.get("message", "coordination command failed"),
+                           error.get("code", "coordination_error"), error.get("details"))
     _tell(coord, owner, row.get("raised_by") or escalation.get("raised_by"),
           f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
           f"The owner answered {escalation_id} (recorded by {recorded_by}): {text}")
