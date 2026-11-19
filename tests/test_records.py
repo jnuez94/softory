@@ -211,6 +211,16 @@ class RecordsTest(unittest.TestCase):
         messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
         self.assertTrue(any("replaces the earlier answer: No, stop" in m["body"] for m in messages))
 
+    def test_a_replaced_answer_keeps_the_follow_up_tasks(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        coord(self.root, "escalation", "resolve", asked, "--actor", "owner", "--resolution", "Yes, proceed",
+              "--follow-up-tasks", "TASK-1")
+        before = coord(self.root, "escalation", "show", asked)["data"]["follow_up_tasks"]
+        self.assertIn("TASK-1", before)
+        at_terminal(self.root, "answer", asked, "No, stop")
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["resolution"], shown["follow_up_tasks"]), ("No, stop", before))
+
     def test_a_correction_writes_no_decision(self) -> None:
         softory(self.root, "commit", "TASK-1", self.sha, "--actor", "jade")
         row = coord(self.root, "task", "show", "TASK-1")["data"]["evidence"][-1]
