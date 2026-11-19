@@ -110,7 +110,7 @@ def _apply(coord: Coordination, charter: dict[str, Any], clock: datetime, owner:
             str(shown["data"].get("issue") or ""), recorded_by=row["raised_by"])
         coord.run("escalation", "resolve", escalation_id, "--actor", row["raised_by"], "--if-status", "open",
                   "--resolution", f"No answer in {hours:g} hours; the recommendation applies: {row['recommend']}",
-                  "--because", f"decision:{decision}")
+                  "--because", f"decision:{decision}", *_follow_ups(shown["data"]))
         _tell(coord, owner, row["raised_by"], f"SOFTORY-DEFAULT-{escalation_id}",
               f"{escalation_id}: no answer in {hours:g} hours, so go ahead with your recommendation: "
               f"{row['recommend']}. Keep it easy to undo; the owner may still answer.")
@@ -135,7 +135,7 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
     # Whatever its status: the owner's answer replaces a default, or an answer a role recorded for them,
     # in the escalation itself, so the record and the message say the same thing.
     coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
-              "--because", f"decision:{decision}")
+              "--because", f"decision:{decision}", *_follow_ups(shown["data"]))
     _tell(coord, owner, raised_by, f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
           f"The owner answered {escalation_id}" + (" and replaces the default" if reversing else
                                                " and replaces the earlier answer" if replacing else "") + f": {text}")
@@ -143,6 +143,14 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
         if escalation_id in rows:
             rows[escalation_id]["settled"] = "answered"
     return {"escalation": escalation_id, "decision": decision, "reversed_default": reversing}
+
+
+def _follow_ups(escalation: dict[str, Any]) -> list[str]:
+    """The option that keeps an escalation's follow-up tasks: a resolve without it clears them."""
+    value = escalation.get("follow_up_tasks")
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    kept = [str(item).strip() for item in items if str(item).strip()]
+    return ["--follow-up-tasks", ",".join(kept)] if kept else []
 
 
 def open_escalation(coord: Coordination, escalation_id: str) -> dict[str, Any]:
@@ -165,7 +173,8 @@ def close_as_told(project: Project, coord: Coordination, escalation: dict[str, A
     row = recommendations(project).get(escalation_id, {})
     # Only if it still waits as it did when it was read: the owner's own answer in the meantime stands.
     closed = coord.call("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
-                        "--because", f"decision:{decision}", "--if-status", str(escalation.get("status")))
+                        "--because", f"decision:{decision}", "--if-status", str(escalation.get("status")),
+                        *_follow_ups(escalation))
     if not closed.get("ok"):
         now = (coord.call("escalation", "show", escalation_id).get("data") or {}).get("status")
         if now != escalation.get("status"):
