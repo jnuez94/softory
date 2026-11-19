@@ -110,7 +110,7 @@ def _apply(coord: Coordination, charter: dict[str, Any], clock: datetime, owner:
             str(shown["data"].get("issue") or ""), recorded_by=row["raised_by"])
         coord.run("escalation", "resolve", escalation_id, "--actor", row["raised_by"], "--if-status", "open",
                   "--resolution", f"No answer in {hours:g} hours; the recommendation applies: {row['recommend']}",
-                  "--because", f"decision:{decision}")
+                  "--because", f"decision:{decision}", *_follow_ups(shown["data"]))
         _tell(coord, owner, row["raised_by"], f"SOFTORY-DEFAULT-{escalation_id}",
               f"{escalation_id}: no answer in {hours:g} hours, so go ahead with your recommendation: "
               f"{row['recommend']}. Keep it easy to undo; the owner may still answer.")
@@ -129,17 +129,77 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
     raised_by = row.get("raised_by") or shown["data"].get("raised_by")
     confirm(f"Answer {escalation_id}: {text}")
     reversing = row.get("settled") == "defaulted"
+    replacing = not reversing and shown["data"].get("status") == "resolved"
     decision = record_decision(coord, owner, "ANSWER", f"{escalation_id}: {text}"[:200], text,
                                str(shown["data"].get("issue") or ""))
-    if shown["data"].get("status") == "open":
-        coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
-                  "--because", f"decision:{decision}")
+    # Whatever its status: the owner's answer replaces a default, or an answer a role recorded for them,
+    # in the escalation itself, so the record and the message say the same thing.
+    coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
+              "--because", f"decision:{decision}", *_follow_ups(shown["data"]))
     _tell(coord, owner, raised_by, f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
-          f"The owner answered {escalation_id}" + (" and replaces the default" if reversing else "") + f": {text}")
+          f"The owner answered {escalation_id}" + (" and replaces the default" if reversing else
+                                               " and replaces the earlier answer" if replacing else "") + f": {text}")
     with _editing(project, "escalations.json") as rows:
         if escalation_id in rows:
             rows[escalation_id]["settled"] = "answered"
     return {"escalation": escalation_id, "decision": decision, "reversed_default": reversing}
+
+
+def _follow_ups(escalation: dict[str, Any]) -> list[str]:
+    """The option that keeps an escalation's follow-up tasks: a resolve without it clears them."""
+    value = escalation.get("follow_up_tasks")
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    kept = [str(item).strip() for item in items if str(item).strip()]
+    return ["--follow-up-tasks", ",".join(kept)] if kept else []
+
+
+def open_escalation(coord: Coordination, escalation_id: str) -> dict[str, Any]:
+    """The escalation, if it still waits for an answer; an error that says why otherwise."""
+    shown = coord.call("escalation", "show", escalation_id)
+    if not shown.get("ok"):
+        raise SoftoryError(f"No escalation {escalation_id}", "not_found")
+    if shown["data"].get("status") not in ("open", "in_review"):
+        raise SoftoryError(f"{escalation_id} is already {shown['data'].get('status')}; only the owner replaces an "
+                           "answer, with softory answer", "conflict")
+    return shown["data"]
+
+
+def close_as_told(project: Project, coord: Coordination, escalation: dict[str, Any], text: str, decision: str,
+                  recorded_by: str) -> None:
+    """Close an open escalation with the answer the owner gave in chat, which ``recorded_by`` wrote down as
+    ruling ``decision``. In Tablet an escalation the owner had answered in a session stayed open for days."""
+    owner = project.roster()["owner"]["id"]
+    escalation_id = escalation["id"]
+    row = recommendations(project).get(escalation_id, {})
+    # Only if it still waits as it did when it was read: the owner's own answer in the meantime stands.
+    closed = coord.call("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
+                        "--because", f"decision:{decision}", "--if-status", str(escalation.get("status")),
+                        *_follow_ups(escalation))
+    if not closed.get("ok"):
+        now = (coord.call("escalation", "show", escalation_id).get("data") or {}).get("status")
+        if now != escalation.get("status"):
+            raise SoftoryError(f"{escalation_id} became {now} while this ruling was being recorded, so its answer "
+                               f"stands. The ruling is kept as {decision}; only the owner replaces an answer, with "
+                               "softory answer", "conflict", {"decision": decision})
+        error = closed.get("error") or {}
+        raise SoftoryError(error.get("message", "coordination command failed"),
+                           error.get("code", "coordination_error"), error.get("details"))
+    _tell(coord, owner, row.get("raised_by") or escalation.get("raised_by"),
+          f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
+          f"The owner answered {escalation_id} (recorded by {recorded_by}): {text}")
+    with _editing(project, "escalations.json") as rows:
+        if escalation_id in rows:
+            rows[escalation_id]["settled"] = "answered"
+
+
+def note_on_behalf(project: Project, row: dict[str, Any]) -> None:
+    """Log what a role recorded as the owner's word that changed more than a record, for the owner's digest."""
+    with (state_dir(project) / "on-behalf.jsonl").open("a", encoding="utf-8") as log:
+        log.write(json.dumps({"at": _now().isoformat(timespec="seconds"), **row}) + "\n")
+
+
+def recent_on_behalf(project: Project, hours: float = 24) -> list[dict[str, Any]]:
+    return _recent(project, "on-behalf.jsonl", hours)
 
 
 def _tell(coord: Coordination, sender: str, recipient: str | None, message_id: str, body: str) -> None:
@@ -222,9 +282,13 @@ def _log(project: Project, task_id: str, action: str, actor: str, reason: str) -
 
 
 def recent_settlements(project: Project, hours: float = 24) -> list[dict[str, Any]]:
+    return _recent(project, "settlements.jsonl", hours)
+
+
+def _recent(project: Project, name: str, hours: float) -> list[dict[str, Any]]:
     since = _now() - timedelta(hours=hours)
     try:
-        lines = (state_dir(project) / "settlements.jsonl").read_text(encoding="utf-8").splitlines()
+        lines = (state_dir(project) / name).read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
     rows = []

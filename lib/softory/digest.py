@@ -76,6 +76,12 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
             continue
         later.append({"key": f"cap-{task_id}", "text": f"{task_id} had {rounds} rounds of requested changes and "
                       f"stopped: softory settle {task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
+    for row in decide.recent_on_behalf(project):  # the owner's check on what was recorded in their name
+        what = " and ".join(([f"your approval of {row['review']}"] if row.get("review") else [])
+                            + ([f"your answer to {row['escalation']}"] if row.get("escalation") else []))
+        later.append({"key": f"on-behalf-{row['decision']}", "text": f"{row['by']} recorded {what}: "
+                      f"\"{_cut(row.get('said', ''), 200)}\" (said here: {_cut(row.get('where', ''), 80)}). If you "
+                      "didn't say it, replace it: softory answer <ESC> \"...\", or your own review of the unit"})
     for row in decide.recent_settlements(project):
         later.append({"key": f"settled-{row['task']}-{row['at']}", "text": f"{row['by']} settled {row['task']} "
                       f"({row['action']}): {_cut(row['reason'], 200)}"})

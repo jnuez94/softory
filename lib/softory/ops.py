@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
-from .coordination import Coordination
+from .coordination import Coordination, transient
 from .install import SKILL_ROOTS, content_hashes
 from .project import Project
 
@@ -162,18 +164,80 @@ def coord(project: Project, args: list[str]) -> int:
     """Run the coordination CLI from the main checkout, so it finds the database
     from any worktree. Arguments pass through unchanged, except that a command naming
     a role (``--agent`` or ``--actor``) with no session gets the session softory opened
-    for that role, for harnesses whose shells drop ``COORDINATION_SESSION``."""
+    for that role, for harnesses whose shells drop ``COORDINATION_SESSION``. A failure in the CLI's
+    own path check (see ``coordination.transient``) is run once more."""
     os.chdir(project.root)
     binary = str(project.coordination_bin)
     _refuse_bare_handoff(project, Coordination(binary, project.root), args)
+    _refuse_wrong_record(project, args)
     if "--session" not in args and not os.environ.get("COORDINATION_SESSION"):
         role = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--agent", "--actor")), None)
         found = sessions.recall(project, role, sessions.open_check(Coordination(binary, project.root)))
         if found:
             args = ["--session", found, *args]
     args = _without_refused_actor(binary, args)
-    os.execv(binary, [binary, *args])
-    return 0  # unreachable
+    for attempt in (0, 1):
+        done = subprocess.run([binary, *args], capture_output=True, text=True, check=False)  # noqa: S603
+        if attempt or done.returncode == 0 or not transient(done.stdout + done.stderr):
+            break
+        time.sleep(0.2)
+    sys.stdout.write(done.stdout)
+    sys.stderr.write(done.stderr)
+    return done.returncode
+
+
+#: The option that says who a record is from, for the commands a role could file under another name.
+_WRITTEN_BY = {("message", "send"): "--sender", ("review", "add"): "--reviewer"}
+_NAMED_COMMIT = re.compile(r"(?:\bcommit:|\bhead=|\bbase=)([0-9a-f]{7,40})\b")
+
+
+def _refuse_wrong_record(project: Project, args: list[str]) -> None:
+    """Refuse a message or review filed under another role's name, and a review of a commit git doesn't have.
+    In Tablet Jade sent a message as Avery, and a review named a hash that didn't exist. ``SOFTORY_ROLE`` says
+    who is calling; a shell that dropped it can't be checked here, and the session check still applies."""
+    from .errors import SoftoryError  # noqa: PLC0415
+
+    i = _command_at(args)
+    command = tuple(args[i:i + 2])
+    flag = _WRITTEN_BY.get(command)
+    if not flag:
+        return
+    named, caller = _option(args, flag), os.environ.get("SOFTORY_ROLE")
+    owner = project.roster()["owner"]["id"]
+    if caller and named and named != caller:
+        if command == ("review", "add") and named == owner:
+            raise SoftoryError(f"A review under {owner}'s name is the owner's to write. If the owner approved it in "
+                               "chat, record that with: softory ruling --review <ID> --title ... --decision ... "
+                               "--where <where they said it>", "not_allowed")
+        raise SoftoryError(f"You are {caller}, and this would be recorded as from {named}. Use {flag} {caller}.",
+                           "not_allowed")
+    artifact = _option(args, "--artifact") or ""
+    if command == ("review", "add"):
+        hashes = _NAMED_COMMIT.findall(artifact.lower()) or (
+            [artifact.lower()] if re.fullmatch(r"[0-9a-fA-F]{7,40}", artifact) else [])
+        missing = [h for h in hashes
+                   if gitlocal.git(project.root, "rev-parse", "--verify", "--quiet", f"{h}^{{commit}}").returncode != 0]
+        if missing:
+            raise SoftoryError(f"{', '.join(missing)} is not a commit in this repository. Name the commit you "
+                               "reviewed by its full hash (git rev-parse HEAD in your workspace).", "not_found")
+
+
+def _option(args: list[str], name: str) -> str | None:
+    """The option's value, in either spelling. Given twice it is refused: the coordination CLI keeps the last
+    one, so a check of any single one could pass a value the record doesn't get."""
+    from .errors import SoftoryError  # noqa: PLC0415
+
+    values, i = [], 0
+    while i < len(args):
+        if args[i] == name and i + 1 < len(args):
+            values.append(args[i + 1])
+            i += 1  # its value is not read as an option
+        elif args[i].startswith(name + "="):
+            values.append(args[i].split("=", 1)[1])
+        i += 1
+    if len(values) > 1:
+        raise SoftoryError(f"{name} is given {len(values)} times; give it once", "invalid_arguments")
+    return values[0] if values else None
 
 
 def _without_refused_actor(binary: str, args: list[str]) -> list[str]:
@@ -194,14 +258,21 @@ def _without_refused_actor(binary: str, args: list[str]) -> list[str]:
 _GLOBAL_VALUES = {"--session", "--db"}
 
 
+def _command_at(args: list[str]) -> int:
+    """Where the command starts: after the options that come before it. ``--actor <role>`` may lead too,
+    since softory takes it there to find the role's session."""
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 1 if "=" in args[i] or args[i] not in {*_GLOBAL_VALUES, "--actor"} else 2
+    return i
+
+
 def _release_to_review(args: list[str]) -> str | None:
     """The task a ``task release ... --to review`` command moves to review, however its arguments are
     ordered or spelled (``--to review`` or ``--to=review``), or None for any other command. The CLI
     doesn't accept abbreviations, and every option of ``task release`` (``--to``, ``--actor``, ``--note``,
     ``--because``, ``--if-revision``, and any it adds) takes a value, so the first bare word is the task."""
-    i = 0
-    while i < len(args) and args[i].startswith("-"):  # global options come before the command
-        i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    i = _command_at(args)
     if args[i:i + 2] != ["task", "release"]:
         return None
     task, to, rest = None, None, args[i + 2:]

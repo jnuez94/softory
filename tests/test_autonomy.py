@@ -30,7 +30,8 @@ class AutonomyTest(unittest.TestCase):
 
     def escalate(self, reversible: str) -> str:
         made = json.loads(softory(self.root, "escalate", "--issue", "The chat provider needs a paid key.",
-                                  "--ask", "Use a fake provider for now?", "--recommend", "Use a fake provider",
+                                  "--ask", "Use a fake provider for now?" if reversible == "yes" else
+                                  "Use a fake provider until the key arrives?", "--recommend", "Use a fake provider",
                                   "--reversible", reversible, "--tasks", "TASK-1", "--actor", "jade").stdout)
         return made["escalation"]
 

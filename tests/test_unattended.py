@@ -327,7 +327,8 @@ class UnattendedTest(unittest.TestCase):
         self.assertIn("not_allowed", refused.stderr)
         done = json.loads(softory(self.root, "supersede", "TASK-1", wrong, "--reason", "base, not head",
                                   "--actor", "jade").stdout)
-        self.assertTrue(coord(self.root, "decision", "show", done["decision"])["ok"])
+        self.assertEqual(done["reason"], "base, not head")  # kept on the retraction, not as a decision
+        self.assertNotIn("decision", done)
         sys.path.insert(0, str(REPO / "lib"))
         from softory import verify as verify_module  # noqa: PLC0415
         shown = coord(self.root, "task", "show", "TASK-1")["data"]

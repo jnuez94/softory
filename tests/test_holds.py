@@ -205,6 +205,9 @@ class HoldsTest(unittest.TestCase):
                           "--if-revision", rev]):
             bare = softory(self.root, "coord", "task", "release", *spelling, check=False)
             self.assertIn("ui_reference_missing", bare.stderr, spelling)
+        leading = softory(self.root, "coord", "--actor", "jade", "task", "release", "TASK-1", "--to", "review",
+                          "--if-revision", rev, check=False)
+        self.assertIn("ui_reference_missing", leading.stderr)  # --actor before the command is the same handoff
         shot = self.root / "shot.png"
         shot.write_bytes(b"png")
         filed = json.loads(softory(self.root, "report", "TASK-1", str(shot), "--type", "reference",

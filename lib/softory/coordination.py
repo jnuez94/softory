@@ -9,12 +9,22 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from .errors import SoftoryError
 
 MAX_PAGE = 500
+
+
+def transient(output: str) -> bool:
+    """True when the CLI failed in its own path check, not in the command: SQLite removes its ``-wal`` and
+    ``-shm`` files when the last connection closes, and the check can look between two of its own steps.
+    Nothing was read or written yet, so the same command is safe to run once more."""
+    text = output.lower()
+    return ("database_configuration_error" in text and "sidecar" in text) or (
+        "filenotfounderror" in text and ("-wal" in text or "-shm" in text))
 
 
 class Coordination:
@@ -53,9 +63,13 @@ class Coordination:
         env = dict(os.environ)
         env.pop("COORDINATION_SESSION", None)  # only pass the session we were told to
         env.pop("COORDINATION_DB", None)  # the project at self.root decides the database, not the caller's shell
-        completed = subprocess.run(  # noqa: S603 - fixed binary, argument list, no shell
-            command, cwd=self.root, env=env, capture_output=True, text=True, check=False
-        )
+        for attempt in (0, 1):
+            completed = subprocess.run(  # noqa: S603 - fixed binary, argument list, no shell
+                command, cwd=self.root, env=env, capture_output=True, text=True, check=False
+            )
+            if attempt or completed.returncode == 0 or not transient(completed.stdout + completed.stderr):
+                break
+            time.sleep(0.2)
         output = completed.stdout.strip() or completed.stderr.strip()  # errors go to stderr
         try:
             return json.loads(output)

@@ -1,0 +1,251 @@
+"""0.6.4: records refuse wrong input, and the owner's word in a session counts."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from tests.helpers import REPO, coord, git_project, install, needs_sources, run, softory
+
+sys.path.insert(0, str(REPO / "lib"))
+from softory import decide, owner  # noqa: E402
+from softory.coordination import Coordination, transient  # noqa: E402
+from softory.errors import SoftoryError  # noqa: E402
+from softory.project import Project  # noqa: E402
+from tests.test_workflow import at_terminal, start  # noqa: E402
+
+SIDECAR = ('{"ok": false, "error": {"code": "database_configuration_error", '
+           '"message": "SQLite operational sidecars must be regular files"}}')
+
+
+class TransientTest(unittest.TestCase):
+    def test_only_the_path_checks_own_race_is_transient(self) -> None:
+        self.assertTrue(transient(SIDECAR))
+        self.assertTrue(transient("FileNotFoundError: [Errno 2] No such file: '.coordination/coordination.db-wal'"))
+        self.assertFalse(transient('{"ok": false, "error": {"code": "not_found", "message": "task TASK-9"}}'))
+        self.assertFalse(transient('{"ok": false, "error": {"code": "database_configuration_error", '
+                                   '"message": "Coordination database must be a regular file"}}'))
+
+    def test_a_transient_failure_is_run_once_more(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            binary = root / "coordination"
+            binary.write_text(f"#!/bin/sh\necho x >> {root}/calls\n"
+                              f"if [ $(wc -l < {root}/calls) -lt \"$FAILS\" ]; then echo '{SIDECAR}' >&2; exit 4; fi\n"
+                              "echo '{\"ok\": true, \"data\": 1}'\n")
+            binary.chmod(0o755)
+            os.environ["FAILS"] = "2"
+            self.addCleanup(os.environ.pop, "FAILS", None)
+            self.assertEqual(Coordination(binary, root).run("task", "list"), 1)
+            self.assertEqual(len((root / "calls").read_text().splitlines()), 2)
+            (root / "calls").unlink()
+            os.environ["FAILS"] = "9"  # it keeps failing: one retry, then the error
+            self.assertFalse(Coordination(binary, root).call("task", "list")["ok"])
+            self.assertEqual(len((root / "calls").read_text().splitlines()), 2)
+
+
+@needs_sources
+class RecordsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.holder, self.root = git_project({"README.md": "# app\n"})
+        self.addCleanup(self.holder.cleanup)
+        install(self.root)
+        self.sha = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        softory(self.root, "new", "story", "--title", "Today", "--actor", "greg")
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Today list",
+                "--actor", "quinn")
+        self.jade = {**os.environ, **start(self.root, "jade")}
+
+    def review(self, *args: str, env: dict[str, str] | None = None):
+        return softory(self.root, "coord", "review", "add", "--task", "TASK-1", "--scope", "all",
+                       "--decision", "accepted", *args, env=env or self.jade, check=False)
+
+    def test_a_message_or_review_under_another_roles_name_is_refused(self) -> None:
+        sent = softory(self.root, "coord", "message", "send", "--id", "M-1", "--sender", "gold", "--recipient",
+                       "quinn", "--body", "ready", env=self.jade, check=False)
+        self.assertNotEqual(sent.returncode, 0)
+        self.assertIn("You are jade", sent.stderr)
+        self.assertIn("--sender jade", sent.stderr)
+        softory(self.root, "coord", "message", "send", "--id", "M-1", "--sender", "jade", "--recipient", "quinn",
+                "--body", "ready", env=self.jade)
+        other = self.review("--id", "REV-1", "--reviewer", "gold", "--artifact", f"commit:{self.sha}")
+        self.assertIn("You are jade", other.stderr)
+        owner = self.review("--id", "REV-1", "--reviewer", "owner", "--artifact", f"commit:{self.sha}")
+        self.assertIn("softory ruling --review", owner.stderr)
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["reviews"], [])
+
+    def test_a_review_of_a_commit_git_does_not_have_is_refused(self) -> None:
+        missing = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", "commit:" + "ab12" * 10)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("is not a commit in this repository", missing.stderr)
+        bare = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", "ab12" * 10)
+        self.assertIn("is not a commit in this repository", bare.stderr)
+        made = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", f"commit:{self.sha}")
+        self.assertEqual(made.returncode, 0, made.stderr)
+        prose = self.review("--id", "REV-2", "--reviewer", "jade", "--artifact", "docs/design/today.md")
+        self.assertEqual(prose.returncode, 0, prose.stderr)
+
+    def test_the_owners_approval_in_a_session_becomes_their_review(self) -> None:
+        softory(self.root, "commit", "TASK-1", self.sha, "--actor", "jade")
+        made = json.loads(softory(self.root, "ruling", "--title", "Today list approved", "--decision",
+                                  "Approved as built", "--where", "Darwin's session, 13 Nov 14:02",
+                                  "--review", "TASK-1", "--actor", "darwin").stdout)
+        review = coord(self.root, "task", "show", "TASK-1")["data"]["reviews"][-1]
+        self.assertEqual((review["reviewer_id"], review["decision"], review["id"]), ("owner", "accepted", made["review"]))
+        full = coord(self.root, "review", "show", made["review"])["data"]
+        self.assertEqual(full["artifact_uri"], f"commit:{self.sha}")
+        self.assertIn("Recorded by darwin", full["scope"])
+        self.assertIn(made["decision"], full["scope"])
+        digest = json.loads(softory(self.root, "digest").stdout)["digest"]
+        row = next(r for r in digest if r["key"] == f"on-behalf-{made['decision']}")
+        self.assertIn("darwin recorded your approval of TASK-1", row["text"])
+        self.assertIn("Darwin's session", row["text"])
+        missing = softory(self.root, "ruling", "--title", "x", "--decision", "y", "--where", "z", "--review",
+                          "TASK-99", "--actor", "darwin", check=False)
+        self.assertNotEqual(missing.returncode, 0)
+
+    def test_a_checked_option_given_twice_is_refused_in_either_order_and_spelling(self) -> None:
+        real, missing = f"commit:{self.sha}", "commit:" + "0" * 40
+        for n, pair in enumerate([["--artifact", missing, "--artifact", real], ["--artifact", real, "--artifact", missing],
+                                  [f"--artifact={real}", f"--artifact={missing}"],
+                                  [f"--artifact={missing}", "--artifact", real]]):
+            twice = self.review("--id", f"REV-A{n}", "--reviewer", "jade", *pair)
+            self.assertNotEqual(twice.returncode, 0, pair)
+            self.assertIn("--artifact is given 2 times", twice.stderr)
+        for n, pair in enumerate([["--reviewer", "jade", "--reviewer", "gold"], ["--reviewer", "gold", "--reviewer=jade"]]):
+            twice = self.review("--id", f"REV-R{n}", "--artifact", real, *pair)
+            self.assertNotEqual(twice.returncode, 0, pair)
+            self.assertIn("--reviewer is given 2 times", twice.stderr)
+        sent = softory(self.root, "coord", "message", "send", "--id", "M-2", "--sender=jade", "--sender", "gold",
+                       "--recipient", "quinn", "--body", "ready", env=self.jade, check=False)
+        self.assertIn("--sender is given 2 times", sent.stderr)
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["reviews"], [])
+        wrong = self.review("--id", "REV-E1", "--reviewer=gold", f"--artifact={real}")  # one, with =: still checked
+        self.assertIn("You are jade", wrong.stderr)
+        gone = self.review("--id", "REV-E2", "--reviewer=jade", f"--artifact={missing}")
+        self.assertIn("is not a commit", gone.stderr)
+        fine = self.review("--id", "REV-E3", "--reviewer=jade", f"--artifact={real}")
+        self.assertEqual(fine.returncode, 0, fine.stderr)
+
+    def test_a_leading_actor_does_not_skip_the_checks(self) -> None:
+        def add(*args: str):
+            return softory(self.root, "coord", "--actor", "jade", "review", "add", "--task", "TASK-1", "--scope",
+                           "all", "--decision", "accepted", *args, env=self.jade, check=False)
+
+        real, missing = f"commit:{self.sha}", "commit:" + "0" * 40
+        gone = add("--id", "REV-L1", "--reviewer", "jade", "--artifact", missing)
+        self.assertNotEqual(gone.returncode, 0)
+        self.assertIn("is not a commit", gone.stderr)
+        self.assertIn("You are jade", add("--id", "REV-L2", "--reviewer", "gold", "--artifact", real).stderr)
+        self.assertIn("given 2 times", add("--id", "REV-L3", "--reviewer", "jade", "--artifact", missing,
+                                           "--artifact", real).stderr)
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["reviews"], [])
+        fine = add("--id", "REV-L4", "--reviewer", "jade", "--artifact", real)
+        self.assertEqual(fine.returncode, 0, fine.stderr)
+
+    def escalate(self, ask: str, tasks: str = "TASK-1", *more: str):
+        return softory(self.root, "escalate", "--issue", "The outline rows are 20px tall.", "--ask", ask,
+                       "--recommend", "Yes, 24px for both", "--reversible", "no", "--tasks", tasks, *more,
+                       "--actor", "darwin", check=False)
+
+    def test_the_same_words_about_other_work_or_to_another_owner_are_another_question(self) -> None:
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "Week list",
+                "--actor", "quinn")
+        first = self.escalate("May we proceed?")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        elsewhere = self.escalate("May we proceed?", "TASK-2", "--holds", "TASK-2")
+        self.assertEqual(elsewhere.returncode, 0, elsewhere.stderr)
+        self.assertEqual(json.loads(elsewhere.stdout)["holds"], ["TASK-2"])  # and its units are held
+        to_greg = self.escalate("May we proceed?", "TASK-1", "--owner", "greg")
+        self.assertEqual(to_greg.returncode, 0, to_greg.stderr)
+        again = self.escalate("may we  proceed?")
+        self.assertNotEqual(again.returncode, 0)
+        self.assertIn(json.loads(first.stdout)["escalation"], again.stderr)
+        self.assertEqual(len(coord(self.root, "escalation", "list", "--status", "open")["data"]), 3)
+
+    def test_a_ruling_does_not_replace_an_answer_the_owner_gave_meanwhile(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        real = decide.open_escalation
+
+        def then_the_owner_answers(*args: object) -> object:  # after the ruling's check, before its write
+            seen = real(*args)
+            coord(self.root, "escalation", "resolve", asked, "--actor", "owner", "--resolution", "No, 20px stays")
+            return seen
+
+        with mock.patch.object(decide, "open_escalation", then_the_owner_answers):
+            with self.assertRaises(SoftoryError) as refused:
+                owner.ruling(project, board, "24px covers calendar events", "Yes, 24px for both",
+                             "project chat", None, "greg", review="TASK-1", escalation=asked)
+        self.assertEqual(refused.exception.code, "conflict")
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["status"], shown["resolution"]), ("resolved", "No, 20px stays"))
+        task = coord(self.root, "task", "show", "TASK-1")["data"]
+        self.assertFalse([r for r in task.get("reviews") or [] if r.get("reviewer") == "owner"])
+
+    def test_the_owner_is_not_asked_the_same_question_twice(self) -> None:
+        first = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        again = self.escalate("does the 24px minimum  cover calendar events too?")
+        self.assertNotEqual(again.returncode, 0)
+        self.assertIn(first, again.stderr)
+        self.assertEqual(len(coord(self.root, "escalation", "list", "--status", "open")["data"]), 1)
+        other = self.escalate("Does the 24px minimum cover the toolbar too?")
+        self.assertEqual(other.returncode, 0, other.stderr)
+
+    def test_a_ruling_that_names_an_escalation_closes_it(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        made = json.loads(softory(self.root, "ruling", "--title", "24px covers calendar events", "--decision",
+                                  "Yes, 24px for both", "--where", "project chat, 13 Nov 17:29Z",
+                                  "--escalation", asked, "--actor", "greg").stdout)
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["status"], shown["resolution"]), ("resolved", "Yes, 24px for both"))
+        self.assertEqual(made["escalation"], asked)
+        inbox = coord(self.root, "inbox", "list", "--agent", "darwin")["data"]
+        messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
+        self.assertTrue(any("recorded by greg" in m["body"] for m in messages))
+        digest = json.loads(softory(self.root, "digest").stdout)["digest"]
+        self.assertTrue(any(f"your answer to {asked}" in r["text"] for r in digest))
+        twice = softory(self.root, "ruling", "--title", "x", "--decision", "No", "--where", "z", "--escalation",
+                        asked, "--actor", "greg", check=False)
+        self.assertNotEqual(twice.returncode, 0)
+        self.assertIn("already resolved", twice.stderr)
+
+    def test_the_owners_correction_replaces_an_answer_recorded_for_them(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        softory(self.root, "ruling", "--title", "24px covers calendar events", "--decision", "Yes, proceed",
+                "--where", "project chat", "--escalation", asked, "--actor", "greg")
+        at_terminal(self.root, "answer", asked, "No, stop")
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["status"], shown["resolution"]), ("resolved", "No, stop"))
+        inbox = coord(self.root, "inbox", "list", "--agent", "darwin")["data"]
+        messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
+        self.assertTrue(any("replaces the earlier answer: No, stop" in m["body"] for m in messages))
+
+    def test_a_replaced_answer_keeps_the_follow_up_tasks(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        coord(self.root, "escalation", "resolve", asked, "--actor", "owner", "--resolution", "Yes, proceed",
+              "--follow-up-tasks", "TASK-1")
+        before = coord(self.root, "escalation", "show", asked)["data"]["follow_up_tasks"]
+        self.assertIn("TASK-1", before)
+        at_terminal(self.root, "answer", asked, "No, stop")
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["resolution"], shown["follow_up_tasks"]), ("No, stop", before))
+
+    def test_a_correction_writes_no_decision(self) -> None:
+        softory(self.root, "commit", "TASK-1", self.sha, "--actor", "jade")
+        row = coord(self.root, "task", "show", "TASK-1")["data"]["evidence"][-1]
+        before = len(coord(self.root, "decision", "list")["data"])
+        softory(self.root, "supersede", "TASK-1", str(row["id"]), "--reason", "base,\n not head", "--actor", "jade")
+        self.assertEqual(len(coord(self.root, "decision", "list")["data"]), before)
+        marker = coord(self.root, "task", "show", "TASK-1")["data"]["evidence"][-1]["uri"]
+        self.assertEqual(marker, f"softory-supersedes:{row['id']}:base, not head")
+
+
+if __name__ == "__main__":
+    unittest.main()
