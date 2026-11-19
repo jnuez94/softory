@@ -197,9 +197,7 @@ def _refuse_wrong_record(project: Project, args: list[str]) -> None:
     who is calling; a shell that dropped it can't be checked here, and the session check still applies."""
     from .errors import SoftoryError  # noqa: PLC0415
 
-    i = 0
-    while i < len(args) and args[i].startswith("-"):  # global options come before the command
-        i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    i = _command_at(args)
     command = tuple(args[i:i + 2])
     flag = _WRITTEN_BY.get(command)
     if not flag:
@@ -260,14 +258,21 @@ def _without_refused_actor(binary: str, args: list[str]) -> list[str]:
 _GLOBAL_VALUES = {"--session", "--db"}
 
 
+def _command_at(args: list[str]) -> int:
+    """Where the command starts: after the options that come before it. ``--actor <role>`` may lead too,
+    since softory takes it there to find the role's session."""
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 1 if "=" in args[i] or args[i] not in {*_GLOBAL_VALUES, "--actor"} else 2
+    return i
+
+
 def _release_to_review(args: list[str]) -> str | None:
     """The task a ``task release ... --to review`` command moves to review, however its arguments are
     ordered or spelled (``--to review`` or ``--to=review``), or None for any other command. The CLI
     doesn't accept abbreviations, and every option of ``task release`` (``--to``, ``--actor``, ``--note``,
     ``--because``, ``--if-revision``, and any it adds) takes a value, so the first bare word is the task."""
-    i = 0
-    while i < len(args) and args[i].startswith("-"):  # global options come before the command
-        i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    i = _command_at(args)
     if args[i:i + 2] != ["task", "release"]:
         return None
     task, to, rest = None, None, args[i + 2:]

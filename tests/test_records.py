@@ -132,6 +132,22 @@ class RecordsTest(unittest.TestCase):
         fine = self.review("--id", "REV-E3", "--reviewer=jade", f"--artifact={real}")
         self.assertEqual(fine.returncode, 0, fine.stderr)
 
+    def test_a_leading_actor_does_not_skip_the_checks(self) -> None:
+        def add(*args: str):
+            return softory(self.root, "coord", "--actor", "jade", "review", "add", "--task", "TASK-1", "--scope",
+                           "all", "--decision", "accepted", *args, env=self.jade, check=False)
+
+        real, missing = f"commit:{self.sha}", "commit:" + "0" * 40
+        gone = add("--id", "REV-L1", "--reviewer", "jade", "--artifact", missing)
+        self.assertNotEqual(gone.returncode, 0)
+        self.assertIn("is not a commit", gone.stderr)
+        self.assertIn("You are jade", add("--id", "REV-L2", "--reviewer", "gold", "--artifact", real).stderr)
+        self.assertIn("given 2 times", add("--id", "REV-L3", "--reviewer", "jade", "--artifact", missing,
+                                           "--artifact", real).stderr)
+        self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["reviews"], [])
+        fine = add("--id", "REV-L4", "--reviewer", "jade", "--artifact", real)
+        self.assertEqual(fine.returncode, 0, fine.stderr)
+
     def escalate(self, ask: str, tasks: str = "TASK-1", *more: str):
         return softory(self.root, "escalate", "--issue", "The outline rows are 20px tall.", "--ask", ask,
                        "--recommend", "Yes, 24px for both", "--reversible", "no", "--tasks", tasks, *more,
