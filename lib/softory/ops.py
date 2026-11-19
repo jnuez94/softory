@@ -207,9 +207,7 @@ def _stack_siblings(project: Project, coordination: Coordination, args: list[str
     from .gate import builders  # noqa: PLC0415
     from .units import parent_of, stack_of, unit_of  # noqa: PLC0415
 
-    i = 0
-    while i < len(args) and args[i].startswith("-"):
-        i += 1 if "=" in args[i] or args[i] not in _GLOBAL_VALUES else 2
+    i = _command_at(args)
     if tuple(args[i:i + 2]) != ("review", "add"):
         return []
     named = re.search(r"\bstack:(\S+)", _option(args, "--scope") or "")
