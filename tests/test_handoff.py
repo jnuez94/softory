@@ -112,6 +112,17 @@ class HandoffTest(unittest.TestCase):
         approve(1)
         self.assertIn("reviews waiting", json.dumps(pending()["reasons"]))
 
+    def test_a_request_for_a_task_from_before_softory_still_wakes_its_reviewer(self) -> None:
+        coord(self.root, "task", "create", "--id", "OLD-1", "--title", "Rotate the keys", "--actor", "greg",
+              "--tags", "security", "--assignee", "jade")
+        self.claim("OLD-1")
+        self.commit("a.txt", "OLD-1")
+        self.assertIn("toby", [a["reviewer"] for a in self.handoff("OLD-1")["asked"]])
+        queue = json.loads(softory(self.root, "queue", "--agent", "toby").stdout)
+        self.assertEqual(queue["reviews_waiting"], [])  # the review queue doesn't list it, so the request must
+        found = json.loads(softory(self.root, "pending", "toby", "--since", "2000-01-01", check=False).stdout)
+        self.assertIn("messages that need you", json.dumps(found["reasons"]))
+
     def test_one_verdict_covers_a_stack_of_small_bugs_at_one_commit(self) -> None:
         bugs = [self.new("bug", "--type", "functional", "--title", f"Bug {n}") for n in (1, 2, 3)]
         for bug in bugs:
