@@ -17,7 +17,7 @@ from softory import decide, owner  # noqa: E402
 from softory.coordination import Coordination, transient  # noqa: E402
 from softory.errors import SoftoryError  # noqa: E402
 from softory.project import Project  # noqa: E402
-from tests.test_workflow import start  # noqa: E402
+from tests.test_workflow import at_terminal, start  # noqa: E402
 
 SIDECAR = ('{"ok": false, "error": {"code": "database_configuration_error", '
            '"message": "SQLite operational sidecars must be regular files"}}')
@@ -199,6 +199,17 @@ class RecordsTest(unittest.TestCase):
                         asked, "--actor", "greg", check=False)
         self.assertNotEqual(twice.returncode, 0)
         self.assertIn("already resolved", twice.stderr)
+
+    def test_the_owners_correction_replaces_an_answer_recorded_for_them(self) -> None:
+        asked = json.loads(self.escalate("Does the 24px minimum cover calendar events too?").stdout)["escalation"]
+        softory(self.root, "ruling", "--title", "24px covers calendar events", "--decision", "Yes, proceed",
+                "--where", "project chat", "--escalation", asked, "--actor", "greg")
+        at_terminal(self.root, "answer", asked, "No, stop")
+        shown = coord(self.root, "escalation", "show", asked)["data"]
+        self.assertEqual((shown["status"], shown["resolution"]), ("resolved", "No, stop"))
+        inbox = coord(self.root, "inbox", "list", "--agent", "darwin")["data"]
+        messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
+        self.assertTrue(any("replaces the earlier answer: No, stop" in m["body"] for m in messages))
 
     def test_a_correction_writes_no_decision(self) -> None:
         softory(self.root, "commit", "TASK-1", self.sha, "--actor", "jade")

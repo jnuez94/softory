@@ -129,13 +129,16 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
     raised_by = row.get("raised_by") or shown["data"].get("raised_by")
     confirm(f"Answer {escalation_id}: {text}")
     reversing = row.get("settled") == "defaulted"
+    replacing = not reversing and shown["data"].get("status") == "resolved"
     decision = record_decision(coord, owner, "ANSWER", f"{escalation_id}: {text}"[:200], text,
                                str(shown["data"].get("issue") or ""))
-    if shown["data"].get("status") == "open":
-        coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
-                  "--because", f"decision:{decision}")
+    # Whatever its status: the owner's answer replaces a default, or an answer a role recorded for them,
+    # in the escalation itself, so the record and the message say the same thing.
+    coord.run("escalation", "resolve", escalation_id, "--actor", owner, "--resolution", text,
+              "--because", f"decision:{decision}")
     _tell(coord, owner, raised_by, f"SOFTORY-ANSWER-{escalation_id}-{decision[-8:]}",
-          f"The owner answered {escalation_id}" + (" and replaces the default" if reversing else "") + f": {text}")
+          f"The owner answered {escalation_id}" + (" and replaces the default" if reversing else
+                                               " and replaces the earlier answer" if replacing else "") + f": {text}")
     with _editing(project, "escalations.json") as rows:
         if escalation_id in rows:
             rows[escalation_id]["settled"] = "answered"
