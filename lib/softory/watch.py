@@ -234,6 +234,10 @@ def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any],
     return wanted, rest
 
 
+#: How softory names the review requests a handoff sends (``lifecycle.request_reviews``).
+REVIEW_REQUEST = "SOFTORY-REVIEW-"
+
+
 def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
                    work: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(messages that need the role, the rest). A message needs the role when the owner sent it, it carries an
@@ -242,6 +246,8 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     A message about a held unit wakes the role only when the owner sent it; otherwise it counts for neither
     list, so it can't start a run, even on the retry, while the unit waits for the owner. The same goes for a
     ui unit in review without its reference check, except for its builder, who owes the check.
+    A handoff's own review request counts for neither list either: reviews wake a reviewer through the review
+    queue, which waits for the tests and the charter's batch.
     """
     on_hold = getattr(board, "held", {})
     mine = {t["id"] for t in board.tasks if agent in (t.get("assignees") or []) or t.get("claimed_by") == agent}
@@ -257,6 +263,9 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
         if (message.get("task_id") in getattr(board, "awaiting_reference", set()) and not from_owner
                 and agent not in (board.by_id[message["task_id"]].get("assignees") or [])):
             continue  # reviewers wait for the reference check, so "ready for review" can't wake them yet
+        if str(message.get("id") or "").startswith(REVIEW_REQUEST):
+            continue  # a handoff's request: the unit's place in the review queue wakes the reviewer, once the
+            # tests pass and the batch is ready, and the message tells them where to look when they start
         tags = {t.strip().lower() for t in str(message.get("tags") or "").split(",") if t.strip()}
         needed = from_owner or tags & ACTION_TAGS or message.get("task_id") in mine
         (wanted if needed else rest).append(message)

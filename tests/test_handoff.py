@@ -87,6 +87,31 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(result["status"], "review")
         self.assertIn("softory verify is not run", result["warnings"][0])
 
+    def test_a_request_wakes_no_reviewer_before_the_tests_pass_and_the_batch_is_ready(self) -> None:
+        path = self.root / ".git" / "charter.json"
+
+        def approve(least: int) -> None:
+            path.write_text(json.dumps({"verify": {"command": "true"}, "git": {"base": self.base},
+                                        "review_batch": {"min": least, "max_wait_minutes": 60}}))
+            at_terminal(self.root, "charter", "approve", str(path))
+
+        def pending() -> dict:
+            return json.loads(softory(self.root, "pending", "gold", "--since", "2000-01-01", check=False).stdout)
+
+        approve(2)
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        self.commit("a.txt", task)
+        self.assertEqual([a["reviewer"] for a in self.handoff(task)["asked"]], ["gold"])
+        self.assertEqual(len([m for m in self.inbox("gold") if m.get("task_id") == task]), 1)  # asked, and it waits
+        self.assertFalse(pending()["pending"])  # the tests haven't passed
+        softory(self.root, "verify", task, "--actor", "jade")
+        held = pending()
+        self.assertFalse(held["pending"])  # one verified review, and the batch is two
+        self.assertEqual(held["batching"]["ids"], [task])
+        approve(1)
+        self.assertIn("reviews waiting", json.dumps(pending()["reasons"]))
+
     def test_one_verdict_covers_a_stack_of_small_bugs_at_one_commit(self) -> None:
         bugs = [self.new("bug", "--type", "functional", "--title", f"Bug {n}") for n in (1, 2, 3)]
         for bug in bugs:

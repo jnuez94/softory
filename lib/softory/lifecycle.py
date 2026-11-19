@@ -67,15 +67,19 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
 
     Each requirement goes to one reviewer: its only candidate, or the one ``softory reviewers`` would ask.
     A reviewer who already accepted isn't asked again, one whose change request is open is asked before
-    anyone else, and a second handoff at the same commit sends nothing.
+    anyone else, and a second handoff at the same commit sends nothing. A release is the exception: its
+    sign-offs are for one commit, so a reviewer who accepted another commit is asked again.
+    The request wakes nobody by itself (``watch.split_messages``): the review queue does, once the tests pass.
     Returns who was asked for what, and the reviews nobody could be picked for.
     """
     from . import charter as charters  # noqa: PLC0415
-    from . import verify  # noqa: PLC0415 - verify imports gate, which this module imports
+    from . import deploy, verify  # noqa: PLC0415 - verify imports gate, which this module imports
+    from .units import unit_of  # noqa: PLC0415
 
     gates = project.gates()
     accepting = set(gates["accepting_decisions"])
     latest = gate_rules.latest_reviews(task)
+    stale = set(deploy.stale_reviews(project, task)) if unit_of(task, gates) == "release" else set()
     built_by = gate_rules.builders(task)
     rotation = (charters.load(project).get("review") or {}).get("rotation") or []
     sha = verify.commit_of(project.root, task)
@@ -83,9 +87,10 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
     unasked = []
     for requirement in gate_rules.required_reviews(task, gates):
         candidates = gate_rules.eligible(requirement, built_by, latest)
-        open_requests = [r for r in candidates if r in latest and latest[r].get("decision") not in accepting]
+        open_requests = [r for r in candidates if r in latest and (latest[r].get("decision") not in accepting
+                                                                    or r in stale)]
         if not open_requests and any(latest.get(r, {}).get("decision") in accepting for r in candidates):
-            continue  # already given, and nobody's change request holds the unit open
+            continue  # already given, and nobody's change request or stale sign-off holds the unit open
         if gate_rules.ANYONE in requirement["reviewers"] and not candidates:
             candidates = [r for r in rotation if r not in built_by]
         reviewer = candidates[0] if len(candidates) == 1 else (
@@ -104,7 +109,12 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
             continue  # asked at this commit already
         body = f"{task['id']} ({task['title'][:80]}) is ready for your review: {'; '.join(reasons)}.{where}"
         mine = latest.get(reviewer)
-        if mine:  # a correction: the re-review covers what changed
+        if mine and reviewer in stale:  # a release that moved: the sign-off is for one commit
+            was = _reviewed_commit(mine)
+            body += (" You signed off" + (f" at {was[:12]}" if was else "") + " and the release ships another "
+                     "commit now, so it needs your review at this one"
+                     + (f": git diff {was[:12]}..{sha[:12]}" if was and sha else "") + ".")
+        elif mine:  # a correction: the re-review covers what changed
             was = _reviewed_commit(mine)
             body += (" You asked for changes" + (f" at {was[:12]}" if was else "") + ": check them against "
                      + (f"git diff {was[:12]}..{sha[:12]}" if was and sha and was != sha else "what changed since")
