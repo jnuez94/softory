@@ -179,6 +179,29 @@ class HandoffTest(unittest.TestCase):
                          [("gold", "accepted", f"REV-B-{bugs[1]}")])
         self.assertEqual(coord(self.root, "task", "show", bugs[2])["data"]["reviews"], [])
 
+    def test_a_stack_verdict_does_not_reach_a_bug_that_moved_on(self) -> None:
+        bugs = [self.new("bug", "--type", "functional", "--title", f"Bug {n}") for n in (1, 2, 3)]
+        for bug in bugs:
+            self.claim(bug)
+        seen = self.commit("a.txt", *bugs)
+        softory(self.root, "stack", *bugs, "--actor", "jade", env=self.jade)
+        for bug in bugs:
+            self.handoff(bug)
+        newer = self.commit("b.txt", bugs[0], bugs[1])  # the builder moves two of them on before the verdict
+        gold = {**os.environ, **start(self.root, "gold")}
+        late = softory(self.root, "coord", "review", "add", "--id", "REV-C", "--task", bugs[0], "--reviewer", "gold",
+                       "--artifact", f"commit:{seen}", "--scope", f"all three, stack:{bugs[0]}", "--decision",
+                       "accepted", env=gold)
+        self.assertEqual(late.returncode, 0, late.stderr)
+        self.assertEqual(coord(self.root, "task", "show", bugs[1])["data"]["reviews"], [])  # at the newer commit
+        third = coord(self.root, "task", "show", bugs[2])["data"]["reviews"]
+        self.assertEqual([r["id"] for r in third], [f"REV-C-{bugs[2]}"])  # still at the commit that was reviewed
+        named = softory(self.root, "coord", "review", "add", "--id", "REV-D", "--task", bugs[0], "--reviewer",
+                        "gold", "--artifact", "reports/20261120/review.md", "--scope", f"stack:{bugs[0]}",
+                        "--decision", "accepted", env=gold)
+        self.assertNotIn("same verdict", named.stderr)  # no commit named: nothing to match the others against
+        self.assertNotEqual(newer, seen)
+
     def test_flow_reports_how_delivered_units_went_through_review(self) -> None:
         path = self.root / ".git" / "charter.json"  # the secret scan needs a base this repository has
         path.write_text(json.dumps({"git": {"base": self.base}}))

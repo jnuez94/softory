@@ -200,10 +200,10 @@ def _run(binary: str, args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def _stack_siblings(project: Project, coordination: Coordination, args: list[str]) -> list[str]:
     """The other bugs one verdict covers: ``review add`` on a bug whose ``--scope`` names its stack
-    (``stack:<name>``) also counts for the stack's other bugs in review under the same parent, at the same
-    commit, that the reviewer didn't build. One review for several small fixes, by the owner's Tablet ruling;
+    (``stack:<name>``) also counts for the stack's other bugs in review under the same parent, at the commit
+    the review's ``--artifact`` names, that the reviewer didn't build. One review for several small fixes, by the owner's Tablet ruling;
     the reviewer opts in by naming the stack, so a verdict never spreads by accident."""
-    from . import verify  # noqa: PLC0415
+    from . import lifecycle, verify  # noqa: PLC0415
     from .gate import builders  # noqa: PLC0415
     from .units import parent_of, stack_of, unit_of  # noqa: PLC0415
 
@@ -220,7 +220,9 @@ def _stack_siblings(project: Project, coordination: Coordination, args: list[str
     if not shown.get("ok") or stack_of(shown["data"]) != name or unit_of(shown["data"], gates) != "bug":
         return []
     task = shown["data"]
-    sha = verify.commit_of(project.root, task)
+    # The verdict is for the commit its artifact names. A sibling that moved on since holds changes the
+    # reviewer never saw, so it is covered only while its evidence still names that commit.
+    sha = lifecycle._reviewed_commit(project, {"artifact_uri": _option(args, "--artifact")})  # noqa: SLF001
     siblings = []
     for summary in coordination.all_tasks("--tag", f"stack:{name}"):
         if summary["id"] == target or summary["status"] != "review" or unit_of(summary, gates) != "bug":
