@@ -74,7 +74,7 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
     """
     from . import charter as charters  # noqa: PLC0415
     from . import deploy, verify  # noqa: PLC0415 - verify imports gate, which this module imports
-    from .units import unit_of  # noqa: PLC0415
+    from .units import live_evidence, unit_of  # noqa: PLC0415
 
     gates = project.gates()
     accepting = set(gates["accepting_decisions"])
@@ -99,7 +99,8 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
             wanted.setdefault(reviewer, []).append(requirement["why"])
         else:
             unasked.append(requirement["why"])
-    commits = [str(e.get("uri", "")) for e in task.get("evidence") or [] if sha and sha in str(e.get("uri", ""))]
+    # Standing evidence only: a row retracted with softory supersede names a base nobody should start from.
+    commits = [str(e.get("uri", "")) for e in live_evidence(task.get("evidence")) if sha and sha in str(e.get("uri", ""))]
     base = next((m.group(1) for uri in reversed(commits) if (m := _BASE.search(uri))), None)
     where = (f" Commit {sha}" + (f", built on {base}" if base else "") + ".") if sha else ""
     asked = []
@@ -110,12 +111,12 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
         body = f"{task['id']} ({task['title'][:80]}) is ready for your review: {'; '.join(reasons)}.{where}"
         mine = latest.get(reviewer)
         if mine and reviewer in stale:  # a release that moved: the sign-off is for one commit
-            was = _reviewed_commit(mine)
+            was = _reviewed_commit(project, mine)
             body += (" You signed off" + (f" at {was[:12]}" if was else "") + " and the release ships another "
                      "commit now, so it needs your review at this one"
                      + (f": git diff {was[:12]}..{sha[:12]}" if was and sha else "") + ".")
         elif mine:  # a correction: the re-review covers what changed
-            was = _reviewed_commit(mine)
+            was = _reviewed_commit(project, mine)
             body += (" You asked for changes" + (f" at {was[:12]}" if was else "") + ": check them against "
                      + (f"git diff {was[:12]}..{sha[:12]}" if was and sha and was != sha else "what changed since")
                      + ". What you accepted before stands.")
@@ -126,10 +127,17 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
     return asked, unasked
 
 
-def _reviewed_commit(review: dict[str, Any]) -> str | None:
-    """The commit a review names in its artifact, if it names one."""
-    found = re.search(r"\b[0-9a-f]{7,40}\b", str(review.get("artifact_uri") or review.get("artifact") or "").lower())
-    return found.group(0) if found else None
+def _reviewed_commit(project: Project, review: dict[str, Any]) -> str | None:
+    """The full hash of the commit a review's artifact names, read as ``verify.commit_of`` reads evidence:
+    ``commit:<sha>`` or ``head=<sha>`` names it outright, and otherwise the artifact must name exactly one
+    commit this repository has. A report path with a date in it, or a base beside a head, names none."""
+    from . import verify  # noqa: PLC0415
+
+    artifact = str(review.get("artifact_uri") or review.get("artifact") or "").lower()
+    named = verify._HEAD.findall(artifact)  # noqa: SLF001
+    candidates = named[-1:] if named else list(dict.fromkeys(verify._SHA.findall(artifact)))  # noqa: SLF001
+    found = {full for full in (verify._resolve(project.root, c) for c in candidates) if full}  # noqa: SLF001
+    return found.pop() if len(found) == 1 else None
 
 
 def handoff_warnings(project: Project, task: dict[str, Any]) -> list[str]:

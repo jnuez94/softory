@@ -562,7 +562,7 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
 def re_review(project: Project, task: dict[str, Any], mine: dict[str, Any]) -> dict[str, Any]:
     """What a reviewer looks at when a unit they sent back returns: their findings and the change since.
     The owner's Tablet ruling: a correction is re-reviewed on the delta, not from the top."""
-    was, now = lifecycle._reviewed_commit(mine), verify.commit_of(project.root, task)  # noqa: SLF001
+    was, now = lifecycle._reviewed_commit(project, mine), verify.commit_of(project.root, task)  # noqa: SLF001
     row: dict[str, Any] = {"you_asked": " ".join(str(mine.get("required_changes") or "").split())[:400],
                            "scope": "Check what you asked for against the change. What you accepted stands; "
                                     "a new finding outside the change is a new bug, not a reason to hold this unit."}

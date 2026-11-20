@@ -76,6 +76,38 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(row["re_review"]["you_asked"], "Handle the empty list")
         self.assertIn("What you accepted stands", row["re_review"]["scope"])
 
+    def test_a_re_review_starts_at_the_commit_the_review_named(self) -> None:
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        first = self.commit("a.txt", task)
+        self.handoff(task)
+        gold = {**os.environ, **start(self.root, "gold")}
+
+        def sent_back(review_id: str, artifact: str, then: str) -> tuple[str, dict]:
+            softory(self.root, "coord", "review", "add", "--id", review_id, "--task", task, "--reviewer", "gold",
+                    "--artifact", artifact, "--scope", "all", "--decision", "changes_requested",
+                    "--required-changes", "Handle the empty list", env=gold)
+            fixed = self.commit(then, task)
+            rows = json.loads(softory(self.root, "queue", "--agent", "gold").stdout)["reviews_waiting"]
+            return fixed, next(r for r in rows if r["id"] == task)["re_review"]
+
+        second, row = sent_back("REV-1", "reports/20261120/review.md", "b.txt")
+        self.assertNotIn("diff", row)  # a date in a report's path is not a commit
+        third, row = sent_back("REV-2", f"base={first};head={second}", "c.txt")
+        self.assertEqual(row["diff"], f"git diff {second[:12]}..{third[:12]}")  # the head it reviewed, not the base
+
+    def test_a_request_names_the_base_of_the_standing_evidence(self) -> None:
+        other = self.commit("c.txt")
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        sha = self.commit("a.txt", task)
+        wrong = coord(self.root, "evidence", "add", "--task", task, "--uri", f"commit:{sha};base={other}",
+                      "--type", "commit", "--actor", "jade")["data"]
+        softory(self.root, "supersede", task, str(wrong["id"]), "--reason", "wrong base", "--actor", "jade")
+        self.handoff(task)
+        asked = [m for m in self.inbox("gold") if m.get("task_id") == task]
+        self.assertIn(f"Commit {sha}, built on {self.base}.", asked[0]["body"])
+
     def test_a_handoff_warns_when_the_tests_have_not_passed(self) -> None:
         path = self.root / ".git" / "charter.json"
         path.write_text(json.dumps({"verify": {"command": "true"}, "git": {"base": self.base}}))
