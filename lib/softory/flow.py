@@ -18,11 +18,11 @@ from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, manual_starts, state_dir
 from .gate import spec_for
-from .units import resolution_of, tags_of
+from .units import resolution_of, tag_value, tags_of, unit_of
 from .work import Board
 
 #: The numbers a snapshot keeps and a report compares. Lower is better for every one of them.
-COMPARED = ("lead_hours", "rounds", "runs_per_unit", "minutes_per_unit", "tokens_per_unit", "usd_per_unit",
+COMPARED = ("lead_hours", "rounds", "first_verdict_hours", "handoff_to_close_hours", "fix_bugs_per_unit", "runs_per_unit", "minutes_per_unit", "tokens_per_unit", "usd_per_unit",
             "idle_share", "process_mib", "untracked", "archives")
 
 
@@ -30,7 +30,8 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat(timespec="seconds")
     board = Board(project, coord)
-    done_at = {i: at for i, at in _done_at(coord, since).items() if _delivered(board, i)}
+    moves = _moves(coord)
+    done_at = {i: at for i, at in _done_at(moves, since).items() if _delivered(board, i)}
     lead = [_hours(board.by_id[i].get("created_at"), at) for i, at in done_at.items() if i in board.by_id]
     lead = [h for h in lead if h is not None]
     from .watch import review_rounds  # noqa: PLC0415 - watch imports this module
@@ -49,6 +50,7 @@ def report(project: Project, coord: Coordination, days: float = 7, record: bool 
         "closed": closed,
         "lead_hours": round(median(lead), 1) if lead else None,
         "rounds": round(median([rounds.get(i, 0) for i in done_at]), 1) if done_at else None,
+        **_handoffs(coord, board, moves, done_at, since),
         "runs": len(runs),
         "runs_per_unit": per(len(runs)),
         "minutes_per_unit": per(sum(float(r.get("minutes") or 0) for r in runs)),
@@ -98,14 +100,48 @@ def _outside_sessions(project: Project, coord: Coordination, since: str) -> list
             and str(s.get("last_seen_at") or s.get("started_at") or "") >= since]
 
 
-def _done_at(coord: Coordination, since: str) -> dict[str, str]:
+def _moves(coord: Coordination) -> list[dict[str, Any]]:
+    """Every status move in the audit log."""
+    return coord.all_rows("audit", "list", "--object-type", "task", "--action", "status")
+
+
+def _done_at(moves: list[dict[str, Any]], since: str) -> dict[str, str]:
     """When each unit last moved to done inside the window, from the audit log."""
     found: dict[str, str] = {}
-    for row in coord.all_rows("audit", "list", "--object-type", "task", "--action", "status"):
+    for row in moves:
         at = str(row.get("created_at", ""))
         if at >= since and "-> done;" in f"{row.get('detail', '')};":
             found[str(row["object_id"])] = max(found.get(str(row["object_id"]), ""), at)
     return found
+
+
+def _handoffs(coord: Coordination, board: Board, moves: list[dict[str, Any]], done_at: dict[str, str],
+              since: str) -> dict[str, Any]:
+    """How the units delivered in the window went through review: hours from the first handoff to the first
+    verdict and to the close, and fix-up bugs filed per unit. Sage kept these by hand in Tablet's decisions."""
+    from .work import all_reviews  # noqa: PLC0415
+
+    first_handoff: dict[str, str] = {}
+    for row in moves:
+        if "-> review;" in f"{row.get('detail', '')};":
+            unit, at = str(row["object_id"]), str(row.get("created_at", ""))
+            first_handoff[unit] = min(first_handoff.get(unit, at), at)
+    reviews = all_reviews(coord)
+    to_verdict, to_close = [], []
+    for unit, closed_at in done_at.items():
+        start = first_handoff.get(unit)
+        if not start:
+            continue
+        verdicts = [str(r.get("created_at") or "") for r in reviews.get(unit, []) if str(r.get("created_at") or "") >= start]
+        to_verdict.append(_hours(start, min(verdicts)) if verdicts else None)
+        to_close.append(_hours(start, closed_at))
+    to_verdict = [h for h in to_verdict if h is not None]
+    to_close = [h for h in to_close if h is not None]
+    fixes = sum(1 for t in board.tasks if unit_of(t, board.gates) == "bug" and str(t.get("created_at") or "") >= since
+                and tag_value(tags_of(t), "from"))
+    return {"first_verdict_hours": round(median(to_verdict), 1) if to_verdict else None,
+            "handoff_to_close_hours": round(median(to_close), 1) if to_close else None,
+            "fix_bugs_per_unit": round(fixes / len(done_at), 1) if done_at else None}
 
 
 def _delivered(board: Board, task_id: str) -> bool:
