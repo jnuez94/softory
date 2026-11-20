@@ -16,7 +16,7 @@ from tests.helpers import REPO, coord, git_project, install, needs_sources, revi
 from tests.test_workflow import at_terminal, failing, gate, start
 
 sys.path.insert(0, str(REPO / "lib"))
-from softory import backups, closed, leaks, parents, perms, runner, verifyenv  # noqa: E402
+from softory import backups, closed, leaks, lifecycle, parents, perms, runner, verifyenv  # noqa: E402
 from softory import verify as verifies  # noqa: E402
 from softory import charter as charters  # noqa: E402
 from softory import deploy as deploys  # noqa: E402
@@ -666,6 +666,13 @@ class ShipTest(unittest.TestCase):
         self.assertIn("reviews_cover_commit", failing(gate(self.root, release, "greg")))
         for reviewer in ("toby", "quinn"):  # their sign-offs are for the old commit, so the review is theirs again
             self.assertIn(release, [r["id"] for r in self.queue(reviewer)["reviews_waiting"]])
+        project = Project(self.root)  # and a handoff's requests go to them again, naming both commits
+        board = Coordination(project.coordination_bin, self.root)
+        asked, unasked = lifecycle.request_reviews(project, board, board.task(release), "gold")
+        self.assertEqual((sorted(a["reviewer"] for a in asked), unasked), (["quinn", "toby"], []))
+        body = coord(self.root, "message", "show", f"SOFTORY-REVIEW-{release}-toby-{swap[:12]}")["data"]["body"]
+        self.assertIn(f"git diff {made['commit'][:12]}..{swap[:12]}", body)
+        self.assertEqual(lifecycle.request_reviews(project, board, board.task(release), "gold")[0], [])  # once
         self.assertFalse(json.loads(softory(self.root, "close", release, "--actor", "greg", env=greg,
                                             check=False).stdout)["closed"])
         softory(self.root, "supersede", release, str(row["id"]), "--reason", "not the release commit",

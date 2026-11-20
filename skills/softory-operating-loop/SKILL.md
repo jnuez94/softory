@@ -53,9 +53,7 @@ $S commit TASK-7 <commit hash> [--base <hash>]   # full hash, base kept apart, s
 $C evidence add --task TASK-7 --uri <test-output-path> --type test --actor $SOFTORY_ROLE
 $S verify TASK-7                    # runs the charter's tests at that commit, once per commit; the gate needs it to pass
 $S report TASK-7 <screenshot or diff> --type reference   # ui units: one rendered check against the design; files go outside the checkout
-$S handoff TASK-7                   # to review; refuses without evidence, or a ui unit's reference check
-$S reviewers TASK-7                 # who must review; with several candidates, "ask" names the one to message
-$C message send ... --recipient <one reviewer per requirement> --task TASK-7 --body "Ready for review: <one line>"
+$S handoff TASK-7 [--note "<one line>"]   # to review, and asks every reviewer it needs; refuses without evidence, or a ui unit's reference check
 ```
 
 ## 6. Review someone else's work
@@ -71,6 +69,8 @@ $C review add --id REV-TASK-7-<you>-<n> --task TASK-7 --reviewer $SOFTORY_ROLE \
 ```
 
 A follow-up doesn't hold its source open unless you add `--blocks-source`.
+
+A unit you sent back returns with `re_review` in your queue: check what you asked for against its `diff`. What you accepted stands, and a new finding outside the change is a new bug. Several small bugs of one stack at one commit take one verdict: review one and put `stack:<name>` in `--scope`.
 
 **Review records.** To claim, heartbeat, and attach a report for a long review: `$S new review --title "..." --for TASK-7[,BUG-2]`. It closes on your verdict once the report is attached and every change you asked for names a follow-up that exists. Nobody reviews it again. For a review run from before softory: `$S adopt <ID> --unit review`, which asks the owner.
 
