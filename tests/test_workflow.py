@@ -503,6 +503,7 @@ class WorkflowTest(unittest.TestCase):
         intact = next(c for c in doctor["checks"] if c["check"] == "config_intact")
         self.assertIn("factory/governance/gates.json", intact["detail"])
         local = self.root / ".agents/softory/local.json"
+        local.chmod(0o644)  # installed read-only; only root could write it as it is
         local.write_text('{"stand_ins": {"jade": ["gold"]}}')
         refused = softory(self.root, "propose", "standin", "jade", "--for", "toby", "--why", "x", "--actor", "quinn", check=False)
         self.assertEqual(refused.returncode, 0)  # proposing writes no rules

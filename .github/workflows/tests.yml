@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check out the pinned scaffold and tracker
+        run: |
+          for name in scaffold tracker; do
+            repository=$(python3 -c "import json; print(json.load(open('dependencies.json'))['$name']['repository'])")
+            commit=$(python3 -c "import json; print(json.load(open('dependencies.json'))['$name']['commit'])")
+            git init -q "$RUNNER_TEMP/$name"
+            git -C "$RUNNER_TEMP/$name" fetch -q --depth 1 "$repository" "$commit"
+            git -C "$RUNNER_TEMP/$name" checkout -q FETCH_HEAD
+          done
+          echo "SOFTORY_SCAFFOLD_SRC=$RUNNER_TEMP/scaffold" >> "$GITHUB_ENV"
+          echo "SOFTORY_TRACKER_SRC=$RUNNER_TEMP/tracker" >> "$GITHUB_ENV"
+      - name: Run the tests
+        run: python3 -m unittest discover -s tests -t .
