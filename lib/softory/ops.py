@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
@@ -386,6 +387,10 @@ def sync(project: Project) -> list[str]:
     generated = project.bundle / "generated"
     base_file = generated / "base.md" if (generated / "base.md").is_file() else generated / "instructions.md"
     body = instructions.compose(base_file.read_text(encoding="utf-8"), project.stand_ins())
+    before = set(manifest.get("owned_files", []))
+    for name in manifest["instruction_actions"]:
+        if name not in actions:  # no longer softory's to write: a stale override would be read before AGENTS.md
+            _retire(project.root, name, before)
     owned = sorted(instructions.write(project.root, actions, body, _installed_scaffold_block(project)))
     (generated / "instructions.md").write_text(body, encoding="utf-8")
     if actions != manifest["instruction_actions"] or owned != manifest.get("owned_files"):
@@ -394,6 +399,19 @@ def sync(project: Project) -> list[str]:
         project.save_manifest({**manifest, "instruction_actions": actions, "owned_files": owned,
                                "exclude_patterns": patterns})
     return sorted(actions)
+
+
+def _retire(root: Path, name: str, owned: set[str]) -> bool:
+    """Take softory out of one instruction file: delete a file it owns, or cut its block from the project's.
+    A file the project tracks is left as it is: the project committed it, softory's text included."""
+    path = root / name
+    if not path.exists() or gitlocal.is_tracked(root, name):
+        return False
+    if name in owned:
+        path.unlink()
+    else:
+        path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
+    return True
 
 
 def uninstall(project: Project, purge: bool) -> dict[str, Any]:
@@ -408,15 +426,7 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
                 shutil.rmtree(path)
                 removed.append(f"{skill_root}/{name}")
     owned = set(manifest.get("owned_files", []))
-    for name, action in manifest.get("instruction_actions", {}).items():
-        path = root / name
-        if not path.exists() or gitlocal.is_tracked(root, name):
-            continue  # gone, or the project's own now: it committed the file after softory created it
-        if name in owned:
-            path.unlink()
-        else:
-            path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
-        removed.append(name)
+    removed += [name for name in manifest.get("instruction_actions", {}) if _retire(root, name, owned)]
     # Agents' feedback, the run log and the verify ledger live in .coordination/softory, kept with the history.
     keep_scaffold = manifest.get("scaffold_preexisting", True)
     for directory in ([] if keep_scaffold else [SCAFFOLD_DIR]) + [".agents/softory"]:

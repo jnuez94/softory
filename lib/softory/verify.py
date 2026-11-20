@@ -87,13 +87,19 @@ def commit_of(root: Path, task: dict[str, Any]) -> str | None:
     for row in reversed(live_evidence(task.get("evidence"))):
         if str(row.get("evidence_type", "")).lower() not in CODE_EVIDENCE:
             continue
-        uri = str(row.get("uri", "")).lower()
-        named = _HEAD.findall(uri)
-        candidates = named[-1:] if named else list(dict.fromkeys(_SHA.findall(uri)))
-        found = [full for full in (_resolve(root, c) for c in candidates) if full]
-        if len(set(found)) == 1:
-            return found[0]
+        found = named_commit(root, str(row.get("uri", "")))
+        if found:
+            return found
     return None
+
+
+def named_commit(root: Path, text: str) -> str | None:
+    """The one commit of this repository ``text`` names, by the rule in ``commit_of``, or None."""
+    text = text.lower()
+    named = _HEAD.findall(text)
+    candidates = named[-1:] if named else list(dict.fromkeys(_SHA.findall(text)))
+    found = {full for full in (_resolve(root, c) for c in candidates) if full}
+    return found.pop() if len(found) == 1 else None
 
 
 def commits_of(root: Path, task: dict[str, Any]) -> set[str]:

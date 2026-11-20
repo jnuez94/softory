@@ -81,6 +81,40 @@ class ReviewCoversCommitTest(Built):
         self.assertEqual(failing(gate(self.root, "TASK-1", "gold")), {"reviews_cover_commit"})
 
 
+    def test_a_report_review_does_not_cover_a_commit_first_named_as_a_base(self) -> None:
+        first, second = self.commit("a.py"), self.commit("b.py")
+        session = start(self.root, "gold")["COORDINATION_SESSION"]
+        coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "gold",
+              "--if-revision", revision(self.root, "TASK-1"))
+        softory(self.root, "commit", "TASK-1", second, "--base", first, "--actor", "gold")
+        coord(self.root, "--session", session, "task", "release", "TASK-1", "--to", "review", "--actor", "gold",
+              "--if-revision", revision(self.root, "TASK-1"))
+        time.sleep(1.1)
+        self.accept(1, "reports/review.md")  # the report read the second commit
+        self.assertTrue(gate(self.root, "TASK-1", "gold")["pass"])
+        time.sleep(1.1)
+        softory(self.root, "commit", "TASK-1", first, "--actor", "gold")
+        self.assertEqual(failing(gate(self.root, "TASK-1", "gold")), {"reviews_cover_commit"})
+
+    def test_a_report_review_does_not_cover_a_return_to_an_earlier_commit(self) -> None:
+        first, second = self.commit("a.py"), self.commit("b.py")
+        self.build(first)
+        softory(self.root, "commit", "TASK-1", second, "--actor", "gold")
+        time.sleep(1.1)
+        self.accept(1, "reports/review.md")
+        time.sleep(1.1)
+        softory(self.root, "commit", "TASK-1", first, "--actor", "gold")
+        self.assertEqual(failing(gate(self.root, "TASK-1", "gold")), {"reviews_cover_commit"})
+
+    def test_a_review_nobody_required_does_not_hold_the_unit(self) -> None:
+        first, second = self.commit("a.py"), self.commit("b.py")
+        self.build(first)
+        coord(self.root, "review", "add", "--id", "REV-1", "--task", "TASK-1", "--reviewer", "toby",
+              "--artifact", f"commit:{first}", "--scope", "a look nobody asked for", "--decision", "accepted")
+        softory(self.root, "commit", "TASK-1", second, "--actor", "gold")
+        self.accept(2, f"commit:{second}")  # the required review, at the commit delivered now
+        self.assertTrue(gate(self.root, "TASK-1", "gold")["pass"])
+
 @needs_sources
 class VerifyOnceTest(Built):
     def test_two_verifies_started_together_run_the_tests_once(self) -> None:
@@ -131,6 +165,16 @@ class TrackedInstructionsTest(unittest.TestCase):
         override = (self.root / "AGENTS.override.md").read_text()
         self.assertIn("Tabs, never spaces.", override)  # Codex reads the override, so it carries both
         self.assertIn("softory-operating-loop", override)
+
+    def test_sync_removes_the_override_once_the_project_stops_tracking_its_file(self) -> None:
+        softory(self.root, "sync")
+        self.assertTrue((self.root / "AGENTS.override.md").is_file())
+        run(["git", "rm", "-q", "--cached", "AGENTS.md"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "untrack"], self.root)
+        softory(self.root, "sync")
+        self.assertFalse((self.root / "AGENTS.override.md").exists())  # Codex would read it before AGENTS.md
+        self.assertIn("softory-operating-loop", (self.root / "AGENTS.md").read_text())
+        self.assertEqual(git_status(self.root), "?? AGENTS.md\n")  # the project's own file, as it left it
 
     def test_uninstall_leaves_an_instruction_file_the_project_now_tracks(self) -> None:
         softory(self.root, "uninstall")

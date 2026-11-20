@@ -87,10 +87,11 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
     unasked = []
     for requirement in gate_rules.required_reviews(task, gates):
         candidates = gate_rules.eligible(requirement, built_by, latest)
-        open_requests = [r for r in candidates if r in latest and (latest[r].get("decision") not in accepting
-                                                                    or r in stale)]
-        if not open_requests and any(latest.get(r, {}).get("decision") in accepting for r in candidates):
-            continue  # already given, and nobody's change request or stale sign-off holds the unit open
+        accepted = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
+        open_requests = [r for r in candidates if r in latest and r not in accepted]
+        if not open_requests and any(r not in stale for r in accepted):
+            continue  # already given at this commit, and nobody's change request holds the unit open
+        open_requests += [r for r in accepted if r in stale]  # a sign-off for another commit is asked for again
         if gate_rules.ANYONE in requirement["reviewers"] and not candidates:
             candidates = [r for r in rotation if r not in built_by]
         reviewer = candidates[0] if len(candidates) == 1 else (
