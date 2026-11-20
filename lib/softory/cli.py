@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, charter, clutter, external, flow, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
+from . import __version__, charter, clutter, decide, external, flow, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -413,6 +413,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "queue":
         print(ops.dumps(work.queue(project, coord, args.agent)), end="")
     elif args.command == "pending":
+        decide.apply_due(project, coord, charter.load(project))  # attended work has no runner tick to do it
         result = watch.pending(project, coord, args.agent, args.since, args.retry_hours, from_own_run=True)
         print(ops.dumps(result), end="")
         return 0 if result["pending"] else 3

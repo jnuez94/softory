@@ -17,6 +17,7 @@ failed entry is never reused, and a newer run always replaces an older one.
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import hashlib
 import json
@@ -147,6 +148,13 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
         if reused:
             return reused  # otherwise a newer run failed or the settings changed meanwhile: run the tests
     with verifyenv.turn(project, task_id, actor):
+        # Decided again now that the lock is held: another verify of this commit may have finished while this
+        # one waited, and two started together would otherwise both run the tests.
+        waited = None if fresh else current(project, charter, sha)
+        if waited and waited.get("passed"):
+            reused = _reuse(project, coord, charter, task, sha, waited, scan, found, actor, locked=True)
+            if reused:
+                return reused
         outcome = _run_in_tree(project, settings, task_id, sha, scan)
         # The verdict is published before the lock is released: whoever waits for the lock reads it.
         tests_passed = outcome["code"] == 0 and outcome["stage"] == "test"
@@ -198,7 +206,7 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
 
 def _reuse(project: Project, coord: Coordination, charter: dict[str, Any], task: dict[str, Any], sha: str,
            previous: dict[str, Any], scan: dict[str, Any] | None, found: dict[str, Any] | None,
-           actor: str) -> dict[str, Any] | None:
+           actor: str, locked: bool = False) -> dict[str, Any] | None:
     """Answer a verify from the pass already recorded at this commit. The tests are the commit's, so they
     don't run again; the design detector is one unit's, so it runs alone when this unit has no clean result.
     None when the pass no longer stands by the time the verify lock is held."""
@@ -210,7 +218,7 @@ def _reuse(project: Project, coord: Coordination, charter: dict[str, Any], task:
         found = {"passed": True, "detail": mine["detail"]}
     if found:
         # The ledger is one file: a write outside the verify lock could drop the verdict a running verify publishes.
-        with verifyenv.turn(project, task_id, actor):
+        with contextlib.nullcontext() if locked else verifyenv.turn(project, task_id, actor):
             entries = ledger(project)
             entry = current(project, charter, sha)
             if not entry or not entry.get("passed"):  # a retest finished while this waited, and it didn't pass
@@ -220,6 +228,8 @@ def _reuse(project: Project, coord: Coordination, charter: dict[str, Any], task:
                                                         "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
             entries[sha] = entry
             ledger_path(project).write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    elif not (current(project, charter, sha) or {}).get("passed"):
+        return None  # read again just before answering: a retest that failed since isn't answered with the old pass
     passed = found is None or bool(found["passed"])
     uri = f"softory-verify:{'pass' if passed else 'fail'}:{sha}"
     if not any(str(row.get("uri", "")) == uri for row in live_evidence(task.get("evidence"))):

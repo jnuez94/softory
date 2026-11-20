@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import charter, closed, deploy, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
+from . import charter, closed, coverage, deploy, feasibility, holds, lifecycle, runstate, sessions, verify, verifyenv
 from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
@@ -321,7 +321,8 @@ def objective_checks(project: Project, task: dict[str, Any], gates: dict[str, An
     settings = charter.load(project)
     if unit == "release":
         return deploy.release_checks(project, settings, task, gates)
-    return verify.checks(project, settings, task, unit, gates)
+    covered = coverage.check(project, task)
+    return verify.checks(project, settings, task, unit, gates) + ([covered] if covered else [])
 
 
 def related_live(coord: Coordination, task: dict[str, Any], gates: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -489,9 +490,8 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
             continue  # not in review, or a ui unit whose builder still owes its reference check
         task = board.show(summary["id"])
         latest = gate_rules.latest_reviews(task)
-        if unit == "release":  # a sign-off for a commit the release no longer ships is owed again
-            for reviewer in deploy.stale_reviews(project, task):
-                del latest[reviewer]
+        for reviewer in coverage.stale_reviews(project, task):  # accepted for another commit: owed again
+            del latest[reviewer]
         built_by = gate_rules.builders(task)
         for requirement in gate_rules.required_reviews(task, gates):
             if not gate_rules.may_review(requirement, agent, built_by):
@@ -562,7 +562,7 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
 def re_review(project: Project, task: dict[str, Any], mine: dict[str, Any]) -> dict[str, Any]:
     """What a reviewer looks at when a unit they sent back returns: their findings and the change since.
     The owner's Tablet ruling: a correction is re-reviewed on the delta, not from the top."""
-    was, now = lifecycle._reviewed_commit(project, mine), verify.commit_of(project.root, task)  # noqa: SLF001
+    was, now = coverage.reviewed_commit(project, mine), verify.commit_of(project.root, task)
     row: dict[str, Any] = {"you_asked": " ".join(str(mine.get("required_changes") or "").split())[:400],
                            "scope": "Check what you asked for against the change. What you accepted stands; "
                                     "a new finding outside the change is a new bug, not a reason to hold this unit."}

@@ -67,19 +67,19 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
 
     Each requirement goes to one reviewer: its only candidate, or the one ``softory reviewers`` would ask.
     A reviewer who already accepted isn't asked again, one whose change request is open is asked before
-    anyone else, and a second handoff at the same commit sends nothing. A release is the exception: its
-    sign-offs are for one commit, so a reviewer who accepted another commit is asked again.
+    anyone else, and a second handoff at the same commit sends nothing. An accepted review covers one
+    commit (``coverage.stale_reviews``), so a reviewer who accepted another commit is asked again.
     The request wakes nobody by itself (``watch.split_messages``): the review queue does, once the tests pass.
     Returns who was asked for what, and the reviews nobody could be picked for.
     """
     from . import charter as charters  # noqa: PLC0415
-    from . import deploy, verify  # noqa: PLC0415 - verify imports gate, which this module imports
-    from .units import live_evidence, unit_of  # noqa: PLC0415
+    from . import coverage, verify  # noqa: PLC0415 - verify imports gate, which this module imports
+    from .units import live_evidence  # noqa: PLC0415
 
     gates = project.gates()
     accepting = set(gates["accepting_decisions"])
     latest = gate_rules.latest_reviews(task)
-    stale = set(deploy.stale_reviews(project, task)) if unit_of(task, gates) == "release" else set()
+    stale = set(coverage.stale_reviews(project, task))
     built_by = gate_rules.builders(task)
     rotation = (charters.load(project).get("review") or {}).get("rotation") or []
     sha = verify.commit_of(project.root, task)
@@ -110,13 +110,13 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
             continue  # asked at this commit already
         body = f"{task['id']} ({task['title'][:80]}) is ready for your review: {'; '.join(reasons)}.{where}"
         mine = latest.get(reviewer)
-        if mine and reviewer in stale:  # a release that moved: the sign-off is for one commit
-            was = _reviewed_commit(project, mine)
-            body += (" You signed off" + (f" at {was[:12]}" if was else "") + " and the release ships another "
+        if mine and reviewer in stale:  # the unit moved on: the sign-off was for one commit
+            was = coverage.reviewed_commit(project, mine)
+            body += (" You signed off" + (f" at {was[:12]}" if was else "") + " and the unit delivers another "
                      "commit now, so it needs your review at this one"
                      + (f": git diff {was[:12]}..{sha[:12]}" if was and sha else "") + ".")
         elif mine:  # a correction: the re-review covers what changed
-            was = _reviewed_commit(project, mine)
+            was = coverage.reviewed_commit(project, mine)
             body += (" You asked for changes" + (f" at {was[:12]}" if was else "") + ": check them against "
                      + (f"git diff {was[:12]}..{sha[:12]}" if was and sha and was != sha else "what changed since")
                      + ". What you accepted before stands.")
@@ -125,19 +125,6 @@ def request_reviews(project: Project, coord: Coordination, task: dict[str, Any],
                   "--task", task["id"], "--tags", "request", "--body", body)
         asked.append({"reviewer": reviewer, "for": reasons})
     return asked, unasked
-
-
-def _reviewed_commit(project: Project, review: dict[str, Any]) -> str | None:
-    """The full hash of the commit a review's artifact names, read as ``verify.commit_of`` reads evidence:
-    ``commit:<sha>`` or ``head=<sha>`` names it outright, and otherwise the artifact must name exactly one
-    commit this repository has. A report path with a date in it, or a base beside a head, names none."""
-    from . import verify  # noqa: PLC0415
-
-    artifact = str(review.get("artifact_uri") or review.get("artifact") or "").lower()
-    named = verify._HEAD.findall(artifact)  # noqa: SLF001
-    candidates = named[-1:] if named else list(dict.fromkeys(verify._SHA.findall(artifact)))  # noqa: SLF001
-    found = {full for full in (verify._resolve(project.root, c) for c in candidates) if full}  # noqa: SLF001
-    return found.pop() if len(found) == 1 else None
 
 
 def handoff_warnings(project: Project, task: dict[str, Any]) -> list[str]:
