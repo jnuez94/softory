@@ -19,8 +19,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SOFTORY = REPO / "bin" / "softory"
-SCAFFOLD_SRC = os.environ.get("SOFTORY_SCAFFOLD_SRC")
-TRACKER_SRC = os.environ.get("SOFTORY_TRACKER_SRC")
+def _checkout(variable: str) -> str | None:
+    """An absolute path: the tests run softory from throwaway projects, where a relative one names nothing."""
+    given = os.environ.get(variable)
+    return str(Path(given).resolve()) if given else None
+
+
+SCAFFOLD_SRC = _checkout("SOFTORY_SCAFFOLD_SRC")
+TRACKER_SRC = _checkout("SOFTORY_TRACKER_SRC")
 #: Optional: a checkout of the scaffold release before the pin, for the upgrade test.
 PREVIOUS_SRC = os.environ.get("SOFTORY_SCAFFOLD_PREVIOUS_SRC")
 PINNED = json.loads((REPO / "dependencies.json").read_text(encoding="utf-8"))["scaffold"]["version"]
@@ -39,7 +45,7 @@ def run(args: list[str], cwd: Path, env: dict[str, str] | None = None, check: bo
 def git_project(files: dict[str, str] | None = None) -> tuple[tempfile.TemporaryDirectory[str], Path]:
     """A committed git repo with the given files."""
     holder = tempfile.TemporaryDirectory(prefix="softory-test-")
-    root = Path(holder.name)
+    root = Path(holder.name).resolve()  # macOS hands out /var/..., which git and softory report as /private/var/...
     run(["git", "init", "-q"], root)
     for name, text in (files or {"README.md": "# app\n", ".gitignore": "node_modules/\n"}).items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)

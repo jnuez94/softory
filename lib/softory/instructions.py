@@ -103,12 +103,13 @@ def plan(root: Path, created_before: set[str]) -> dict[str, str]:
                 "tracked_instruction_file",
             )
     agents = root / "AGENTS.md"
-    if not agents.exists() or "AGENTS.md" in created_before:
-        actions["AGENTS.md"] = "create"
-    elif is_tracked(root, "AGENTS.md"):
+    # Tracked comes first: a file softory created is the project's once the project commits it.
+    if agents.exists() and is_tracked(root, "AGENTS.md"):
         override = root / "AGENTS.override.md"
         user_owned = override.exists() and "AGENTS.override.md" not in created_before
         actions["AGENTS.override.md"] = "block" if user_owned else "override"
+    elif not agents.exists() or "AGENTS.md" in created_before:
+        actions["AGENTS.md"] = "create"
     else:
         actions["AGENTS.md"] = "block"
     local = root / "CLAUDE.local.md"
