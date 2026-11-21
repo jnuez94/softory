@@ -18,7 +18,7 @@ from typing import Any
 from . import verify
 from .gate import builders, eligible, latest_reviews, required_reviews
 from .project import Project
-from .units import CODE_EVIDENCE, live_evidence, unit_of
+from .units import unit_of
 
 
 #: Units that deliver one commit. A story or an epic is accepted for what its children delivered.
@@ -33,7 +33,6 @@ def stale_reviews(project: Project, task: dict[str, Any]) -> list[str]:
     if not sha:
         return []  # no commit this repository knows: a document, or a unit not built yet
     accepting = set(gates["accepting_decisions"])
-    since = _delivered_since(project, task, sha)
     stale = []
     for who, review in latest_reviews(task).items():
         if review.get("decision") not in accepting:
@@ -41,8 +40,8 @@ def stale_reviews(project: Project, task: dict[str, Any]) -> list[str]:
         named = reviewed_commit(project, review)
         if named:
             covers = named == sha
-        else:  # records are stamped to the second; a tie reads as covered
-            covers = unit != "release" and str(review.get("created_at") or "") >= since
+        else:  # a report or a link: it read what the unit delivered when it was written
+            covers = unit != "release" and _delivered_at(project, task, str(review.get("created_at") or "")) == sha
         if not covers:
             stale.append(who)
     return sorted(stale)
@@ -54,17 +53,12 @@ def reviewed_commit(project: Project, review: dict[str, Any]) -> str | None:
     return verify.named_commit(project.root, str(review.get("artifact_uri") or review.get("artifact") or ""))
 
 
-def _delivered_since(project: Project, task: dict[str, Any], sha: str) -> str:
-    """When the unit last began delivering ``sha``: the evidence row that moved it there from another commit.
-    A base named beside a head isn't a delivery, and a return to an earlier commit starts again."""
-    delivered, since = None, ""
-    for row in live_evidence(task.get("evidence")):
-        if str(row.get("evidence_type", "")).lower() not in CODE_EVIDENCE:
-            continue
-        named = verify.named_commit(project.root, str(row.get("uri", "")))
-        if named and named != delivered:
-            delivered, since = named, str(row.get("created_at") or "")
-    return since if delivered == sha else ""
+def _delivered_at(project: Project, task: dict[str, Any], when: str) -> str | None:
+    """The commit the unit delivered at ``when``, read from its evidence as it stood then: rows recorded
+    since are left out, retractions among them, so a later ``softory supersede`` can't move an old review
+    onto another commit. Records are stamped to the second; a row in the same second counts as there."""
+    then = [row for row in task.get("evidence") or [] if str(row.get("created_at") or "") <= when]
+    return verify.commit_of(project.root, {"evidence": then})
 
 
 def check(project: Project, task: dict[str, Any]) -> dict[str, Any] | None:

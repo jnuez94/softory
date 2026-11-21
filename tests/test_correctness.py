@@ -106,6 +106,18 @@ class ReviewCoversCommitTest(Built):
         softory(self.root, "commit", "TASK-1", first, "--actor", "gold")
         self.assertEqual(failing(gate(self.root, "TASK-1", "gold")), {"reviews_cover_commit"})
 
+    def test_a_report_review_does_not_cover_the_commit_a_retraction_returns_to(self) -> None:
+        first, second = self.commit("a.py"), self.commit("b.py")
+        self.build(first)
+        softory(self.root, "commit", "TASK-1", second, "--actor", "gold")
+        time.sleep(1.1)
+        self.accept(1, "reports/review.md")  # the report read the second commit
+        time.sleep(1.1)
+        rows = coord(self.root, "task", "show", "TASK-1")["data"]["evidence"]
+        newer = next(row for row in rows if second in str(row["uri"]))
+        softory(self.root, "supersede", "TASK-1", str(newer["id"]), "--reason", "wrong commit", "--actor", "gold")
+        self.assertEqual(failing(gate(self.root, "TASK-1", "gold")), {"reviews_cover_commit"})
+
     def test_a_review_nobody_required_does_not_hold_the_unit(self) -> None:
         first, second = self.commit("a.py"), self.commit("b.py")
         self.build(first)
