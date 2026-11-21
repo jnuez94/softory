@@ -188,6 +188,19 @@ class TrackedInstructionsTest(unittest.TestCase):
         self.assertIn("softory-operating-loop", (self.root / "AGENTS.md").read_text())
         self.assertEqual(git_status(self.root), "?? AGENTS.md\n")  # the project's own file, as it left it
 
+    def test_sync_keeps_a_shared_folder_hidden_when_instruction_ownership_changes(self) -> None:
+        # setUp committed AGENTS.md; this sync is the first to see it tracked.
+        (self.root / "review-cache").mkdir()
+        (self.root / "review-cache/kept.txt").write_text("x\n")
+        softory(self.root, "worktree", "add", str(self.root.parent / (self.root.name + "-wt")), "-b", "jade/list",
+                "--share", "review-cache")
+        self.addCleanup(run, ["git", "worktree", "prune"], self.root)
+        self.assertEqual(git_status(self.root), "")
+        softory(self.root, "sync")
+        self.assertEqual(git_status(self.root), "")
+        manifest = json.loads((self.root / ".agents/softory/manifest.json").read_text())
+        self.assertIn("/review-cache", manifest["exclude_patterns"])
+
     def test_uninstall_leaves_an_instruction_file_the_project_now_tracks(self) -> None:
         softory(self.root, "uninstall")
         self.assertEqual((self.root / "AGENTS.md").read_text(), self.rules)

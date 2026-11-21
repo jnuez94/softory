@@ -15,7 +15,7 @@ from typing import Any
 
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
 from .coordination import Coordination, transient
-from .install import SKILL_ROOTS, content_hashes, exclude_patterns
+from .install import SKILL_ROOTS, content_hashes
 from .project import Project
 
 
@@ -394,7 +394,9 @@ def sync(project: Project) -> list[str]:
     owned = sorted(instructions.write(project.root, actions, body, _installed_scaffold_block(project)))
     (generated / "instructions.md").write_text(body, encoding="utf-8")
     if actions != manifest["instruction_actions"] or owned != manifest.get("owned_files"):
-        patterns = exclude_patterns(manifest.get("skills", []) + manifest.get("external_skills", []), owned)
+        # Only the instruction files' own entries change: paths softory worktree --share added stay hidden.
+        patterns = [p for p in manifest["exclude_patterns"] if p.lstrip("/") not in before]
+        patterns += [f"/{name}" for name in owned]
         gitlocal.write_exclude_block(project.root, patterns)
         project.save_manifest({**manifest, "instruction_actions": actions, "owned_files": owned,
                                "exclude_patterns": patterns})
