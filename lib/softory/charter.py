@@ -91,7 +91,7 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any, lay
     if not changes and already:
         return {"approved": False, "note": "Nothing changes; the charter in force already says this."}
     confirm("Charter changes:\n" + "\n".join(changes) if changes else "Approve the default charter, unchanged?")
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     decision = record_decision(coord, owner, "charter", "Charter for unattended runs",
                                "The owner approved the charter softory's runner follows.",
                                json.dumps(overrides, sort_keys=True)[:4000])

@@ -20,7 +20,7 @@ from typing import Any
 
 from . import charter as charters
 from .errors import SoftoryError
-from .gitlocal import git
+from .gitlocal import git, need_commit
 from .project import Project
 from .verify import _checkout
 
@@ -32,10 +32,7 @@ def _folder(project: Project) -> Path:
 def workspace(project: Project, role: str, commit: str | None = None) -> dict[str, Any]:
     """The role's workspace, at ``commit`` (default: HEAD)."""
     project.member(role)  # a role, or the owner's stand-in for one
-    found = git(project.root, "rev-parse", "--verify", "--quiet", f"{commit or 'HEAD'}^{{commit}}")
-    if found.returncode != 0:
-        raise SoftoryError(f"{commit} is not a commit in this repository", "not_found")
-    sha = found.stdout.strip()
+    sha = need_commit(project.root, commit or "HEAD")
     tree = _folder(project) / role
     mode = _move(tree, sha) if (tree / ".git").is_file() else None
     if mode is None:  # first use, a snapshot, or a worktree git won't move: start it afresh

@@ -264,7 +264,7 @@ def _refuse_wrong_record(project: Project, args: list[str]) -> None:
     if not flag:
         return
     named, caller = _option(args, flag), os.environ.get("SOFTORY_ROLE")
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     if caller and named and named != caller:
         if command == ("review", "add") and named == owner:
             raise SoftoryError(f"A review under {owner}'s name is the owner's to write. If the owner approved it in "
@@ -277,7 +277,7 @@ def _refuse_wrong_record(project: Project, args: list[str]) -> None:
         hashes = _NAMED_COMMIT.findall(artifact.lower()) or (
             [artifact.lower()] if re.fullmatch(r"[0-9a-fA-F]{7,40}", artifact) else [])
         missing = [h for h in hashes
-                   if gitlocal.git(project.root, "rev-parse", "--verify", "--quiet", f"{h}^{{commit}}").returncode != 0]
+                   if gitlocal.commit(project.root, h) is None]
         if missing:
             raise SoftoryError(f"{', '.join(missing)} is not a commit in this repository. Name the commit you "
                                "reviewed by its full hash (git rev-parse HEAD in your workspace).", "not_found")

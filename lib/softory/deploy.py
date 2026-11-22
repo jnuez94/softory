@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import closed, coverage, verify, verifyenv
+from . import closed, coverage, gitlocal, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git
@@ -97,11 +97,11 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], name: st
             verify.commit_of(project.root, task)
         if not recorded:
             raise SoftoryError(f"{release} records no commit; it ships the commit it was reviewed at", "not_allowed")
-        if sha and _full(project, sha) != recorded:
+        if sha and gitlocal.need_commit(project.root, sha) != recorded:
             raise SoftoryError(f"{release} ships {recorded[:12]}, not {sha[:12]}: a release deploys only its own "
                                "commit", "not_allowed")
         sha = recorded
-    sha = _full(project, sha or charter["git"]["base"])
+    sha = gitlocal.need_commit(project.root, sha or charter["git"]["base"])
     if name == PRODUCTION:
         if confirm is None:
             raise SoftoryError("Only the owner deploys to production, at a terminal", "not_allowed")
@@ -159,13 +159,6 @@ def _deploy(project: Project, charter: dict[str, Any], target: dict[str, Any], s
     log.write_text(output[-200_000:], encoding="utf-8")
     return {"passed": code == 0, "stage": stage, "log": str(log),
             "tail": "\n".join(output.splitlines()[-verify.TAIL_LINES:])}
-
-
-def _full(project: Project, ref: str) -> str:
-    found = git(project.root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
-    if found.returncode != 0:
-        raise SoftoryError(f"{ref} is not a commit in this repository", "not_found")
-    return found.stdout.strip()
 
 
 def release_checks(project: Project, charter: dict[str, Any], task: dict[str, Any],

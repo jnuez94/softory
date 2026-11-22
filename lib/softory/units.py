@@ -41,9 +41,14 @@ def code_evidence_types(task: dict[str, Any]) -> list[str]:
                    if str(e.get("evidence_type", "")).lower() in CODE_EVIDENCE})
 
 
+def split_list(value: str | None) -> list[str]:
+    """A comma-separated value as a clean list of tokens."""
+    return [token.strip() for token in (value or "").split(",") if token.strip()]
+
+
 def tags_of(task: dict[str, Any]) -> list[str]:
     """The task's tags as a clean list of tokens."""
-    return [token.strip() for token in str(task.get("tags", "")).split(",") if token.strip()]
+    return split_list(str(task.get("tags", "")))
 
 
 def tag_value(tags: list[str], key: str) -> str | None:

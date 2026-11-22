@@ -176,7 +176,7 @@ def record(project: Project, coord: Coordination, story_id: str, passed: bool, n
     result: dict[str, Any] = {"story": story_id, "verdict": "pass" if passed else "needs", "needs": needs,
                               "plan": plan}
     if not passed:
-        owner = project.roster()["owner"]["id"]
+        owner = project.owner_id
         body = (f"{story_id} can't be built as planned with what the environment declares. Missing: "
                 f"{'; '.join(needs)}. Re-plan it around what is reachable (a fake provider, a headless check) "
                 f"so it keeps moving; the owner sees the provisioning request in the digest. Any change to the "

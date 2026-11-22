@@ -26,7 +26,7 @@ def stale_after_minutes(charter: dict[str, Any]) -> int:
 
 def sweep(project: Project, coord: Coordination, charter: dict[str, Any]) -> list[str]:
     """End silent sessions and return their claimed tasks to todo. Returns the task IDs it reopened."""
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     swept = coord.call("session", "sweep", "--actor", owner, "--reason", REASON,
                        "--stale-after-seconds", str(stale_after_minutes(charter) * 60))
     if not swept.get("ok"):

@@ -26,6 +26,7 @@ from typing import Any
 from . import closed, deploy, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
+from .gitlocal import commit as gitlocal_commit
 from .gitlocal import git
 from .project import Project
 from .units import lane_of, stack_of, unit_of
@@ -55,8 +56,7 @@ def _now() -> str:
 
 
 def head(project: Project, ref: str) -> str | None:
-    found = git(project.root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
-    return found.stdout.strip() if found.returncode == 0 else None
+    return gitlocal_commit(project.root, ref)
 
 
 def waiting(project: Project, coord: Coordination, charter: dict[str, Any]) -> list[dict[str, Any]]:
@@ -234,7 +234,7 @@ def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
                 f"{merged[0]['id']} fails softory verify on top of {base}", "verify")
         return result
     # A retest of the candidate may be running: wait for it, and move the base only on the verdict it leaves.
-    with verifyenv.turn(project, "merge", project.roster()["owner"]["id"]):
+    with verifyenv.turn(project, "merge", project.owner_id):
         still = (verify.current(project, charter, candidate) or {}).get("passed")
         if still:
             _advance(project, base, before, candidate)
@@ -245,7 +245,7 @@ def merge(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     for unit in merged:
         data.setdefault("units", {})[unit["id"]] = {"commit": unit["commit"], "merged_as": candidate, "at": _now()}
         coord.call("evidence", "add", "--task", unit["id"], "--uri", f"softory-merged:{candidate}", "--type", "note",
-                   "--actor", project.roster()["owner"]["id"])
+                   "--actor", project.owner_id)
     data["last_candidate"] = candidate
     data["base"] = {"sha": candidate, "green": True, "checked_at": _now(), "bug": None, "moved_outside": False}
     if len(units) <= len(merged) + len(conflicts):
@@ -291,7 +291,7 @@ def _verified(project: Project, coord: Coordination, charter: dict[str, Any], sh
     """Whether softory verify passed at ``sha`` with the charter's current tests, running them if it hasn't."""
     entry = verify.current(project, charter, sha)
     if entry is None:
-        entry = verify.run_at(project, charter, sha, label, project.roster()["owner"]["id"])
+        entry = verify.run_at(project, charter, sha, label, project.owner_id)
     return bool(entry.get("passed"))
 
 
@@ -316,7 +316,7 @@ def _push(project: Project, charter: dict[str, Any], data: dict[str, Any]) -> st
     # Only a candidate softory verified: a commit made on the base by hand waits for check_base and the owner.
     if not remote or sha != data.get("last_candidate") or data.get("pushed") == sha:
         return None
-    with verifyenv.turn(project, "push", project.roster()["owner"]["id"]):  # a running retest finishes first
+    with verifyenv.turn(project, "push", project.owner_id):  # a running retest finishes first
         if not (verify.current(project, charter, sha) or {}).get("passed"):  # a retry too: the tests may have changed
             return f"not pushed: softory verify hasn't passed at {sha[:12]} with the charter's current tests"
         # The checked commit, not the branch: the base can move between the check and the push.
@@ -353,7 +353,7 @@ def file_bug(project: Project, coord: Coordination, source: str | None, title: s
     from .work import new_unit  # noqa: PLC0415 - work imports most modules
 
     options = {"title": title[:200], "description": description, "lane": lane or "infra", "type": "functional",
-               "found_at": stage, "priority": 1, "actor": project.roster()["owner"]["id"]}
+               "found_at": stage, "priority": 1, "actor": project.owner_id}
     if source:
         options["from"] = source
     try:
@@ -370,7 +370,7 @@ def auto_deploy(project: Project, coord: Coordination, charter: dict[str, Any], 
         if not target.get("auto"):
             continue
         try:
-            row = deploy.run(project, coord, charter, name, project.roster()["owner"]["id"], sha)
+            row = deploy.run(project, coord, charter, name, project.owner_id, sha)
         except SoftoryError as error:
             outcome[name] = f"not deployed: {error.message}"
             continue

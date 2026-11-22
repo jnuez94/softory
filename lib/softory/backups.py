@@ -28,7 +28,7 @@ def daily(project: Project, coord: Coordination, charter: dict[str, Any], today:
     made = None
     if not target.exists():
         try:
-            coord.run("backup", "--output", str(target), "--actor", project.roster()["owner"]["id"])
+            coord.run("backup", "--output", str(target), "--actor", project.owner_id)
             made = str(target)
         except SoftoryError:
             return None  # the next tick tries again

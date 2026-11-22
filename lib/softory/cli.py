@@ -12,7 +12,7 @@ from . import __version__, charter, clutter, decide, external, flow, feedback, l
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
-from .units import FINDING_TYPES, FOUND_STAGES, LANES
+from .units import FINDING_TYPES, FOUND_STAGES, LANES, split_list
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -285,10 +285,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _split(value: str | None) -> list[str]:
-    return [item.strip() for item in (value or "").split(",") if item.strip()]
-
-
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "install":
         from .install import install
@@ -352,21 +348,21 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.standin_command == "list":
             print(ops.dumps(owner.stand_in_rows(project)), end="")
         elif args.standin_command == "add":
-            result = owner.add_stand_in(project, coord, args.agent, _split(args.roles), _split(args.tasks), args.until)
+            result = owner.add_stand_in(project, coord, args.agent, split_list(args.roles), split_list(args.tasks), args.until)
             print(ops.dumps(result), end="")
         else:
-            print(ops.dumps(owner.remove_stand_in(project, coord, args.agent, _split(args.roles) or None)), end="")
+            print(ops.dumps(owner.remove_stand_in(project, coord, args.agent, split_list(args.roles) or None)), end="")
     elif args.command == "propose":
         actor = work.actor_of(args.actor)
         if args.propose_command == "standin":
-            change = {"agent": args.agent, "roles": _split(args.roles), "tasks": _split(args.tasks), "until": args.until}
+            change = {"agent": args.agent, "roles": split_list(args.roles), "tasks": split_list(args.tasks), "until": args.until}
         else:
             change = {"task": args.id, "check": args.check}
         print(ops.dumps(owner.propose(project, coord, args.propose_command, change, args.why, actor)), end="")
     elif args.command == "proposals":
         print(ops.dumps(owner.proposals(project, args.all)), end="")
     elif args.command == "approve":
-        print(ops.dumps(owner.approve(project, coord, _split(args.proposal), args.reject, args.every)), end="")
+        print(ops.dumps(owner.approve(project, coord, split_list(args.proposal), args.reject, args.every)), end="")
     elif args.command == "ruling":
         actor = work.actor_of(args.actor)
         result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor,
@@ -403,7 +399,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         from . import deploy  # noqa: PLC0415
 
         confirm = owner.confirm_at_terminal if args.target == deploy.PRODUCTION else None
-        actor = project.roster()["owner"]["id"] if confirm else work.actor_of(None)
+        actor = project.owner_id if confirm else work.actor_of(None)
         result = deploy.run(project, coord, charter.load(project), args.target, actor, args.commit, args.release,
                             confirm)
         print(ops.dumps(result), end="")
