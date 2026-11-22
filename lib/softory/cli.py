@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, charter, clutter, decide, external, flow, feedback, lifecycle, messages, ops, owner, records, sessions, team, unattended, watch, work, workspace, worktree
+from . import __version__, charter, clutter, decide, external, flow, feedback, lifecycle, messages, ops, owner, prose, records, sessions, team, unattended, watch, work, workspace, worktree
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -279,6 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "role_flag", None):
         os.environ["SOFTORY_ROLE"] = args.role_flag
     try:
+        if args.command not in ("install", "escalate"):  # escalate names every problem with its text at once
+            said = [v for k in prose.OPTIONS for v in [getattr(args, k[2:].replace("-", "_"), None)] if v]
+            if said:
+                prose.check([t for v in said for t in (v if isinstance(v, list) else [v])], Project.find().role_ids())
         return _dispatch(args)
     except SoftoryError as error:
         print(json.dumps({"ok": False, "error": {"code": error.code, "message": error.message, "details": error.details}}, indent=2), file=sys.stderr)

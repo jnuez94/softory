@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
+from . import SCAFFOLD_DIR, gitlocal, instructions, prose, sessions
 from .coordination import Coordination, transient
 from .install import SKILL_ROOTS, content_hashes
 from .project import Project
@@ -171,6 +171,7 @@ def coord(project: Project, args: list[str]) -> int:
     binary = str(project.coordination_bin)
     _refuse_bare_handoff(project, Coordination(binary, project.root), args)
     _refuse_wrong_record(project, args)
+    prose.check(prose.values(args), project.role_ids())
     if "--session" not in args and not os.environ.get("COORDINATION_SESSION"):
         role = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--agent", "--actor")), None)
         found = sessions.recall(project, role, sessions.open_check(Coordination(binary, project.root)))

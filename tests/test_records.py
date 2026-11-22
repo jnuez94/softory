@@ -79,6 +79,19 @@ class RecordsTest(unittest.TestCase):
         self.assertIn("softory ruling --review", owner.stderr)
         self.assertEqual(coord(self.root, "task", "show", "TASK-1")["data"]["reviews"], [])
 
+    def test_a_record_with_words_run_together_is_refused_until_it_is_spaced(self) -> None:
+        def send(body: str):
+            return softory(self.root, "coord", "message", "send", "--id", "M-2", "--sender", "jade", "--recipient",
+                           "quinn", f"--body={body}", env=self.jade, check=False)
+        fused = send("TASK-1 blocks265, assignedJade through tests only.")
+        self.assertNotEqual(fused.returncode, 0)
+        self.assertIn("blocks265, assignedJade", fused.stderr)
+        self.assertEqual(coord(self.root, "message", "list")["data"], [])
+        self.assertEqual(send("TASK-1 blocks BUG-265, assigned to Jade through `tests265` only.").returncode, 0)
+        made = softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title",
+                       "Fix deadline0 probe", "--actor", "quinn", check=False)
+        self.assertIn("deadline0", made.stderr)
+
     def test_a_review_of_a_commit_git_does_not_have_is_refused(self) -> None:
         missing = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", "commit:" + "ab12" * 10)
         self.assertNotEqual(missing.returncode, 0)

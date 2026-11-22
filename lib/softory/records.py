@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import charter as charters
-from . import decide, feasibility, holds as unit_holds, ops
+from . import decide, feasibility, holds as unit_holds, ops, prose
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gitlocal import git, is_tracked
@@ -30,9 +30,6 @@ COMMANDS = ("commit", "supersede", "escalate", "answer", "settle", "feasible", "
 ISSUE_LIMIT = 600
 ASK_LIMIT = 300
 REASON_LIMIT = 300
-# "contain9", "runnerusage0", "atthe186": a word fused with a number reads as noise to the owner.
-_HASH = re.compile(r"^[0-9a-f]{7,40}$")  # commit hashes are fine
-_FUSED = re.compile(r"\b(?:[a-z]{3,}\d+[a-z]*|\d+[a-z]{4,})\b")
 
 
 def add_parsers(sub: Any) -> None:
@@ -208,7 +205,7 @@ def text_problems(issue: str, ask: str) -> list[str]:
         problems.append(f"--ask is {len(ask)} characters; keep it under {ASK_LIMIT}")
     if ask.count("?") != 1:
         problems.append("--ask must be exactly one question, ending in a question mark")
-    fused = sorted({w for w in _FUSED.findall(f"{issue} {ask}".lower()) if not _HASH.match(w)})
+    fused = prose.fused(f"{issue} {ask}")  # "contain9", "runnerusage0", "atthe186" read as noise to the owner
     if fused:
         problems.append(f"put spaces between words and numbers: {', '.join(fused[:5])}")
     return problems
