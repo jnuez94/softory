@@ -227,6 +227,28 @@ class LinkedWorktreeInstructionsTest(unittest.TestCase):
 
 
 @needs_sources
+class SharedPathsSurviveSkillsTest(unittest.TestCase):
+    def test_adding_an_external_skill_keeps_a_shared_folder_hidden(self) -> None:
+        from softory import external  # noqa: PLC0415
+
+        holder, root = git_project()
+        self.addCleanup(holder.cleanup)
+        install(root)
+        (root / "review-cache").mkdir()
+        (root / "review-cache/kept.txt").write_text("x\n")
+        tree = root.parent / (root.name + "-wt")
+        softory(root, "worktree", "add", str(tree), "-b", "jade/list", "--share", "review-cache")
+        self.addCleanup(run, ["git", "worktree", "remove", "--force", str(tree)], root, None, False)
+        project = Project.find(root)
+        manifest = project.manifest()
+        manifest["external_skills"] = [*manifest.get("external_skills", []), "some-skill"]  # what skills add records
+        external._save(project, manifest)  # noqa: SLF001 - the write every skills add ends with; add itself clones from GitHub
+        self.assertIn("/review-cache", project.manifest()["exclude_patterns"])
+        self.assertIn("/.claude/skills/some-skill", project.manifest()["exclude_patterns"])
+        self.assertEqual(git_status(root), "")
+
+
+@needs_sources
 class OperationLogTest(unittest.TestCase):
     def test_an_error_keeps_its_code_while_the_scaffold_logs_operations(self) -> None:
         holder, root = git_project()

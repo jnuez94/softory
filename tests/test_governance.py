@@ -23,7 +23,7 @@ def raci_rows() -> list[list[str]]:
 
 
 class RosterTest(unittest.TestCase):
-    def test_the_six_named_roles(self) -> None:
+    def test_the_named_roles(self) -> None:
         names = {role["id"]: (role["name"], role["title"]) for role in ROSTER["roles"]}
         self.assertEqual(names["greg"], ("Greg", "Product Manager"))
         self.assertEqual(names["darwin"], ("Darwin", "UX Designer"))
