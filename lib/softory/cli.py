@@ -279,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "role_flag", None):
         os.environ["SOFTORY_ROLE"] = args.role_flag
     try:
+        if getattr(args, "description_file", None):  # the file is the description that is saved, so it is what is checked
+            args.description = Path(args.description_file).read_text(encoding="utf-8")
         if args.command not in ("install", "escalate"):  # escalate names every problem with its text at once
             said = [v for k in prose.OPTIONS for v in [getattr(args, k[2:].replace("-", "_"), None)] if v]
             if said:
@@ -315,10 +317,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "start":
         print(work.start(project, coord, args.role, args.harness, args.model), end="")
     elif args.command == "new":
-        options = vars(args).copy()
-        if args.description_file:
-            options["description"] = Path(args.description_file).read_text(encoding="utf-8")
-        made = work.new_unit(project, coord, args.unit, options)
+        made = work.new_unit(project, coord, args.unit, vars(args).copy())
         # The ID goes last, so a caller that reads only the tail of the output still gets the right one.
         print(ops.dumps({**{k: v for k, v in made.items() if k != "id"}, "id": made["id"]}), end="")
     elif args.command == "tree":

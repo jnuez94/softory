@@ -92,6 +92,21 @@ class RecordsTest(unittest.TestCase):
                        "Fix deadline0 probe", "--actor", "quinn", check=False)
         self.assertIn("deadline0", made.stderr)
 
+    def test_a_description_file_is_checked_as_the_description_that_is_saved(self) -> None:
+        def new(*description: str):
+            return softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title",
+                           "Probe loop", "--actor", "quinn", *description, check=False)
+        fused, spaced = self.root / "fused.md", self.root / "spaced.md"
+        fused.write_text("TASK-1 blocks265, assignedJade.\n")
+        spaced.write_text("TASK-1 blocks BUG-265 and is assigned to Jade.\n")
+        refused = new("--description-file", str(fused))
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("blocks265, assignedJade", refused.stderr)
+        made = new("--description", "blocks265", "--description-file", str(spaced))  # the file replaces the option
+        self.assertEqual(made.returncode, 0, made.stderr)
+        saved = coord(self.root, "task", "show", json.loads(made.stdout)["id"])["data"]["description"]
+        self.assertEqual(saved.strip(), "TASK-1 blocks BUG-265 and is assigned to Jade.")
+
     def test_a_review_of_a_commit_git_does_not_have_is_refused(self) -> None:
         missing = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", "commit:" + "ab12" * 10)
         self.assertNotEqual(missing.returncode, 0)
