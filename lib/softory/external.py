@@ -63,7 +63,9 @@ def source_path(skill: dict[str, Any], root: str) -> str:
 
 def _save(project: Project, manifest: dict[str, Any]) -> None:
     skills = manifest.get("skills", []) + manifest.get("external_skills", [])
-    manifest["exclude_patterns"] = exclude_patterns(skills, manifest.get("owned_files", []))
+    built = exclude_patterns(skills, manifest.get("owned_files", []))
+    # Paths softory worktree --share added aren't derived from the manifest's skills and files: keep them.
+    manifest["exclude_patterns"] = built + [p for p in manifest.get("exclude_patterns", []) if p not in built]
     gitlocal.write_exclude_block(project.root, manifest["exclude_patterns"])
     project.save_manifest(manifest)
 

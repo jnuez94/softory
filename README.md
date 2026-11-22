@@ -17,14 +17,14 @@ On top of them, softory adds the team, the rules, and the craft.
 | **Boundaries** | A [RACI matrix](factory/governance/raci.md) with exactly one accountable role per activity, plus [decision, review, and work boundaries](factory/governance/boundaries.md), lanes, flex rules for when overlap is allowed, and escalation paths. |
 | **Units of work** | Epic (project) > story (feature) > task (function) or bug (fix), plus releases, with templates, a definition of ready and done, and a [flow for each](factory/workflows/work-units.md). |
 | **Skills** | Eight skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, and architecture. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
-| **Gate** | `softory close` refuses to finish a unit until the required reviews are in and cover the commit the unit delivers, nobody reviewed their own work, dependencies and children are done, evidence exists, no secret was committed, and the right role is closing. The scaffold enforces the basics too, so a raw close can't skip them. |
-| **Shipping** | With `merge.by softory`, softory merges finished units onto the base only when its tests pass there, keeps the base green, deploys each merge to staging with a smoke test, and gates releases. Production stays yours. |
+| **Gate** | `softory close` refuses to finish a unit until the required reviews are in and cover the commit the unit delivers, nobody reviewed their own work, dependencies and children are done, evidence exists, a scan of the unit's commits finds no known secret pattern, and the right role is closing. The scaffold itself enforces two of these on a raw close: an accepted review from someone other than a builder, and no open blocking work. The rest hold only through `softory close`. |
+| **Shipping** | With `merge.by softory`, softory merges finished units onto the base only when its tests pass there, keeps the base green, deploys each merge to staging, runs the target's smoke test when it declares one, and gates releases. Production stays yours. |
 
-Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, Gold, and Sage (agent coding, web design, and process), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
+Two harnesses are supported, Claude Code and Codex, and the charter says which role runs on which; another harness takes a command line in `run.harnesses`, without token counts or lane edit limits. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, Gold, and Sage (agent coding, web design, and process), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
 
 ## Requirements
 
-Git, Python 3.10 or newer, and network access to GitHub at install time (or local checkouts of the two dependencies at their pinned commits).
+macOS or Linux (softory's file locks are POSIX only), Git, Python 3.10 or newer, and network access to GitHub at install time (or local checkouts of the two dependencies at their pinned commits).
 
 ## Install
 
@@ -48,7 +48,7 @@ Re-running it upgrades softory in place and keeps your coordination history.
 
 ## Hidden from git
 
-Everything softory adds is local. Nothing shows in `git status`, and nothing can be committed by accident.
+Everything softory adds is local. Nothing shows in `git status`: softory's paths are listed in the repository's local exclude file, so a plain `git add` skips them. `git add -f` still adds them.
 
 - Softory uses **`.git/info/exclude`**, not `.gitignore`. Exclude rules work the same way but live only in your local `.git` folder, so the project's history and other clones show no trace of the factory. Each clone runs the installer once.
 - Softory runs the scaffold's installer with `--no-gitignore`, so it doesn't touch `.gitignore`.
@@ -79,7 +79,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory new review --for <IDs> --title ...` | Keeps a review run as its own task, a record. It closes on the reviewer's verdict once every change it asks for has a follow-up task |
 | `softory new release --title ... [--commit sha]` | Opens a release of the base's head (or the commit given). It closes when Toby and Quinn accepted it, it has a rollback plan (`softory report <ID> <file> --type rollback`), and every target but production passed at its commit |
 | `softory drop <ID> --reason ... [--superseded-by ID] [--withdrawn]` | Closes a unit nobody will build, as won't do or superseded, with a recorded decision. `--withdrawn` marks a bug that turned out not to be a defect |
-| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate, tests and lane included |
+| `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack. Every member's gate is checked first, tests and lane included, and nothing closes if one fails. The closes then run one at a time, so an error partway leaves the members before it closed and lists them in `closed_before_error` |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
 | `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, your assigned work, unread messages sent to you, the verify queue, and for Quinn the feasibility checks that are due |
 | `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. Its `state` says `work`, `running`, `paused`, or `idle`. The runner uses it each tick, and a session you opened uses it to check on itself. It also applies escalation defaults that are due, so they don't need a runner |
@@ -119,7 +119,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory pause [--role r]` / `resume [--role r]` / `resume --task ID [--roles a,b]` | Stops unattended runs (anyone may); starts them again (owner, at a terminal). `--task` keeps the pause but lets the named roles work on that one task. In attended mode a pause stops only the runner: sessions you opened keep seeing their work |
 | `softory push [branch] [--remote R]` | Pushes your branch to the same name on the remote, and refuses the base branch. With softory merging, roles have this in place of `git push` |
 | `softory ship [--dry-run]` | Checks the base (a red base gets a priority 1 bug), merges finished units on green as one candidate commit, and deploys the result to the `auto` targets. The runner starts it each tick; `--dry-run` lists what waits to merge |
-| `softory deploy <target> [--release ID] [--commit sha]` | Deploys a tested commit to one of the charter's targets and runs its smoke test. `production` takes a closed release, by you at a terminal |
+| `softory deploy <target> [--release ID] [--commit sha]` | Deploys a tested commit to one of the charter's targets and runs its smoke test, if the target has one. `production` takes a closed release, by you at a terminal |
 | `softory verify <ID> [--fresh]` | Runs the charter's tests at the unit's commit in a clean worktree, for the gate. A commit that already passed with the same settings isn't tested again unless `--fresh`. One at a time per project; kept awake on macOS; setup failures reported apart from test failures; failure logs and `verify.keep` artifacts kept |
 | `softory digest [--send]` / `usage [--team [--days N]]` / `schedule` | What needs the owner, plus the last 7 days' spend, spend per closed unit, and the share of runs that changed nothing; today's runs and sessions against the budget, or with `--team` sessions and messages per delivered task and each reviewer's rate of requests that led to new code; the launchd job and cron line |
 | `softory clutter [--idle-days 14]` | Lists untracked files, archives (ignored folders included), duplicate archives, extra worktrees, and merged or idle branches. Read-only; exits 2 when it finds any |
@@ -132,14 +132,14 @@ Each role starts a session, which records the harness and model, and works throu
 
 ### Running unattended
 
-Softory runs the team without you up to a pull request. You merge and deploy. From 0.5.0, nothing waits on you mid-flight except what can't be undone. Set it up once:
+Softory runs the team without you up to finished, reviewed units on their branches. Merging and deploying stay with you unless the charter sets `merge.by` to `softory`, which lets it merge onto the base and deploy to staging; production is always yours. Softory opens no pull requests. From 0.5.0, nothing waits on you mid-flight except what can't be undone. Set it up once:
 
 1. Run `softory setup`. It lists each step and checks the ones it can. Start with `softory kickoff`: Greg interviews you once about the vision, what's out of scope, the environment agents can reach, and the accounts the work will need.
 2. Write the settings you want to change to a file, starting from `softory charter show`: your `vision`, `verify.command` (your test command), `lanes` paths, `paging.command`, and the `budget`. Approve it in a terminal with `softory charter approve <file>`.
 3. Protect your base branch on GitHub and require CI.
 4. Load the runner: turn off any other scheduler for the project first, such as an app's scheduled check-ins, then run `softory setup --load-schedule` and type yes. It loads a launchd job that runs `softory run` every five minutes (`softory schedule` prints a cron line for other systems). The runner should be the only thing that starts roles; otherwise roles run twice and the budget can't see half of them. `softory doctor` warns while no scheduler is loaded, when the runner has stopped ticking, and when sessions started outside the runner in the last day.
 
-Each tick starts a role only when it has work, is under today's budget, and isn't paused or already running. The budget counts runs and minutes, not dollars, so it holds whatever a model costs: by default 24 runs and 120 minutes a day per role, 30 minutes a run, and tighter for the reviewing roles (Greg 15 minutes a run and 60 a day, Darwin and Toby 20 and 60). `budget.roles` overrides any cap for one role. At 80% you see it in the digest; at 100% the role stops until tomorrow and you're paged. Optional dollar caps sit beside them: `usd_per_run` (Claude Code stops itself there) and `usd_per_role_per_day`, counted from the cost each run reports; both are off at 0.
+Each tick starts a role only when it has work, is under today's budget, and isn't paused or already running. The budget counts runs and minutes, not dollars, so it holds whatever a model costs: by default 24 runs and 120 minutes a day per role, 30 minutes a run, and tighter for the reviewing roles (Greg 15 minutes a run and 60 a day, Darwin and Toby 20 and 60). `budget.roles` overrides any cap for one role. At 80% you see it in the digest; at 100% the role stops until tomorrow and you're paged. A page is a message to you in the coordination database, which the tracker shows; it reaches your phone or mail only when `paging.command` is set, and it ships empty. Optional dollar caps sit beside them: `usd_per_run` (Claude Code stops itself there) and `usd_per_role_per_day`, counted from the cost each run reports; both are off at 0.
 
 ### Watching runs (attended mode)
 
@@ -158,7 +158,7 @@ Each run is shaped to waste as little as possible:
 - **Reviewers see only reviews they owe.** A requirement another listed reviewer already accepted drops off everyone else's queue, and a reviewer who asked for changes isn't woken again until new evidence lands.
 - **Effort fits the job.** A run that only has reviews, closes, or messages is a review run (`effort.review`, default medium); anything else is a build run (`effort.build`, default high). `models.<role>.effort` overrides either for one role.
 - **Real tokens and cost.** Claude Code runs with `--output-format json` and Codex with `--json`; softory reads their usage report and logs input, cached, and output tokens and dollars per run (Codex's dollars are estimated from the charter's `prices`). `softory usage` shows today's totals per role. Each run also logs how many records it changed besides opening its session and reading messages, so the digest can show what share of runs bought nothing.
- Claude Code roles get a settings file that allows edits only in their lane's paths; Codex runs in its workspace-write sandbox. Either way, the gate's `lane_paths` check fails a unit whose own commits reach outside the lane (work below it that another unit verified doesn't count against it), unless it's tagged `cross-lane` and Quinn accepted it, or Jade or Gold when Quinn built it, and `verified` needs `softory verify` to have passed at the commit.
+ Once the charter gives a lane its paths, Claude Code roles get a settings file that allows edits only there (the shipped charter has none, and then a role may edit anywhere outside softory's own files); Codex runs in its workspace-write sandbox. Either way, the gate's `lane_paths` check fails a unit whose own commits reach outside the lane (work below it that another unit verified doesn't count against it), unless it's tagged `cross-lane` and Quinn accepted it, or Jade or Gold when Quinn built it, and `verified` needs `softory verify` to have passed at the commit.
 
 A task that has had `task_caps.escalate_model_after` rounds of requested changes runs on the role's stronger model next time. At `review_rounds` it stops, and Quinn settles it: one more round (once per unit), a split, or a drop. You see what he chose in the digest; a unit Quinn built, or one whose extra round is spent, comes to you. Review records never count, and the first request whose every item is labelled `evidence:` is free (`free_evidence_rounds`). The digest also flags an open unit whose record changed `waste.revision` times (default 30) without closing, a sign a role is looping on its own tooling. Pages go out at once for a unit closed without the gate or a role over budget, outside quiet hours; everything else waits for the daily digest. `softory pause` stops everything, and only you can `softory resume`.
 
@@ -170,16 +170,17 @@ You can also run the team as sessions you open in the Claude or Codex app, each 
 - A session sees every unread message sent to its role, tagged or not, and Quinn's session sees the feasibility checks that are due and runs each with `softory run-check STORY-n`.
 - Softory can't see what these sessions cost. `softory usage`, the budget caps, and the run numbers in `softory flow` cover runner runs only, and `softory flow` says so instead of showing partial numbers.
 - An agent with a stand-in grant, such as a second reviewer, starts with `softory start <agent>` like any role.
+- With no runner loaded, only what a session's own `softory pending` does still happens: finding its work and applying escalation defaults that are due. The rest is the runner's tick and stops: ending silent sessions and returning their claims, the daily backup, the digest and pages, moving stories and epics as their children finish, and shipping. A loaded runner keeps doing them while paused, and with `run.roles` empty it does nothing else; `softory run` by hand does one round.
 
 ### What doesn't wait for you (0.5.0)
 
 - **Escalations default.** Each one names the option the role would take and whether it can be undone. If it can, the runner's tick or any role's `softory pending` applies it after `decisions.default_after_hours` (24) with no answer, as a decision you can still replace with `softory answer`. If it can't, it waits, and the role carries on with work that doesn't depend on it.
 - **Feasibility before work starts.** Once a story has tasks, the runner starts a Quinn run on a different model (`feasibility.harness` and `model`, Codex by default) that reads only the plan, your vision and `out_of_scope`, and the declared `environment`. A pass lets the tasks start. Anything missing (a sign-in, a paid tier, an unlocked desktop) becomes a provisioning request in your digest, and Greg and Quinn re-plan around what's reachable; the check runs again after the change. Softory never enforces the environment; your harness does.
-- **Recovery.** Each tick ends sessions silent for twice the longest run (at least an hour) and puts what they claimed back to todo, so a crash or a sleeping Mac doesn't strand work.
+- **Recovery.** Each runner tick (so only while a runner is loaded) ends sessions silent for twice the longest run (at least an hour) and puts what they claimed back to todo, so a crash or a sleeping Mac doesn't strand work.
 - **A `ui` unit needs one check against its reference** (evidence of type `reference`, `screenshot`, or `visual`) before it closes, since a green suite can miss a screen that never renders.
 - **Story progress** shows in `softory tree` as done of total, counted from the children.
 
-Not yet: compact typed handoffs, shorter queue output, and tokens per accepted unit wait for a week of runner logs from the pilot. What you say in a session counts when the role records it with `softory ruling --review` or `--escalation` (0.6.4); your digest lists each one, and `softory answer` at a terminal replaces it.
+What you say in a session counts when the role records it with `softory ruling --review` or `--escalation` (0.6.4); your digest lists each one, and `softory answer` at a terminal replaces it.
 
 ### How design works (0.5.1)
 
@@ -273,7 +274,7 @@ Until 0.6.0 every finished unit waited for you to merge it. Now, if you choose, 
 - **Staging.** Declare targets in `deploy.targets`, each `{"name", "command", "smoke", "auto"}`. Commands run in a clean checkout of the commit. An `auto` target gets every merge; a failed deploy or smoke test files a priority 1 bug. For an Obsidian plugin, staging can build the plugin and copy it into a dev vault, with a smoke test that checks the files landed.
 - **Releases.** Greg asks, Gold opens `softory new release`, attaches the rollback plan, Toby and Quinn sign off, and Greg closes it once every target but production passed at its commit. Then you run `softory deploy production --release RELEASE-n` at a terminal.
 - **Secrets.** The gate's `no_secrets` check scans the lines a unit adds for keys, tokens, private keys, and files like `.env` or `*.pem`. Declare where secrets live and who reads them in `secrets.stores`; softory never stores or fetches one. Add known safe matches to `secrets.allow`, or waive a false positive on one unit.
-- **Backups.** The runner copies the coordination database once a day to `.coordination/backups/softory-daily-<date>.sqlite3` and keeps `backups.keep_days` (7).
+- **Backups.** The runner copies the coordination database once a day to `.coordination/backups/softory-daily-<date>.sqlite3` and keeps `backups.keep_days` (7). The backup is the database only: softory's own state files beside it (what was verified, merged and closed) are not in it.
 - **The scaffold enforces the basics.** Strict closure and strict dependencies are on: no `done` without an accepted review from someone other than a builder, and no claim on work with an open `blocks` dependency. Review records, drops, and units whose softory gate passed close as before. Stacked units are linked with `informs`, which never blocks a claim. Stories and epics show as active while their children run.
 
 ## Git worktrees
@@ -303,12 +304,13 @@ Both checkouts must be at the pinned commits. Without the variables, the integra
 factory/
   INSTRUCTIONS.md        the block every agent loads (kept small)
   roles/                 profiles and roster.json (what gets registered)
-  governance/            raci.md, boundaries.md, gates.json
+  governance/            raci.md, boundaries.md, gates.json, charter.json
   workflows/             units of work and their flows
-  templates/             epic, story, and task descriptions; PRODUCT.md and DESIGN.md
+  templates/             epic, story, task, review, and release descriptions; PRODUCT.md and DESIGN.md
 skills/                  softory's eight skills
 lib/softory/             the CLI and installer (Python, standard library only)
 docs/                    models.md, sources.md, skill-sourcing.md, gaps.md
+tests/                   the test suite (unittest; integration tests need the two source checkouts)
 dependencies.json        pinned scaffold and tracker commits
 external-skills.json     pinned open-source skills
 ```

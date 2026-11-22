@@ -1,4 +1,4 @@
-"""Register the owner and the six roles as agents in the coordination database."""
+"""Register the owner and the roles as agents in the coordination database."""
 
 from __future__ import annotations
 
