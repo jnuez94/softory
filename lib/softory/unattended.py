@@ -113,4 +113,4 @@ def _actor_or_owner(project: Project) -> str:
     try:
         return actor_of(None)
     except Exception:  # noqa: BLE001 - no session means the owner, at a shell
-        return project.roster()["owner"]["id"]
+        return project.owner_id

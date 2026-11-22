@@ -81,7 +81,7 @@ def add_stand_in(project: Project, coord: Coordination, agent: str, roles: list[
 
 
 def _apply_grant(project: Project, coord: Coordination, grant: dict[str, Any], decision: str | None) -> dict[str, Any]:
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     if decision is None:
         decision = record_decision(coord, owner, "STANDIN", f"{grant['agent']} stands in for {', '.join(grant['roles'])}",
                                    grants.describe(grant).replace("`", ""),
@@ -110,7 +110,7 @@ def remove_stand_in(project: Project, coord: Coordination, agent: str, roles: li
             if not grant["roles"]:
                 continue
         kept.append(grant)
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     decision = record_decision(coord, owner, "STANDIN", f"{agent} no longer stands in for {', '.join(sorted(dropping))}",
                                f"{agent} stops acting for {', '.join(sorted(dropping))}.",
                                "The owner removed a stand-in.")
@@ -153,7 +153,7 @@ def propose(project: Project, coord: Coordination, kind: str, change: dict[str, 
         raise SoftoryError(f"Unknown proposal kind {kind!r}", "invalid_arguments")
     existing = _load_proposals(project)
     proposal_id = _next_id(existing)
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     session = os.environ.get("COORDINATION_SESSION") or "no session"
     decision = record_decision(coord, owner, "PROP", f"Proposed by {actor}: {title}", title,
                                f"Proposed by {actor} ({session}): {why}. Waiting for the owner's softory approve {proposal_id}.",
@@ -247,7 +247,7 @@ def approve(project: Project, coord: Coordination, proposal_ids: list[str], reje
                                "not_found")
         chosen = [p for p in open_rows if p["id"] in proposal_ids]
     confirm(_summary(chosen, reject))
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     results = []
     adopted = [p for p in chosen if p["kind"] == "adopt"]
     batch = None
@@ -322,7 +322,7 @@ def ruling(project: Project, coord: Coordination, title: str, decision: str, whe
 
     if not where.strip():
         raise SoftoryError("Say where the owner said it with --where (a thread, a message, a date)", "invalid_arguments")
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     task = coord.task(review) if review else None  # both must exist before anything is written
     asked = decide.open_escalation(coord, escalation) if escalation else None
     session = os.environ.get("COORDINATION_SESSION") or "no session"

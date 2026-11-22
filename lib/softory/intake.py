@@ -30,7 +30,7 @@ def feature(project: Project, coord: Coordination, idea: str) -> dict[str, Any]:
     if not idea:
         raise SoftoryError("Say what you want built", "invalid_arguments")
     title = idea if len(idea) <= MAX_TITLE else idea[: MAX_TITLE - 1].rsplit(" ", 1)[0] + "…"
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     made = new_unit(project, coord, "story", {
         "title": title, "actor": owner, "tags": "idea", "assignee": "greg",
         "description": f"The owner's idea, as given: {idea}\n\nGreg: shape it into a story inside the charter's "

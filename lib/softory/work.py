@@ -12,7 +12,7 @@ from . import design as design_rules
 from . import gate as gate_rules
 from .coordination import Coordination
 from .errors import SoftoryError
-from .gitlocal import git
+from .gitlocal import need_commit
 from .project import Project
 from .units import (
     build_tags,
@@ -23,6 +23,7 @@ from .units import (
     next_id,
     parent_of,
     resolution_of,
+    split_list,
     tag_value,
     tags_of,
     targets_of,
@@ -104,7 +105,7 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
     gates = project.gates()
     spec = gates["units"][unit]
     actor = actor_of(options.get("actor"))
-    targets = _split(options.get("for"))
+    targets = split_list(options.get("for"))
     source_id = options.get("from")
     source = coord.task(source_id) if source_id else None
     parent_id = options.get("parent")
@@ -121,7 +122,7 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
     if unit == "bug" and not options.get("type"):
         raise SoftoryError("A bug needs --type: functional, or visual (it renders or looks wrong)", "invalid_arguments")
     found = options.get("found_at") or ("review" if unit == "bug" and source is not None else None)
-    tags = build_tags(unit, parent_id, lane, _split(options.get("tags")), targets, source_id,
+    tags = build_tags(unit, parent_id, lane, split_list(options.get("tags")), targets, source_id,
                       options.get("type"), found)
 
     assignee = options.get("assignee") or spec.get("default_assignee")
@@ -197,10 +198,7 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
 
 def release_commit(project: Project, coord: Coordination, task_id: str, given: str | None, actor: str) -> str:
     base = charter.load(project)["git"]["base"]
-    found = git(project.root, "rev-parse", "--verify", "--quiet", f"{given or base}^{{commit}}")
-    if found.returncode != 0:
-        raise SoftoryError(f"{given or base} is not a commit in this repository", "not_found")
-    sha = found.stdout.strip()
+    sha = need_commit(project.root, given or base)
     coord.run("evidence", "add", "--task", task_id, "--uri", f"commit:{sha}", "--type", "commit", "--actor", actor)
     return sha
 
@@ -224,10 +222,6 @@ def check_review_targets(coord: Coordination, targets: list[str], reviewers: set
         if own:
             raise SoftoryError(f"{', '.join(own)} built {target}, so a review of it by them isn't independent",
                                "not_independent")
-
-
-def _split(value: str | None) -> list[str]:
-    return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
 def _inherited_parent(source: dict[str, Any], gates: dict[str, Any], unit: str) -> str | None:

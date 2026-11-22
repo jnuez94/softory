@@ -202,7 +202,7 @@ def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime,
     # Sessions the owner opened log no runs, so a team working only in them still counts as having worked.
     live = [] if ran or coord is None else [
         s for s in coord.run("session", "list", "--status", "active", "--limit", "50")
-        if s.get("agent_id") not in (role, project.roster()["owner"]["id"]) and s.get("agent_id") in project.role_ids()
+        if s.get("agent_id") not in (role, project.owner_id) and s.get("agent_id") in project.role_ids()
         and (checked is None or parse_time(str(s.get("last_seen_at") or s["started_at"])) > parse_time(checked))]
     if not fresh and not notes and not ran and not live:
         return None
@@ -257,7 +257,7 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     mine |= {task_id for task_id, rows in board.reviews.items()
              if any((r.get("reviewer_id") or r.get("reviewer")) == agent for r in rows)}
     mine |= {row["id"] for key in ("reviews_waiting", "ready_to_close") for row in work.get(key) or []}
-    owner = board.project.roster()["owner"]["id"]
+    owner = board.project.owner_id
     wanted, rest = [], []
     for message in unread:
         from_owner = message.get("sender_id") == owner

@@ -26,7 +26,7 @@ def sync(project: Project, coord: Coordination, tasks: list[dict[str, Any]] | No
         for tag in tags_of(task):
             if tag.startswith("parent:"):
                 children.setdefault(tag.split(":", 1)[1], []).append(task)
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     changed: dict[str, list[str]] = {"activated": [], "cleared": []}
     active: set[str] = set()
     # Stories first, so an epic counts a story that just became active.
