@@ -282,7 +282,8 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "description_file", None):  # the file is the description that is saved, so it is what is checked
             args.description = Path(args.description_file).read_text(encoding="utf-8")
         if args.command not in ("install", "escalate"):  # escalate names every problem with its text at once
-            said = [v for k in prose.OPTIONS for v in [getattr(args, k[2:].replace("-", "_"), None)] if v]
+            said = [v for k in prose.OPTIONS if k not in prose.IDS.get(args.command, ())
+                    for v in [getattr(args, k[2:].replace("-", "_"), None)] if v]
             if said:
                 prose.check([t for v in said for t in (v if isinstance(v, list) else [v])], Project.find().role_ids())
         return _dispatch(args)

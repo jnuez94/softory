@@ -14,8 +14,10 @@ from .errors import SoftoryError
 OPTIONS = ("--body", "--title", "--description", "--acceptance", "--next-steps", "--context", "--decision",
            "--required-changes", "--note", "--rationale", "--issue", "--requested-decision", "--resolution",
            "--scope", "--reason", "--why", "--ask", "--recommend", "--needs")
+#: Where one of those options holds a record's ID, which is looked up as given.
+IDS = {"defer": ("--decision",)}
 _CODE = re.compile(r"`[^`]*`")
-_NOT_PROSE = re.compile(r"[/\\_=@]|\.\w")  # a path, a link, a file name, key=value
+_NOT_PROSE = re.compile(r"[/\\_=@]|[.:]\w")  # a path, a link, a file name, key=value, stack:name
 _ID = re.compile(r"[A-Z]+\d+")  # REVIEW-TASK91
 _HASH = re.compile(r"[0-9a-f]{7,40}")
 _TERM = re.compile(r"(?:sha|md|base|utf|ipv|oauth|http|arm|amd|u?int|float|mp|python|wcag)\d+", re.IGNORECASE)

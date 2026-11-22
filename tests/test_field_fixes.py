@@ -122,7 +122,7 @@ class OwnerTextTest(unittest.TestCase):
             self.assertIn(word, found)
         plain = ("BUG-267 blocks BUG-265, assigned to Jade at e3e4ab5fdbad. REVIEW-TASK91 passed in 250ms on "
                  "tests/integrations/google-feed2.test.mjs with sha256, base64 and utf8; `deadline0` and "
-                 "`retain2a5` are code. Peer+Quinn review it. See https://example.com/run12 and p95.")
+                 "`retain2a5` are code. Peer+Quinn review it, scope stack:fixes2. See https://example.com/run12 and p95.")
         self.assertEqual(prose.fused(plain, roles), [])
 
     def test_charter_diff_lists_only_what_changes(self) -> None:
