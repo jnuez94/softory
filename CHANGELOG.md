@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.8] - 2026-11-22
+## [0.6.9] - 2026-11-22
 
 Records with words run together. In Tablet the owner read "blocks265, backend lane assignedJade", "retain2a5checkpoint and4159" and "CurrentJade owns265" in coordination records. Nothing in softory, the scaffold, or the tracker console changes a record's text: a message sent through `softory coord` reads back character for character. The role's model wrote it that way, dropping the space before a number or a name, and softory checked for that only in `softory escalate`.
 
