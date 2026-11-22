@@ -139,12 +139,11 @@ def run_role(project: Project, coord: Coordination, role: str) -> dict[str, Any]
     wanted = watch.pending(project, coord, role)
     if not wanted["pending"]:
         return {"role": role, "ran": False, "why": "nothing pending"}
-    escalated = bool(wanted.get("escalate"))
-    pick = charters.model_for(charter, role, escalated)
+    pick = charters.model_for(charter, role)
     job = runprompt.job_of(wanted)
     effort = charters.effort_for(charter, role, job)
     text = runprompt.build(project, coord, charter, role, pick, wanted, job)
-    return _run(project, charter, role, pick, text, job, effort, escalated, [r["why"] for r in wanted["reasons"]],
+    return _run(project, charter, role, pick, text, job, effort, [r["why"] for r in wanted["reasons"]],
                 coord=coord)
 
 
@@ -154,12 +153,12 @@ def run_check(project: Project, coord: Coordination, story_id: str) -> dict[str,
     settings = charter["feasibility"]
     pick = {"harness": settings["harness"], "model": settings["model"]}
     text = feasibility.prompt(project, coord, charter, story_id)
-    return _run(project, charter, "quinn", pick, text, "feasibility", settings.get("effort") or "high", False,
+    return _run(project, charter, "quinn", pick, text, "feasibility", settings.get("effort") or "high",
                 [f"feasibility check of {story_id}"], pid_name=CHECK, coord=coord)
 
 
 def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, str], text: str, job: str,
-         effort: str, escalated: bool, reasons: list[str], pid_name: str | None = None,
+         effort: str, reasons: list[str], pid_name: str | None = None,
          coord: Coordination | None = None) -> dict[str, Any]:
     """Run the harness once with a time limit, and log the run where the budget counts it.
 
@@ -224,7 +223,7 @@ def _run(project: Project, charter: dict[str, Any], role: str, pick: dict[str, s
     spent = usage.parse(out_path.read_text(encoding="utf-8", errors="replace") if out_path.is_file() else "",
                         pick["model"], charter.get("prices") or {})
     row = {"role": role, "started": started.isoformat(timespec="seconds"), "harness": pick["harness"],
-           "model": pick["model"], "escalated": escalated, "job": job, "effort": effort, "exit": code,
+           "model": pick["model"], "job": job, "effort": effort, "exit": code,
            "minutes": round((now() - started).total_seconds() / 60, 2), **spent,
            "prompt_chars": len(text), "reasons": reasons}
     if coord:  # what the run changed besides bookkeeping; 0 means a run that bought nothing

@@ -75,15 +75,6 @@
       "record": true
     }
   },
-  "legacy": {
-    "description": "Tasks with no unit: tag, usually created before softory joined the project. They keep the project's own process; softory close holds them to this minimum. softory adopt turns one into a unit.",
-    "closer": ["assignee", "owner"],
-    "dropper": ["quinn", "greg", "owner"],
-    "required_reviews": [
-      {"reviewers": ["*"], "why": "an independent review", "not_self": true}
-    ],
-    "children_must_be_done": false
-  },
   "tag_reviews": {
     "arch": {"reviewers": ["quinn"], "if_builder": ["jade", "gold"], "why": "architecture-significant change"},
     "ui": {"reviewers": ["darwin"], "if_builder": ["owner"], "why": "design and accessibility review"},

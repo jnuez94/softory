@@ -3,7 +3,7 @@
 Urgent (paged at once, outside quiet hours): a unit closed without the gate,
 and a role that hit today's budget. Everything else waits for the digest:
 proposals, open escalations to the owner with their recommendations, defaults applied, units at the
-review cap that Quinn can't settle and what Quinn settled, provisioning requests from feasibility checks,
+review cap, provisioning requests from feasibility checks,
 unread messages to the owner, silent roles, and budget warnings. Each page
 goes once a day per item. With no paging command, the digest still lands in
 .coordination/softory/digest.md and in the owner's inbox.
@@ -25,15 +25,6 @@ from .runstate import all_runs, budget, paused, state_dir
 from .gate import spec_for as gate_spec
 from .ship import owner_items as ship_items
 from .work import Board
-
-QUINN_SETTLE_HOURS = 8  # a capped unit Quinn hasn't settled in this long reaches the owner too
-
-
-def _hours_since(board: Board, task_id: str) -> float:
-    """Hours since the unit last changed (an update or a review)."""
-    stamps = [board.by_id[task_id]["updated_at"], *(r["created_at"] for r in board.reviews.get(task_id, []))]
-    return (datetime.now(timezone.utc) - watch.parse_time(max(stamps))).total_seconds() / 3600
-
 
 def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Everything waiting on the owner, split into urgent and digest items. Each has a stable key."""
@@ -65,26 +56,17 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
     board = Board(project, coord)
     for task_id, rounds in sorted(watch.review_rounds(board, int(charter['task_caps'].get('free_evidence_rounds', 1))).items()):
         task = board.by_id.get(task_id)
-        if not task or task["status"] == "done" or rounds < decide.cap_for(project, charter, task_id):
-            continue
-        if decide.quinn_may_settle(project, charter, board.show(task_id)):
-            if _hours_since(board, task_id) < QUINN_SETTLE_HOURS:
-                continue  # Quinn settles it; the owner sees what he chose below
-            later.append({"key": f"cap-{task_id}", "text": f"{task_id} has waited {QUINN_SETTLE_HOURS:g}+ hours at "
-                          f"the review cap for Quinn to settle it. Settle it yourself if he hasn't: softory settle "
-                          f"{task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
+        if not task or task["status"] == "done" or rounds < int(charter["task_caps"]["review_rounds"]):
             continue
         later.append({"key": f"cap-{task_id}", "text": f"{task_id} had {rounds} rounds of requested changes and "
-                      f"stopped: softory settle {task_id} retry|split|drop --actor owner ({task['title'][:80]})"})
+                      f"stopped ({task['title'][:80]}). Split it into smaller units, drop it (softory drop {task_id} "
+                      "--reason ...), or raise task_caps.review_rounds in the charter"})
     for row in decide.recent_on_behalf(project):  # the owner's check on what was recorded in their name
         what = " and ".join(([f"your approval of {row['review']}"] if row.get("review") else [])
                             + ([f"your answer to {row['escalation']}"] if row.get("escalation") else []))
         later.append({"key": f"on-behalf-{row['decision']}", "text": f"{row['by']} recorded {what}: "
                       f"\"{_cut(row.get('said', ''), 200)}\" (said here: {_cut(row.get('where', ''), 80)}). If you "
                       "didn't say it, replace it: softory answer <ESC> \"...\", or your own review of the unit"})
-    for row in decide.recent_settlements(project):
-        later.append({"key": f"settled-{row['task']}-{row['at']}", "text": f"{row['by']} settled {row['task']} "
-                      f"({row['action']}): {_cut(row['reason'], 200)}"})
     for ask in feasibility.asks(board):  # one ask per missing thing, however many stories need it
         later.append({"key": f"needs-{ask['key']}", "text": f"Provisioning request: {ask['need']} (needed by "
                       f"{', '.join(ask['stories'])}). The team re-plans around it meanwhile; add it to the "

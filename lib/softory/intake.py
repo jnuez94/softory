@@ -58,7 +58,7 @@ def kickoff(project: Project) -> dict[str, Any]:
     )
     path = state_dir(project) / "kickoff-prompt.md"
     path.write_text(prompt + "\n", encoding="utf-8")
-    pick = charters.model_for(charter, "greg", False)
+    pick = charters.model_for(charter, "greg")
     binary = charter["run"]["harnesses"].get(pick["harness"], ["claude"])[0]
     return {"prompt": str(path), "draft": str(draft),
             "run": f"{binary} \"$(cat {shlex.quote(str(path))})\"",

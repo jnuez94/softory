@@ -155,31 +155,17 @@ class WorkflowTest(unittest.TestCase):
         self.assertFalse(gate(self.root, "TASK-1", "jade")["pass"])
         self.assertEqual(git_status(self.root), "")
 
-    def test_older_tasks_close_under_the_legacy_rule(self) -> None:
+    def test_a_task_without_a_unit_does_not_close(self) -> None:
         coord(self.root, "task", "create", "--id", "VR-1", "--title", "Old", "--actor", "owner", "--assignee", "quinn")
         tree = softory(self.root, "tree").stdout
         self.assertNotIn("VR-1", tree)
         self.assertIn("1 task(s) without a unit", tree)
         self.build("VR-1", "quinn")
-        self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-1", "quinn")))
         self.review("VR-1", "darwin", "accepted", 1)
-        softory(self.root, "close", "VR-1", "--actor", "quinn")
-        self.assertEqual(coord(self.root, "task", "show", "VR-1")["data"]["status"], "done")
-
-    def test_adopt_moves_an_older_task_into_a_story(self) -> None:
-        coord(self.root, "task", "create", "--id", "VR-2", "--title", "Old", "--actor", "owner",
-              "--assignee", "quinn", "--tags", "verify")
-        adopted = json.loads(softory(self.root, "adopt", "VR-2", "--unit", "task", "--parent", "STORY-1",
-                                     "--lane", "backend", "--tags", "data", "--assignee", "gold", "--actor", "quinn").stdout)
-        self.assertEqual(adopted["tags"], "unit:task,parent:STORY-1,lane:backend,data,verify")
-        self.assertEqual(adopted["assignees"], ["gold"])
-        self.assertIn("    VR-2", softory(self.root, "tree").stdout)
-        self.build("VR-2", "gold")
-        self.review("VR-2", "jade", "accepted", 1)
-        self.assertEqual(failing(gate(self.root, "VR-2", "gold")), {"review:tag:data"})
-        again = softory(self.root, "adopt", "VR-2", "--unit", "task", "--parent", "STORY-1", "--lane", "backend",
-                        "--actor", "quinn", check=False)
-        self.assertIn("already a unit", again.stderr)
+        self.assertIn("unit", failing(gate(self.root, "VR-1", "quinn")))
+        refused = softory(self.root, "close", "VR-1", "--actor", "quinn", check=False)
+        self.assertEqual((refused.returncode, json.loads(refused.stdout)["closed"]), (3, False))
+        self.assertEqual(coord(self.root, "task", "show", "VR-1")["data"]["status"], "review")
 
     def test_worktree_add_links_softory_in_hidden(self) -> None:
         (self.root / "web/node_modules").mkdir(parents=True)
@@ -225,9 +211,6 @@ class WorkflowTest(unittest.TestCase):
         report = json.loads(softory(self.root, "triage").stdout)
         self.assertEqual([row["id"] for row in report["ready_to_close"]], ["TASK-1"])
         self.assertEqual([row["id"] for row in report["accepted_but_open"]], ["VR-3"])
-        adopted = json.loads(softory(self.root, "adopt", "VR-3", "--unit", "task", "--parent", "STORY-1",
-                                     "--lane", "backend", "--actor", "quinn").stdout)
-        self.assertIn("already accepted", adopted["warning"])
 
     def test_triage_flags_work_closed_outside_softory(self) -> None:
         self.build("TASK-1", "jade")
@@ -293,89 +276,39 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(gate(self.root, "REVIEW-1", "gold")["pass"])  # the fix is TASK-1's business, not the run's
         self.assertIn("1 review run(s) not shown", softory(self.root, "tree").stdout)
 
-    def test_older_review_runs_close_on_their_own_verdicts(self) -> None:
-        # How VaultRadar's reviewers work: the run is a task linked to what it reviewed, the verdict sits
-        # on the run, and the fixes are follow-up tasks.
+    def test_a_review_record_closes_on_its_own_verdicts(self) -> None:
+        # The run is a unit linked to what it reviewed, the verdict sits on the run, and the fixes are follow-ups.
         self.build("TASK-1", "jade")
-        coord(self.root, "task", "create", "--id", "VR-REVIEW-9", "--title", "Independent review of TASK-1",
-              "--actor", "owner", "--assignee", "gold", "--tags", "code-review,privacy")
-        coord(self.root, "dependency", "add", "--task", "VR-REVIEW-9", "--depends-on", "TASK-1", "--type", "informs",
-              "--actor", "gold", "--rationale", "reviewed")
-        runs = json.loads(softory(self.root, "triage").stdout)["review_runs"]
-        self.assertEqual([(r["id"], r["adopt"]) for r in runs], [("VR-REVIEW-9", "softory adopt VR-REVIEW-9 --unit review")])
-        taken = softory(self.root, "adopt", "VR-REVIEW-9", "--unit", "review", "--actor", "quinn", check=False)
-        self.assertIn("not_allowed", taken.stderr)  # only its reviewer or the owner marks it
-        asked = json.loads(softory(self.root, "adopt", "VR-REVIEW-9", "--unit", "review", "--actor", "gold").stdout)
-        self.assertEqual((asked["proposal"], asked["targets"]), ("PROP-1", ["TASK-1"]))
-        self.assertNotIn("unit:review", coord(self.root, "task", "show", "VR-REVIEW-9")["data"]["tags"])  # not yet
-        approved = at_terminal(self.root, "approve", "--all")["results"][0]
-        self.assertEqual(approved["status"], "approved")
-        self.assertTrue(approved["tags"].startswith("unit:review,for:TASK-1"))
-        session = self.build("VR-REVIEW-9", "gold", kind="report")["session"]
-        coord(self.root, "--session", session, "task", "claim", "VR-REVIEW-9", "--agent", "gold",
-              "--if-revision", revision(self.root, "VR-REVIEW-9"))
-        coord(self.root, "--session", session, "task", "release", "VR-REVIEW-9", "--to", "blocked", "--actor", "gold",
-              "--if-revision", revision(self.root, "VR-REVIEW-9"))
-        self.review("VR-REVIEW-9", "gold", "changes_requested", 1, follow_ups="BUG-1")
-        self.assertEqual(failing(gate(self.root, "VR-REVIEW-9", "gold")), {"findings_tracked"})
+        softory(self.root, "new", "review", "--title", "Independent review of TASK-1", "--for", "TASK-1", "--actor", "gold")
+        session = self.build("REVIEW-1", "gold", kind="report")["session"]
+        coord(self.root, "--session", session, "task", "claim", "REVIEW-1", "--agent", "gold",
+              "--if-revision", revision(self.root, "REVIEW-1"))
+        coord(self.root, "--session", session, "task", "release", "REVIEW-1", "--to", "blocked", "--actor", "gold",
+              "--if-revision", revision(self.root, "REVIEW-1"))
+        self.review("REVIEW-1", "gold", "changes_requested", 1, follow_ups="BUG-1")
+        self.assertEqual(failing(gate(self.root, "REVIEW-1", "gold")), {"findings_tracked"})
         softory(self.root, "new", "bug", "--type", "functional", "--from", "TASK-1", "--title", "Fix it", "--actor", "gold")
-        report = gate(self.root, "VR-REVIEW-9", "gold")
+        report = gate(self.root, "REVIEW-1", "gold")
         self.assertTrue(report["pass"], report)  # no second review of the review
         queue = json.loads(softory(self.root, "queue", "--agent", "gold").stdout)
-        self.assertIn("VR-REVIEW-9", [item["id"] for item in queue["ready_to_close"]])
-        closed = softory(self.root, "close", "VR-REVIEW-9", "--actor", "gold", env={"COORDINATION_SESSION": session})
+        self.assertIn("REVIEW-1", [item["id"] for item in queue["ready_to_close"]])
+        closed = softory(self.root, "close", "REVIEW-1", "--actor", "gold", env={"COORDINATION_SESSION": session})
         self.assertTrue(json.loads(closed.stdout)["closed"])  # straight from blocked
-        self.assertEqual(coord(self.root, "task", "show", "VR-REVIEW-9")["data"]["status"], "done")
+        self.assertEqual(coord(self.root, "task", "show", "REVIEW-1")["data"]["status"], "done")
 
-    def test_a_task_with_code_is_not_a_review_run(self) -> None:
-        coord(self.root, "task", "create", "--id", "VR-SEC-FIX-1", "--title", "Fix", "--actor", "owner",
-              "--assignee", "gold", "--tags", "review,security")
-        coord(self.root, "evidence", "add", "--task", "VR-SEC-FIX-1", "--uri", "commit:abc", "--type", "commit", "--actor", "gold")
-        refused = softory(self.root, "adopt", "VR-SEC-FIX-1", "--unit", "review", "--for", "TASK-1", "--actor", "gold", check=False)
-        self.assertIn("not_a_review", refused.stderr)
-
-    def test_a_relabelled_security_fix_still_needs_toby(self) -> None:
-        # The bypass from the 0.3.0 re-review: Quinn's own security fix, relabelled as a review and self-accepted.
-        coord(self.root, "task", "create", "--id", "VR-SEC-FIX-1", "--title", "Fix", "--actor", "owner",
-              "--assignee", "quinn", "--tags", "security")
-        coord(self.root, "evidence", "add", "--task", "VR-SEC-FIX-1", "--uri", "artifact:notes", "--type", "artifact",
+    def test_a_security_review_record_by_someone_else_still_needs_toby(self) -> None:
+        # Without this, a builder could label their own security fix a review and close it on their own verdict.
+        self.build("TASK-1", "jade")
+        softory(self.root, "new", "review", "--title", "Security pass", "--for", "TASK-1", "--tags", "security",
+                "--actor", "quinn")
+        coord(self.root, "evidence", "add", "--task", "REVIEW-1", "--uri", "artifact:notes", "--type", "artifact",
               "--actor", "quinn")
-        self.build("TASK-1", "jade")
-        asked = json.loads(softory(self.root, "adopt", "VR-SEC-FIX-1", "--unit", "review", "--for", "TASK-1",
-                                   "--actor", "quinn").stdout)
-        self.review("VR-SEC-FIX-1", "quinn", "accepted", 1)
-        self.assertEqual(gate(self.root, "VR-SEC-FIX-1", "quinn")["unit"], "legacy")  # nothing changes until the owner says
-        self.assertFalse(gate(self.root, "VR-SEC-FIX-1", "quinn")["pass"])
-        # And if the owner approves without spotting it, the security tag still needs Toby.
-        adopted = at_terminal(self.root, "approve", asked["proposal"])
-        self.assertIn("toby", adopted["needs"][0])
-        self.assertEqual(failing(gate(self.root, "VR-SEC-FIX-1", "quinn")), {"review:tag:security"})
+        self.review("REVIEW-1", "quinn", "accepted", 1)
+        self.assertEqual(failing(gate(self.root, "REVIEW-1", "quinn")), {"review:tag:security"})
         waiting = json.loads(softory(self.root, "queue", "--agent", "toby").stdout)["reviews_waiting"]
-        self.assertEqual([item["id"] for item in waiting], ["VR-SEC-FIX-1"])
-        self.review("VR-SEC-FIX-1", "toby", "accepted", 1)
-        self.assertTrue(gate(self.root, "VR-SEC-FIX-1", "quinn")["pass"])
-
-    def test_only_the_owner_turns_older_work_into_a_review_record(self) -> None:
-        # Quinn's own fix from before softory, in review with no independent review.
-        coord(self.root, "task", "create", "--id", "VR-FIX-2", "--title", "Fix", "--actor", "owner", "--assignee", "quinn")
-        self.build("VR-FIX-2", "quinn", kind="artifact")
-        self.build("TASK-1", "jade")
-        self.review("VR-FIX-2", "quinn", "accepted", 1)
-        self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-FIX-2", "quinn")))
-        asked = json.loads(softory(self.root, "adopt", "VR-FIX-2", "--unit", "review", "--for", "TASK-1",
-                                   "--actor", "quinn").stdout)
-        self.assertIn("softory approve --all", asked["next"])
-        self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-FIX-2", "quinn")))  # still needs someone else
-        refused = softory(self.root, "approve", "--all", check=False)
-        self.assertIn("owner_terminal_required", refused.stderr)
-        shown = subprocess.run(in_terminal(shlex.join([str(self.root / ".agents/softory/bin/softory"), "approve", "--all"])),
-                                input="no\n", cwd=self.root, capture_output=True, text=True, check=False)
-        self.assertIn('CHECK THESE FIRST', shown.stdout)  # a fix posing as a review is flagged
-        self.assertIn('VR-FIX-2 ("Fix")', shown.stdout)
-        rejected = at_terminal(self.root, "approve", asked["proposal"], "--reject")
-        self.assertEqual(rejected["status"], "rejected")
-        self.assertIn("review:unit:legacy", failing(gate(self.root, "VR-FIX-2", "quinn")))
-        self.assertEqual(json.loads(softory(self.root, "proposals").stdout), [])
+        self.assertEqual([item["id"] for item in waiting], ["REVIEW-1"])
+        self.review("REVIEW-1", "toby", "accepted", 1)
+        self.assertTrue(gate(self.root, "REVIEW-1", "quinn")["pass"])
 
     def test_follow_up_joins_the_story_without_holding_its_source(self) -> None:
         self.build("TASK-1", "jade")
@@ -477,7 +410,6 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("review:tag:security", failing(gate(self.root, "TASK-2", "toby")))  # nothing granted yet
         refused = softory(self.root, "approve", "PROP-1", check=False)
         self.assertIn("owner_terminal_required", refused.stderr)
-        self.assertIn("PROP-1", at_terminal(self.root, "approve", "--all")["note"])  # stand-ins go by ID, not --all
         declined = subprocess.run(in_terminal(shlex.join([str(self.root / ".agents/softory/bin/softory"), "approve", "PROP-1"])),
                                    input="no\n", cwd=self.root, capture_output=True, text=True, check=False)
         self.assertIn("not_approved", declined.stdout)

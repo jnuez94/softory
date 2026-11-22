@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.11] - 2026-11-22
+
+Removals. Six features go that the pilot never used or that doubled something simpler, about 650 lines of code and tests. The owner approved the list; the tmux and Terminal windows the runner opens stay. The README's "Removed in 0.6.11" says what to do in place of each.
+
+- **`softory adopt` and the rule for tasks with no unit.** `softory adopt`, review-adoption proposals, `softory approve --all`, the `legacy` entry in `gates.json`, the `*` reviewer it alone used, and the review-run guess in `softory triage` are gone. A task with no unit now fails `softory gate` on `unit`, where it used to close on one accepted review from anyone but the builder. Tag it as a unit to give it the full gate. Tablet was checked first: all 898 of its tasks have a unit.
+- **`softory settle` and the extra round.** A unit at `task_caps.review_rounds` stops and goes to the owner's digest, which now says to split it, drop it, or raise the cap. Quinn is no longer woken to settle it, and `decisions.quinn_settles` is gone.
+- **The stronger model after two rounds.** `task_caps.escalate_model_after` and `models.<role>.escalate` are gone, and the run log no longer has `escalated`. `softory charter approve` drops an `escalate: null` left in an approved charter, so the next approval isn't refused; one that names a model is refused as an unknown setting.
+- **`softory usage --team`.** `teamstats.py` is gone. `softory usage` still counts today's sessions per role.
+- **Flaky-test retry.** `verify.retry` and `flakes.jsonl` are gone: a failing verify run is a failure. Verdicts recorded before the upgrade still count.
+- **`softory defer`.** `softory escalate --holds` is the one way to hold units. A unit parked with `softory defer` is no longer held after the upgrade. In Tablet the two deferred units are both done.
+- **A charter that still sets a removed setting** (`decisions.quinn_settles`, `task_caps.escalate_model_after`, `verify.retry`) is refused at its next approval with the setting named. Tablet's approved charter sets none of them.
+
 ## [0.6.10] - 2026-11-22
 
 Records in plain language. Instruction text only; nothing softory does changes. In Tablet a message to Jade ran to twelve sentences of shorthand ("ordinary release", "revision-bound claim", "final source") that the owner could not follow, apart from its missing spaces.

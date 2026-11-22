@@ -159,7 +159,7 @@ class HarnessTest(unittest.TestCase):
         script = (f"{COORDINATION} --session \"$COORDINATION_SESSION\" task claim TASK-1 --agent jade "
                   f"--if-revision {revision(self.root, 'TASK-1')}; sleep 4; touch .git/late")
         self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script]}},
-                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+                      "models": {"jade": {"harness": "fake", "model": "m1"}},
                       "feasibility": {"required": False}})
         runner_process = subprocess.Popen([str(self.root / ".agents/softory/bin/softory"), "run-role", "jade"],
                                           cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -190,7 +190,7 @@ class HarnessTest(unittest.TestCase):
                                                                  "usage": {"input_tokens": 1, "output_tokens": 1}}))
         script = "cat .git/report.json"
         self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script, "sh", "{prompt}"]}},
-                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+                      "models": {"jade": {"harness": "fake", "model": "m1"}},
                       "feasibility": {"required": False}})
         ran = json.loads(softory(self.root, "run-role", "jade").stdout)
         self.assertEqual(ran["changes"], 0)  # the fake harness did nothing
@@ -203,7 +203,7 @@ class HarnessTest(unittest.TestCase):
         script = (f"{COORDINATION} --session \"$COORDINATION_SESSION\" task claim TASK-1 --agent jade "
                   f"--if-revision {revision(self.root, 'TASK-1')}")  # then the harness exits, claim held
         self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script]}},
-                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+                      "models": {"jade": {"harness": "fake", "model": "m1"}},
                       "feasibility": {"required": False}})
         softory(self.root, "run-role", "jade")
         task = coord(self.root, "task", "show", "TASK-1")["data"]

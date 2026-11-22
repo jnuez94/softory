@@ -59,19 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", nargs="?")
     p.add_argument("--all", action="store_true", help="Also list tasks without a unit")
 
-    p = sub.add_parser("adopt", help="Bring a task created before softory into an epic or story, or ask the owner "
-                                     "to mark it a review record")
-    p.add_argument("id")
-    p.add_argument("--unit", choices=["story", "task", "bug", "review"], required=True)
-    p.add_argument("--for", dest="for", metavar="IDS",
-                   help="For a review: the tasks it reviewed, comma-separated (default: the tasks it informs on)")
-    p.add_argument("--parent", help="EPIC-n for a story, STORY-n for a task, either for a bug")
-    p.add_argument("--lane", choices=LANES, help="Required for a task or bug")
-    p.add_argument("--tags", help="Extra review tags: arch, ui, security, auth, data, deps")
-    p.add_argument("--assignee", help="Reassign it to this agent (default: keep the current assignees)")
-    p.add_argument("--actor", help="Acting role (default: $SOFTORY_ROLE)")
-
-    sub.add_parser("triage", help="Finished work left open, review runs to adopt, and stale sessions")
+    sub.add_parser("triage", help="Finished work left open, work closed outside softory, and stale sessions")
 
     p = sub.add_parser("feedback", help="Tell softory's maintainers what got in your way; --list shows the notes")
     p.add_argument("note", nargs="?", help="What happened, and what you expected")
@@ -143,9 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="Include approved and rejected ones")
 
     p = sub.add_parser("approve", help="Apply proposals (owner only, at a terminal)")
-    p.add_argument("proposal", nargs="?", help="PROP-n, or several comma-separated")
-    p.add_argument("--all", dest="every", action="store_true",
-                   help="Every waiting review adoption, after one yes (stand-ins and waivers go by ID)")
+    p.add_argument("proposal", help="PROP-n, or several comma-separated")
     p.add_argument("--reject", action="store_true", help="Reject them instead")
 
     p = sub.add_parser("ruling", help="Record a decision the owner made, under the owner's name, marked recorded by you")
@@ -282,8 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "description_file", None):  # the file is the description that is saved, so it is what is checked
             args.description = Path(args.description_file).read_text(encoding="utf-8")
         if args.command not in ("install", "escalate"):  # escalate names every problem with its text at once
-            said = [v for k in prose.OPTIONS if k not in prose.IDS.get(args.command, ())
-                    for v in [getattr(args, k[2:].replace("-", "_"), None)] if v]
+            said = [v for k in prose.OPTIONS for v in [getattr(args, k[2:].replace("-", "_"), None)] if v]
             if said:
                 prose.check([t for v in said for t in (v if isinstance(v, list) else [v])], Project.find().role_ids())
         return _dispatch(args)
@@ -319,9 +304,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(ops.dumps({**{k: v for k, v in made.items() if k != "id"}, "id": made["id"]}), end="")
     elif args.command == "tree":
         print(work.tree(project, coord, args.id, args.all), end="")
-    elif args.command == "adopt":
-        options = dict(vars(args), actor=work.actor_of(args.actor))
-        print(ops.dumps(team.adopt(project, coord, args.id, args.unit, options)), end="")
     elif args.command == "end":
         print(ops.dumps(work.end(project, coord, args.session)), end="")
     elif args.command == "feedback":
@@ -366,7 +348,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif args.command == "proposals":
         print(ops.dumps(owner.proposals(project, args.all)), end="")
     elif args.command == "approve":
-        print(ops.dumps(owner.approve(project, coord, split_list(args.proposal), args.reject, args.every)), end="")
+        print(ops.dumps(owner.approve(project, coord, split_list(args.proposal), args.reject)), end="")
     elif args.command == "ruling":
         actor = work.actor_of(args.actor)
         result = owner.ruling(project, coord, args.title, args.decision, args.where, args.context, actor,

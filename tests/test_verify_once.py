@@ -184,26 +184,12 @@ class VerifyOnceTest(unittest.TestCase):
         self.assertFalse(dirty["passed"])
         self.assertEqual(dirty["design"]["blocking"], ["web/app.css:4 gradient-text (warning)"])
 
-    def test_a_flaky_failure_passes_on_its_retry_and_is_logged(self) -> None:
-        self.approve({"command": "echo first; false", "retry": "echo second"})
-        sha = self.commit("web/data.ts", "export const a = 1\n")
-        result = self.verify(self.task)
-        self.assertTrue(result["passed"])
-        self.assertIn("flaky test", result["flaky"])
-        self.assertIn("one bug", result["flaky"])
-        rows = [json.loads(line) for line in
-                (self.root / ".coordination/softory/flakes.jsonl").read_text().splitlines()]
-        self.assertEqual([(r["task"], r["commit"]) for r in rows], [(self.task, sha)])
-        self.assertIn("first", Path(rows[0]["log"]).read_text())
-        self.approve({"command": "false", "retry": "false"})  # it fails twice: a failure
-        self.assertFalse(self.verify(self.task)["passed"])
-
     def test_a_pass_under_other_settings_does_not_pass_the_gate(self) -> None:
-        self.approve({"command": "false", "retry": "true"})
+        self.approve({"command": "true"})
         self.commit("web/data.ts", "export const a = 1\n")
-        self.assertTrue(self.verify(self.task)["passed"])  # on its retry
+        self.assertTrue(self.verify(self.task)["passed"])
         self.assertNotIn("verified", failing(gate(self.root, self.task, "jade")))
-        self.approve({"command": "false"})  # the owner drops the retry: that pass says nothing about these tests
+        self.approve({"command": "false"})  # the owner changes the command: that pass says nothing about these tests
         self.assertIn("verified", failing(gate(self.root, self.task, "jade")))
 
     def test_a_reused_pass_gives_way_to_a_retest_that_failed_meanwhile(self) -> None:

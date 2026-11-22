@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import charter as charters
-from . import digest, intake, ops, runner, runstate, setup, teamstats, verify
+from . import digest, intake, ops, runner, runstate, setup, verify
 from .coordination import Coordination
 from .owner import confirm_at_terminal
 from .project import Project
@@ -54,10 +54,7 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--send", action="store_true")
     p = sub.add_parser("schedule", help="Write a launchd job and print a cron line for the runner")
     p.add_argument("--minutes", type=int, default=5)
-    p = sub.add_parser("usage", help="Today's runs, minutes, tokens, and cost per role against the budget")
-    p.add_argument("--team", action="store_true", help="Instead: sessions and messages per delivered task, and "
-                   "how often each reviewer's requests led to new code")
-    p.add_argument("--days", type=float, default=7, help="With --team: the window (reviews use twice this)")
+    sub.add_parser("usage", help="Today's runs, minutes, tokens, and cost per role against the budget")
 
 
 def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) -> int:
@@ -96,13 +93,11 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
             result["paged"] = digest.page_due(project, coord, charter, force_digest=True)
     elif command == "schedule":
         result = runner.schedule(project, args.minutes)
-    elif args.team:
-        result = teamstats.team_report(project, coord, args.days)
     else:
         charter = charters.load(project)
         today = runstate.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        sessions = teamstats.sessions_by_role(coord, today)
-        result = {role: {**runstate.budget(project, charter, role), "sessions_today": sessions.get(role, 0)}
+        started = [row["agent_id"] for row in coord.all_rows("session", "list", "--where", f"started_at:ge={today}")]
+        result = {role: {**runstate.budget(project, charter, role), "sessions_today": started.count(role)}
                   for role in charter["run"]["roles"]}
         result["last_7_days"] = digest.week(project, coord)
     print(ops.dumps(result), end="")

@@ -123,38 +123,6 @@ class StandInTest(unittest.TestCase):
         self.assertTrue(gate.evaluate(story, gates, {}, [], "pat")["pass"])
 
 
-class LegacyTest(unittest.TestCase):
-    """Tasks created before softory: no unit tag, project-style IDs."""
-
-    def evaluate(self, item: dict, actor: str = "quinn") -> dict:
-        return gate.evaluate(item, GATES, {}, [], actor)
-
-    def legacy(self, **fields: object) -> dict:
-        return task(id="VR-FIX-1", tags="", assignees=["quinn"], **fields)
-
-    def test_any_independent_review_passes(self) -> None:
-        report = self.evaluate(self.legacy(reviews=[review("avery", "accepted")]))
-        self.assertTrue(report["pass"], report)
-        self.assertEqual(report["unit"], "legacy")
-
-    def test_builder_review_never_counts(self) -> None:
-        self.assertFalse(self.evaluate(self.legacy(reviews=[review("quinn", "accepted")]))["pass"])
-
-    def test_rejection_still_blocks(self) -> None:
-        reviews = [review("avery", "accepted"), review("darwin", "changes_requested")]
-        self.assertFalse(self.evaluate(self.legacy(reviews=reviews))["pass"])
-
-    def test_owner_or_assignee_closes(self) -> None:
-        item = self.legacy(reviews=[review("avery", "accepted")])
-        self.assertTrue(self.evaluate(item, actor="owner")["pass"])
-        self.assertFalse(self.evaluate(item, actor="avery")["pass"])
-
-    def test_without_a_legacy_rule_no_unit_fails(self) -> None:
-        gates = {k: v for k, v in GATES.items() if k != "legacy"}
-        report = gate.evaluate(self.legacy(reviews=[review("avery", "accepted")]), gates, {}, [], "quinn")
-        self.assertFalse(report["pass"])
-
-
 class BackupReviewerTest(unittest.TestCase):
     """When the only reviewer a tag names built the task, its if_builder backup reviews."""
 
@@ -162,17 +130,17 @@ class BackupReviewerTest(unittest.TestCase):
         return gate.evaluate(item, GATES, {}, [], actor)
 
     def threat_model(self, *reviews: dict) -> dict:
-        return task(id="VR-SEC-MODEL", tags="security,threat-model", assignees=["toby"], reviews=list(reviews))
+        return task(tags="unit:task,parent:STORY-1,lane:frontend,security,threat-model", assignees=["toby"], reviews=list(reviews))
 
     def test_quinn_reviews_tobys_own_security_work(self) -> None:
-        report = self.evaluate(self.threat_model(review("avery", "accepted")))
+        report = self.evaluate(self.threat_model(review("gold", "accepted")))
         security = next(c for c in report["checks"] if c["check"] == "review:tag:security")
         self.assertIn("toby built it, so quinn reviews", security["detail"])
         self.assertFalse(security["pass"])
-        self.assertTrue(self.evaluate(self.threat_model(review("avery", "accepted"), review("quinn", "accepted")))["pass"])
+        self.assertTrue(self.evaluate(self.threat_model(review("gold", "accepted"), review("quinn", "accepted")))["pass"])
 
     def test_toby_still_never_reviews_his_own(self) -> None:
-        self.assertFalse(self.evaluate(self.threat_model(review("avery", "accepted"), review("toby", "accepted")))["pass"])
+        self.assertFalse(self.evaluate(self.threat_model(review("gold", "accepted"), review("toby", "accepted")))["pass"])
 
     def test_backup_only_when_the_specialist_built_it(self) -> None:
         item = task(tags="unit:task,parent:STORY-1,lane:frontend,security", reviews=[review("gold", "accepted"), review("quinn", "accepted")])
@@ -279,7 +247,7 @@ class ReviewRecordTest(unittest.TestCase):
 
     def test_a_plain_review_tag_is_not_a_review_unit(self) -> None:
         report = gate.evaluate(task(id="VR-FIX-9", tags="review,security", assignees=["quinn"]), GATES, {}, [], "quinn")
-        self.assertEqual(report["unit"], "legacy")
+        self.assertIsNone(report["unit"])
 
     def test_follow_up_ids_from_free_text(self) -> None:
         self.assertEqual(units.follow_up_ids("BUG-9 (Jade default frontend), BUG-10 (Gold); P2 VR-FIX-B005-006E."),

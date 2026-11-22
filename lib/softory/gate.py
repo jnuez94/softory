@@ -4,14 +4,14 @@
 statuses of the tasks it depends on and of its children, and gates.json, and
 returns every check with a pass/fail and a reason.
 
-How it adapts to a project that already had a team:
+The owner's exceptions:
 
 - ``gates["stand_ins"]`` lists grants (see grants.py). A stand-in may review
   and close wherever its roles may. A grant that names tasks counts on those
   tasks only, and a grant with an end date lapses after it.
-- A task with no unit (usually created before softory joined) falls under
-  ``gates["legacy"]``. Its reviewer ``"*"`` means anyone but the builder.
 - ``gates["waivers"]`` lets one review check pass on one task, by the owner.
+
+A task with no unit has no spec and passes no gate.
 
 Two rules keep the gate from asking the impossible:
 
@@ -34,18 +34,13 @@ from typing import Any
 from . import grants
 from .units import code_evidence_types, follow_up_ids, lane_of, live_evidence, tags_of, targets_of, unit_of
 
-ANYONE = "*"
 RECORD_STATUSES = ("review", "blocked", "todo")
 
 
 def spec_for(task: dict[str, Any], gates: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-    """The task's unit and its gate spec. A task with no unit uses the legacy spec."""
+    """The task's unit and its gate spec. A task with no unit has no spec, and passes no gate."""
     unit = unit_of(task, gates)
-    if unit:
-        return unit, gates["units"][unit]
-    if "legacy" in gates:
-        return "legacy", gates["legacy"]
-    return None, {}
+    return (unit, gates["units"][unit]) if unit else (None, {})
 
 
 def with_stand_ins(roles: list[str], gates: dict[str, Any], task_id: str | None = None,
@@ -75,7 +70,7 @@ def required_reviews(task: dict[str, Any], gates: dict[str, Any]) -> list[dict[s
     for requirement in requirements:
         named = list(requirement["reviewers"])
         backup = requirement.get("if_builder")
-        specialist_built = bool(backup) and requirement.get("not_self") and ANYONE not in named
+        specialist_built = bool(backup) and requirement.get("not_self")
         if specialist_built and built_by and built_by <= set(named):
             requirement["why"] += f" ({', '.join(named)} built it, so {' or '.join(backup)} reviews)"
             reviewers = with_stand_ins(list(backup), gates, task_id)
@@ -110,10 +105,9 @@ def record_requirements(task: dict[str, Any], gates: dict[str, Any]) -> list[dic
     return requirements
 
 
-def eligible(requirement: dict[str, Any], built_by: set[str], latest: dict[str, dict[str, Any]]) -> list[str]:
-    """Who can satisfy the requirement. For ``*`` that is whoever has reviewed."""
-    pool = list(latest) if ANYONE in requirement["reviewers"] else requirement["reviewers"]
-    return [r for r in pool if not (requirement.get("not_self") and r in built_by)]
+def eligible(requirement: dict[str, Any], built_by: set[str]) -> list[str]:
+    """Who can satisfy the requirement."""
+    return [r for r in requirement["reviewers"] if not (requirement.get("not_self") and r in built_by)]
 
 
 def ask(candidates: list[str], latest: dict[str, dict[str, Any]], rotation: list[str], task_id: str,
@@ -139,7 +133,7 @@ def ask(candidates: list[str], latest: dict[str, dict[str, Any]], rotation: list
 def may_review(requirement: dict[str, Any], agent: str, built_by: set[str]) -> bool:
     if requirement.get("not_self") and agent in built_by:
         return False
-    return agent in requirement["reviewers"] or ANYONE in requirement["reviewers"]
+    return agent in requirement["reviewers"]
 
 
 def builders(task: dict[str, Any]) -> set[str]:
@@ -205,8 +199,8 @@ def evaluate(
                              "changed since the owner installed softory: " + ", ".join(changed)
                              + ". Rules change only through a softory release or softory approve." if changed
                              else "softory's rules are as installed"))
-    unit_detail = {None: "no unit:* tag or known ID prefix", "legacy": "no unit tag, so the legacy rule applies"}
-    checks.append(_check("unit", unit is not None, unit_detail.get(unit, f"unit is {unit}")))
+    checks.append(_check("unit", unit is not None, f"unit is {unit}" if unit else
+                         "no unit:* tag or known ID prefix: softory closes only units; tag it (for example unit:task)"))
     checks.append(_status_check(task, record, actor))
     rows = task.get("evidence") or []
     withdrawn = len(rows) - len(live_evidence(rows))  # retracted rows and the markers that retract them
@@ -234,9 +228,9 @@ def evaluate(
     if record:
         checks += _record_checks(task, built_by, latest, accepting, related or {})
     for requirement in required_reviews(task, gates):
-        candidates = eligible(requirement, built_by, latest)
+        candidates = eligible(requirement, built_by)
         passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
-        named = ANYONE not in requirement["reviewers"] and " or ".join(candidates)
+        named = " or ".join(candidates)
         detail = (
             f"accepted by {', '.join(passed_by)}"
             if passed_by

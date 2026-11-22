@@ -14,9 +14,8 @@
     "notes": ""
   },
   "decisions": {
-    "description": "Every escalation names a recommended option and whether it can be undone. One that can be undone applies after default_after_hours with no answer, as a decision the owner can reverse with softory answer; one that can't waits. With quinn_settles, Quinn splits, drops, or allows one more round on a unit at the review cap (one extra round per unit); the owner sees it in the digest.",
-    "default_after_hours": 24,
-    "quinn_settles": true
+    "description": "Every escalation names a recommended option and whether it can be undone. One that can be undone applies after default_after_hours with no answer, as a decision the owner can reverse with softory answer; one that can't waits.",
+    "default_after_hours": 24
   },
   "feasibility": {
     "description": "Before a story's tasks start, a fresh Quinn run on a different model reads the plan, the charter, and the environment and records pass or what's missing. With required, todo tasks under a story wait for a pass.",
@@ -53,7 +52,6 @@
   "task_caps": {
     "description": "A unit with review_rounds requests for changes stops and goes to the owner. Review records never count, and up to free_evidence_rounds requests whose every item is labelled evidence: are free.",
     "review_rounds": 3,
-    "escalate_model_after": 2,
     "free_evidence_rounds": 1
   },
   "waste": {
@@ -78,10 +76,9 @@
     "max_wait_minutes": 60
   },
   "verify": {
-    "description": "softory verify runs command at the unit's commit, one at a time per project. setup, when set, runs first and its failure is a setup failure, not a test failure. share lists folders from the main checkout to bring in, cloned copy-on-write (share_mode clone) so an installer can't delete them; link is the 0.4 behaviour. keep lists globs copied out of the tree when a run fails. A commit that passed is not tested again while these settings stay the same (softory verify --fresh forces it). retry, when set, is a command that reruns only what failed (pytest --lf, playwright test --last-failed); it runs once after a failure, and a pass then counts as a pass and is logged as a flake.",
+    "description": "softory verify runs command at the unit's commit, one at a time per project. setup, when set, runs first and its failure is a setup failure, not a test failure. share lists folders from the main checkout to bring in, cloned copy-on-write (share_mode clone) so an installer can't delete them; link is the 0.4 behaviour. keep lists globs copied out of the tree when a run fails. A commit that passed is not tested again while these settings stay the same (softory verify --fresh forces it).",
     "command": "",
     "setup": "",
-    "retry": "",
     "timeout_minutes": 20,
     "share": [],
     "share_mode": "clone",
@@ -154,13 +151,13 @@
     "gpt-6.1-sol": {"input": 2, "cached": 0.1, "output": 10}
   },
   "models": {
-    "description": "Per role: the default harness and model, and an optional stronger one used once a task has had escalate_model_after rounds of requested changes. Chosen on 2026-10-24 from benchmarks that fit each role's work; see docs/models.md. also lists other harnesses the owner lets the role start on (softory start refuses the rest).",
-    "greg": {"harness": "codex", "model": "gpt-6-astra", "escalate": null, "also": []},
-    "darwin": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
-    "quinn": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
-    "jade": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
-    "gold": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []},
-    "toby": {"harness": "codex", "model": "gpt-6-astra", "escalate": null, "also": []},
-    "sage": {"harness": "claude", "model": "claude-opus-5-5", "escalate": null, "also": []}
+    "description": "Per role: the harness and model. Chosen on 2026-10-24 from benchmarks that fit each role's work; see docs/models.md. also lists other harnesses the owner lets the role start on (softory start refuses the rest).",
+    "greg": {"harness": "codex", "model": "gpt-6-astra", "also": []},
+    "darwin": {"harness": "claude", "model": "claude-opus-5-5", "also": []},
+    "quinn": {"harness": "claude", "model": "claude-opus-5-5", "also": []},
+    "jade": {"harness": "claude", "model": "claude-opus-5-5", "also": []},
+    "gold": {"harness": "claude", "model": "claude-opus-5-5", "also": []},
+    "toby": {"harness": "codex", "model": "gpt-6-astra", "also": []},
+    "sage": {"harness": "claude", "model": "claude-opus-5-5", "also": []}
   }
 }

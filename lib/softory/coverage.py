@@ -73,7 +73,7 @@ def check(project: Project, task: dict[str, Any]) -> dict[str, Any] | None:
     latest = latest_reviews(task)
     owed = []
     for requirement in required_reviews(task, gates):
-        accepted = [r for r in eligible(requirement, builders(task), latest) if latest.get(r, {}).get("decision") in accepting]
+        accepted = [r for r in eligible(requirement, builders(task)) if latest.get(r, {}).get("decision") in accepting]
         if accepted and all(r in stale for r in accepted):
             owed += [r for r in accepted if r not in owed]
     return {"check": "reviews_cover_commit", "pass": not owed,

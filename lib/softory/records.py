@@ -26,7 +26,7 @@ from .gitlocal import is_tracked, need_commit
 from .project import Project
 from .work import actor_of
 
-COMMANDS = ("commit", "supersede", "escalate", "answer", "settle", "feasible", "defer", "report")
+COMMANDS = ("commit", "supersede", "escalate", "answer", "feasible", "report")
 ISSUE_LIMIT = 600
 ASK_LIMIT = 300
 REASON_LIMIT = 300
@@ -61,12 +61,6 @@ def add_parsers(sub: Any) -> None:
                    help="yes if it can be undone: then it applies after the charter's timeout with no answer")
     p.add_argument("--owner", help="Who decides; default the project owner")
     p.add_argument("--actor")
-    p = sub.add_parser("defer", help="Hide a unit from every queue on the owner's decision, or --lift it")
-    p.add_argument("id")
-    p.add_argument("--decision", help="The owner's decision: an answer, or a ruling from softory ruling")
-    p.add_argument("--until", help="Last day it stays hidden, YYYY-MM-DD (default: until lifted)")
-    p.add_argument("--lift", action="store_true", help="Bring it back now")
-    p.add_argument("--actor")
     p = sub.add_parser("answer", help="Answer an escalation, or replace one that defaulted (owner, at a terminal)")
     p.add_argument("id", help="The escalation")
     p.add_argument("text", help="Your answer, which the role that asked is told")
@@ -76,12 +70,6 @@ def add_parsers(sub: Any) -> None:
     p.add_argument("--needs", action="append", default=[], help="One thing the plan needs that the environment "
                    "doesn't declare; repeat for more")
     p.add_argument("--plan", help="The plan hash the check's prompt named")
-    p.add_argument("--actor")
-    p = sub.add_parser("settle", help="Settle a unit stopped at the review cap: retry, split, or drop (Quinn or owner)")
-    p.add_argument("id")
-    p.add_argument("action", choices=decide.ACTIONS)
-    p.add_argument("--reason", required=True)
-    p.add_argument("--into", help="With split: the smaller units you created, comma-separated")
     p.add_argument("--actor")
 
 
@@ -95,14 +83,6 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
         result = decide.answer(project, coord, args.id, args.text, confirm_at_terminal)
     elif args.command == "feasible":
         result = feasibility.record(project, coord, args.id, args.passed, args.needs, actor, args.plan)
-    elif args.command == "settle":
-        into = [i.strip() for i in (args.into or "").split(",") if i.strip()]
-        result = decide.settle(project, coord, charters.load(project), args.id, args.action, args.reason, actor, into)
-    elif args.command == "defer":
-        if args.lift == bool(args.decision):
-            raise SoftoryError("Give --decision to defer, or --lift to bring it back", "invalid_arguments")
-        result = unit_holds.lift(project, args.id, actor) if args.lift else unit_holds.defer(
-            project, coord, args.id, args.decision, args.until, actor)
     elif args.command == "report":
         result = report(project, coord, args.id, Path(args.file), args.type, args.keep, actor)
     elif args.command == "supersede":

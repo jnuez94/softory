@@ -62,14 +62,15 @@ def ledger(project: Project) -> dict[str, Any]:
 
 def settings_key(settings: dict[str, Any]) -> str:
     """A fingerprint of what decides a run's result besides the commit: the commands and the shared folders."""
-    parts = [settings.get("command") or "", settings.get("setup") or "", settings.get("retry") or "",
+    # The empty string is where verify.retry was until 0.6.11: dropping it would retest every commit that passed.
+    parts = [settings.get("command") or "", settings.get("setup") or "", "",
              sorted(settings.get("share") or []), settings.get("share_mode") or "clone"]
     return hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()[:12]
 
 
 def current(project: Project, charter: dict[str, Any], sha: str | None) -> dict[str, Any] | None:
     """The ledger entry for ``sha`` if it ran under the verify settings the charter names now. A result from
-    an older command, setup, retry, or set of shared folders says nothing about today's tests, so it reads
+    an older command, setup, or set of shared folders says nothing about today's tests, so it reads
     as never run."""
     entry = ledger(project).get(sha or "")
     # An entry from before softory recorded its settings doesn't say what it ran, so it reads as never run too.
@@ -172,9 +173,6 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
                  "settings": settings_key(settings), "designs": dict(previous.get("designs") or {})}
         if outcome["stage"] == "setup":
             entry["setup_failed"] = True
-        if outcome.get("flaky"):
-            entry["flaky"] = True
-            _note_flake(project, task_id, sha, actor, outcome)
         if found and tests_passed:
             entry["designs"][task_id] = {"passed": found["passed"], "detail": found["detail"], "at": entry["at"]}
         if not entry["designs"]:
@@ -197,10 +195,6 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
                              "with softory report.")
     if found:
         result["design"] = found
-    if outcome.get("flaky"):
-        result["flaky"] = (f"The first run failed and `{settings['retry']}` then passed: a flaky test. Its output is "
-                           f"in {outcome['flaky']}. If no open bug covers this flake, file one bug for it; "
-                           "don't file one per run.")
     return result
 
 
@@ -259,13 +253,6 @@ def _scan_in_tree(project: Project, sha: str, scan: dict[str, Any]) -> dict[str,
         shutil.rmtree(place, ignore_errors=True)
 
 
-def _note_flake(project: Project, task_id: str, sha: str, actor: str, outcome: dict[str, Any]) -> None:
-    row = {"at": outcome["started"].isoformat(timespec="seconds"), "task": task_id, "commit": sha, "by": actor,
-           "log": outcome["flaky"]}
-    with (project.state / "flakes.jsonl").open("a", encoding="utf-8") as log:
-        log.write(json.dumps(row) + "\n")
-
-
 def run_at(project: Project, charter: dict[str, Any], sha: str, label: str, actor: str) -> dict[str, Any]:
     """Run the verify command at a commit no unit owns (a merge candidate, the base) and record it."""
     settings = charter["verify"]
@@ -293,7 +280,6 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
     name = f"{task_id}-{sha[:12]}"
     shared, kept = {}, []
     found = None
-    flaky = None
     started = datetime.now(timezone.utc)
     try:
         for path in settings.get("share") or []:
@@ -308,13 +294,6 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
         if stage == "test":
             code, more = _shell(verifyenv.awake(settings["command"]), tree, timeout)
             output += more
-            if code not in (0, 124) and settings.get("retry"):  # one more try at what failed; a timeout isn't a flake
-                again, more = _shell(verifyenv.awake(settings["retry"]), tree, timeout)
-                if again == 0:
-                    first = out_dir / f"{name}.flake.log"
-                    first.write_text(output, encoding="utf-8")
-                    code, flaky = 0, str(first)
-                output += f"\n[softory] verify.retry exited {again}\n{more}"
         if stage == "test" and code == 0 and scan:
             found = design.scan(scan["launcher"], tree, scan["files"], scan.get("lines"))
             output += f"\n[softory] design detector: {found['detail']}\n"
@@ -328,7 +307,7 @@ def _run_in_tree(project: Project, settings: dict[str, Any], task_id: str, sha: 
     # A failure keeps the whole log for whoever has to fix it; a pass keeps the tail.
     log.write_text(output if code != 0 else output[-200_000:], encoding="utf-8")
     return {"stage": stage, "code": code, "output": output, "log": str(log), "shared": shared, "kept": kept,
-            "started": started, "design": found, "flaky": flaky}
+            "started": started, "design": found}
 
 
 def _checkout(root: Path, sha: str, tree: Path) -> bool | None:
