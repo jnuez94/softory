@@ -178,14 +178,15 @@ class TrackedInstructionsTest(unittest.TestCase):
         self.assertIn("Tabs, never spaces.", override)  # Codex reads the override, so it carries both
         self.assertIn("softory-operating-loop", override)
 
-    def test_sync_removes_the_override_once_the_project_stops_tracking_its_file(self) -> None:
+    def test_sync_keeps_writing_the_override_after_the_project_stops_tracking_its_file(self) -> None:
         softory(self.root, "sync")
-        self.assertTrue((self.root / "AGENTS.override.md").is_file())
         run(["git", "rm", "-q", "--cached", "AGENTS.md"], self.root)
         run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "untrack"], self.root)
+        (self.root / "AGENTS.md").write_text(self.rules + "\nSpaces after all.\n")
         softory(self.root, "sync")
-        self.assertFalse((self.root / "AGENTS.override.md").exists())  # Codex would read it before AGENTS.md
-        self.assertIn("softory-operating-loop", (self.root / "AGENTS.md").read_text())
+        override = (self.root / "AGENTS.override.md").read_text()  # Codex reads it first, so it must be current
+        self.assertIn("Spaces after all.", override)
+        self.assertIn("softory-operating-loop", override)
         self.assertEqual(git_status(self.root), "?? AGENTS.md\n")  # the project's own file, as it left it
 
     def test_sync_keeps_a_shared_folder_hidden_when_instruction_ownership_changes(self) -> None:
@@ -205,6 +206,24 @@ class TrackedInstructionsTest(unittest.TestCase):
         softory(self.root, "uninstall")
         self.assertEqual((self.root / "AGENTS.md").read_text(), self.rules)
         self.assertEqual(git_status(self.root), "")
+
+
+@needs_sources
+class LinkedWorktreeInstructionsTest(unittest.TestCase):
+    def test_a_linked_worktree_keeps_its_instructions_when_main_untracks_the_file(self) -> None:
+        holder, root = git_project({"README.md": "# app\n", "AGENTS.md": "# Our rules\n\nTabs, never spaces.\n"})
+        self.addCleanup(holder.cleanup)
+        install(root)
+        tree = root.parent / (root.name + "-wt")
+        softory(root, "worktree", "add", str(tree), "-b", "jade/list")
+        self.addCleanup(run, ["git", "worktree", "remove", "--force", str(tree)], root, None, False)
+        run(["git", "rm", "-q", "--cached", "AGENTS.md"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "untrack"], root)
+        softory(root, "sync")
+        linked = tree / "AGENTS.override.md"
+        self.assertTrue(linked.exists())  # a symlink into the main checkout: its target must still be there
+        self.assertIn("softory-operating-loop", linked.read_text())
+        self.assertEqual(git_status(tree), "")
 
 
 @needs_sources

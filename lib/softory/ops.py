@@ -383,17 +383,20 @@ def sync(project: Project) -> list[str]:
     Which file gets what is decided again each time, from what git tracks now. The install's answer goes
     stale: a file softory created is the project's own once the project commits it."""
     manifest = project.manifest()
-    actions = instructions.plan(project.root, set(manifest.get("owned_files", [])))
+    before = set(manifest.get("owned_files", []))
+    actions = instructions.plan(project.root, before)
+    was = manifest["instruction_actions"]
+    if "AGENTS.override.md" in was and "AGENTS.override.md" not in actions:
+        # Once softory writes the override it keeps writing it: linked worktrees link to that file, and Codex
+        # reads it before AGENTS.md. It follows the project's AGENTS.md, tracked or not.
+        actions = {"AGENTS.override.md": was["AGENTS.override.md"],
+                   **{name: action for name, action in actions.items() if name != "AGENTS.md"}}
     generated = project.bundle / "generated"
     base_file = generated / "base.md" if (generated / "base.md").is_file() else generated / "instructions.md"
     body = instructions.compose(base_file.read_text(encoding="utf-8"), project.stand_ins())
-    before = set(manifest.get("owned_files", []))
-    for name in manifest["instruction_actions"]:
-        if name not in actions:  # no longer softory's to write: a stale override would be read before AGENTS.md
-            _retire(project.root, name, before)
     owned = sorted(instructions.write(project.root, actions, body, _installed_scaffold_block(project)))
     (generated / "instructions.md").write_text(body, encoding="utf-8")
-    if actions != manifest["instruction_actions"] or owned != manifest.get("owned_files"):
+    if actions != was or owned != manifest.get("owned_files"):
         # Only the instruction files' own entries change: paths softory worktree --share added stay hidden.
         patterns = [p for p in manifest["exclude_patterns"] if p.lstrip("/") not in before]
         patterns += [f"/{name}" for name in owned]

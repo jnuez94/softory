@@ -142,7 +142,8 @@ def write(root: Path, actions: dict[str, str], instructions: str, scaffold_block
             path.write_text(title + body, encoding="utf-8")
             owned.append(name)
         elif action == "override":
-            source = (root / "AGENTS.md").read_text(encoding="utf-8")
+            agents = root / "AGENTS.md"  # gone on a branch without it: the override then carries softory's block alone
+            source = agents.read_text(encoding="utf-8") if agents.is_file() else ""
             path.write_text(override_text(source, instructions, scaffold_block), encoding="utf-8")
             owned.append(name)
         else:
