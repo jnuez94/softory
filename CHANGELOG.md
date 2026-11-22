@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.10] - 2026-11-22
+
+Records in plain language. Instruction text only; nothing softory does changes. In Tablet a message to Jade ran to twelve sentences of shorthand ("ordinary release", "revision-bound claim", "final source") that the owner could not follow, apart from its missing spaces.
+
+- **The instructions say who reads a record and what it must say.** The owner hasn't seen the session: say what happened, what it means, and what's next, in full plain sentences with no shorthand of the role's own.
+- **"Writing records" in `softory-operating-loop`.** The order to write in, naming a unit by ID and title, what to leave out, a length for a message (longer goes in a report), and one hard-to-read message from Tablet rewritten.
+
 ## [0.6.9] - 2026-11-22
 
 Records with words run together. In Tablet the owner read "blocks265, backend lane assignedJade", "retain2a5checkpoint and4159" and "CurrentJade owns265" in coordination records. Nothing in softory, the scaffold, or the tracker console changes a record's text: a message sent through `softory coord` reads back character for character. The role's model wrote it that way, dropping the space before a number or a name, and softory checked for that only in `softory escalate`.

@@ -91,6 +91,24 @@ The closer is the assignee for tasks, bugs, and review records, and Greg for sto
 - Quinn, for a unit at the review cap: `$S settle TASK-7 retry|split|drop --reason "..." [--into TASK-9,TASK-10]`. One extra round per unit; never reassign.
 - Wrong evidence on a unit: `$S supersede TASK-7 <evidence number> --reason "..."`. The row stays in the audit; the gate reads past it.
 
+## Writing records
+
+A message, review, decision, description, or note is read later by the owner and by roles that never saw your session. Write it so either can act on it without asking you.
+
+- **Order:** what happened or what you need, then why, then what happens next and who does it.
+- **Plain full sentences**, one point each. No telegraphic strings, and no labels you made up in this session ("ordinary release", "revision-bound claim", "final source"): say the thing itself.
+- **Name things once, exactly.** A unit is its ID, with its title the first time: `BUG-267` (probe-loop test). A file, command, check, or value goes in backticks. A role is named as a word of its own.
+- **Leave out** how you got there, what you ruled out, and rules the reader already follows (the gate, no waivers, no extra claims). Link a file for detail.
+- **Length:** a message is one to five sentences. If it needs more, it is a report: file it with `$S report` and send the link.
+
+Hard to read:
+
+> BUG267 sole test-only follow-up, blocks265, backend lane assignedJade through narrow cross-lane flex. CurrentJade owns265: retain2a5checkpoint; ordinaryrelease265 then revision-bound267claim.
+
+Readable:
+
+> `BUG-267` is a test-only follow-up that blocks `BUG-265`. Jade, please take it: it changes only `tests/integrations/google-feed.test.mjs`, which Quinn has approved as a cross-lane edit. Keep your `BUG-265` work at commit `2a5`, release `BUG-265`, then claim `BUG-267`. Quinn and a peer review `BUG-267`; Darwin still accepts the `BUG-265` UI.
+
 ## 9. End
 
 Release or finish every claim, then `$S end`.
