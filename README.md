@@ -17,7 +17,7 @@ On top of them, softory adds the team, the rules, and the craft.
 | **Boundaries** | A [RACI matrix](factory/governance/raci.md) with exactly one accountable role per activity, plus [decision, review, and work boundaries](factory/governance/boundaries.md), lanes, flex rules for when overlap is allowed, and escalation paths. |
 | **Units of work** | Epic (project) > story (feature) > task (function) or bug (fix), plus releases, with templates, a definition of ready and done, and a [flow for each](factory/workflows/work-units.md). |
 | **Skills** | Eight skills that load on demand, for Claude Code and Codex: operating loop, code quality, testing, code review, secure coding, design, product spec, and architecture. See [skills/](skills/). There's also a [catalog of open-source skills](docs/skill-sourcing.md) to pull instead of rebuilding. |
-| **Gate** | `softory close` refuses to finish a unit until the required reviews are in, nobody reviewed their own work, dependencies and children are done, evidence exists, no secret was committed, and the right role is closing. The scaffold enforces the basics too, so a raw close can't skip them. |
+| **Gate** | `softory close` refuses to finish a unit until the required reviews are in and cover the commit the unit delivers, nobody reviewed their own work, dependencies and children are done, evidence exists, no secret was committed, and the right role is closing. The scaffold enforces the basics too, so a raw close can't skip them. |
 | **Shipping** | With `merge.by softory`, softory merges finished units onto the base only when its tests pass there, keeps the base green, deploys each merge to staging with a smoke test, and gates releases. Production stays yours. |
 
 Model-agnostic: any role runs on any harness. The defaults pick each role's model by the benchmark that fits its work: **Claude Opus 5.5** for Darwin, Quinn, Jade, Gold, and Sage (agent coding, web design, and process), and **Codex with GPT-6 Astra** for Toby and Greg (security review and acceptance), so the gates that decide "safe" and "done" use a different model from the builders. [docs/models.md](docs/models.md) has the benchmarks and prices.
@@ -52,7 +52,7 @@ Everything softory adds is local. Nothing shows in `git status`, and nothing can
 
 - Softory uses **`.git/info/exclude`**, not `.gitignore`. Exclude rules work the same way but live only in your local `.git` folder, so the project's history and other clones show no trace of the factory. Each clone runs the installer once.
 - Softory runs the scaffold's installer with `--no-gitignore`, so it doesn't touch `.gitignore`.
-- Softory never edits a file the project tracks. If the project commits its own `AGENTS.md`, softory leaves it alone and writes `AGENTS.override.md`, which Codex reads instead. It holds a copy of your `AGENTS.md` plus softory's block, and `softory sync` refreshes it. For Claude Code, softory writes `CLAUDE.local.md`, which imports `@AGENTS.md` when your project relies on it.
+- Softory never edits a file the project tracks. If the project commits its own `AGENTS.md`, softory leaves it alone and writes `AGENTS.override.md`, which Codex reads instead. It holds a copy of your `AGENTS.md` plus softory's block, and `softory sync` refreshes it. Sync and uninstall check again each time, so an `AGENTS.md` softory created and you later committed is yours from then on. For Claude Code, softory writes `CLAUDE.local.md`, which imports `@AGENTS.md` when your project relies on it.
 - `softory doctor` checks all of this and lists every installed path.
 
 ## Use it
@@ -82,7 +82,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory stack <bottom> ... <top>` / `softory close <top> --stack` | Groups work built on other unfinished work, then closes the whole stack, or none of it if any member fails its gate, tests and lane included |
 | `softory tree [ID] [--all]` | Shows the epic > story > task hierarchy |
 | `softory queue` | Your claimed work, what you may close now, the reviews waiting on you, your assigned work, unread messages sent to you, the verify queue, and for Quinn the feasibility checks that are due |
-| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. Its `state` says `work`, `running`, `paused`, or `idle`. The runner uses it each tick, and a session you opened uses it to check on itself |
+| `softory pending [role]` | Exits 0 if the role has something to do and 3 if not, without starting a session. Its `state` says `work`, `running`, `paused`, or `idle`. The runner uses it each tick, and a session you opened uses it to check on itself. It also applies escalation defaults that are due, so they don't need a runner |
 | `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
 | `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
 | `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
@@ -92,7 +92,7 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory reviewers <ID>` | Who must review it, where each review stands, and who to `ask` when several may give it |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` / `close --ready` | Runs the gate, then moves it to done only if it passes. `--ready` closes every unit you may close that passes now |
-| `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one |
+| `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one. A review accepted for an earlier commit stops counting, and its reviewer is asked again |
 | `softory supersede <ID> <evidence> --reason ...` | Retracts a wrong evidence row (its adder, Quinn, or the owner). The row and its audit stay, with the reason on the retraction; the gate and `verify` read past it |
 | `softory escalate --issue ... --ask "...?" [--tasks IDs] [--owner who]` | Raises an escalation, to the owner by default. Refuses text the owner can't read at a glance: more than one question, too long, or words fused with numbers |
 | `softory adopt <ID> --unit task --parent STORY-n --lane ...` | Brings a task created before softory into a story. `--unit review` asks the owner to mark an older review run as a record, reading what it reviewed from its `informs` links (or `--for <IDs>`) |
@@ -173,7 +173,7 @@ You can also run the team as sessions you open in the Claude or Codex app, each 
 
 ### What doesn't wait for you (0.5.0)
 
-- **Escalations default.** Each one names the option the role would take and whether it can be undone. If it can, the runner applies it after `decisions.default_after_hours` (24) with no answer, as a decision you can still replace with `softory answer`. If it can't, it waits, and the role carries on with work that doesn't depend on it.
+- **Escalations default.** Each one names the option the role would take and whether it can be undone. If it can, the runner's tick or any role's `softory pending` applies it after `decisions.default_after_hours` (24) with no answer, as a decision you can still replace with `softory answer`. If it can't, it waits, and the role carries on with work that doesn't depend on it.
 - **Feasibility before work starts.** Once a story has tasks, the runner starts a Quinn run on a different model (`feasibility.harness` and `model`, Codex by default) that reads only the plan, your vision and `out_of_scope`, and the declared `environment`. A pass lets the tasks start. Anything missing (a sign-in, a paid tier, an unlocked desktop) becomes a provisioning request in your digest, and Greg and Quinn re-plan around what's reachable; the check runs again after the change. Softory never enforces the environment; your harness does.
 - **Recovery.** Each tick ends sessions silent for twice the longest run (at least an hour) and puts what they claimed back to todo, so a crash or a sleeping Mac doesn't strand work.
 - **A `ui` unit needs one check against its reference** (evidence of type `reference`, `screenshot`, or `visual`) before it closes, since a green suite can miss a screen that never renders.

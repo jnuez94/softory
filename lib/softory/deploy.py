@@ -15,10 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import closed, verify, verifyenv
+from . import closed, coverage, verify, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
-from .gate import latest_reviews
 from .gitlocal import git
 from .project import Project
 from .units import live_evidence, unit_of
@@ -191,21 +190,7 @@ def release_checks(project: Project, charter: dict[str, Any], task: dict[str, An
                        "detail": f"not deployed and smoke-tested at {sha[:12]} as the charter defines it now: {', '.join(missing)}. Run softory "
                                  f"deploy <target> --release {task['id']}" if missing else
                                  f"{', '.join(staged)} passed at {sha[:12]}"})
-    if sha:  # a sign-off covers one commit: recording another one afterwards sends the release back to review
-        stale = stale_reviews(project, task)
-        result.append({"check": "reviews_cover_commit", "pass": not stale,
-                       "detail": f"accepted for another commit, not {sha[:12]}: {', '.join(stale)}. Each reviews again "
-                                 f"with --artifact {sha}" if stale else f"every accepted review names {sha[:12]}"})
+    covered = coverage.check(project, task)  # a sign-off covers one commit: recording another sends it back
+    if covered:
+        result.append(covered)
     return result
-
-
-def stale_reviews(project: Project, task: dict[str, Any]) -> list[str]:
-    """Reviewers whose accepted review of a release names another commit than the one it ships now."""
-    sha = verify.commit_of(project.root, task)
-    return sorted(who for who, review in latest_reviews(task).items()
-                  if sha and "accepted" in str(review.get("decision")) and not _covers(project, review, sha))
-
-
-def _covers(project: Project, review: dict[str, Any], sha: str) -> bool:
-    named = verify._SHA.findall(str(review.get("artifact_uri") or "").lower())  # noqa: SLF001
-    return any(verify._resolve(project.root, candidate) == sha for candidate in named)  # noqa: SLF001

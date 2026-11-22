@@ -103,12 +103,13 @@ def plan(root: Path, created_before: set[str]) -> dict[str, str]:
                 "tracked_instruction_file",
             )
     agents = root / "AGENTS.md"
-    if not agents.exists() or "AGENTS.md" in created_before:
-        actions["AGENTS.md"] = "create"
-    elif is_tracked(root, "AGENTS.md"):
+    # Tracked comes first: a file softory created is the project's once the project commits it.
+    if agents.exists() and is_tracked(root, "AGENTS.md"):
         override = root / "AGENTS.override.md"
         user_owned = override.exists() and "AGENTS.override.md" not in created_before
         actions["AGENTS.override.md"] = "block" if user_owned else "override"
+    elif not agents.exists() or "AGENTS.md" in created_before:
+        actions["AGENTS.md"] = "create"
     else:
         actions["AGENTS.md"] = "block"
     local = root / "CLAUDE.local.md"
@@ -141,7 +142,8 @@ def write(root: Path, actions: dict[str, str], instructions: str, scaffold_block
             path.write_text(title + body, encoding="utf-8")
             owned.append(name)
         elif action == "override":
-            source = (root / "AGENTS.md").read_text(encoding="utf-8")
+            agents = root / "AGENTS.md"  # gone on a branch without it: the override then carries softory's block alone
+            source = agents.read_text(encoding="utf-8") if agents.is_file() else ""
             path.write_text(override_text(source, instructions, scaffold_block), encoding="utf-8")
             owned.append(name)
         else:

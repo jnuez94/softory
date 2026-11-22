@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.6] - 2026-11-20
+
+Correctness. Two reviews of 0.6.4, one of them an outside assessment on macOS, found places where softory's records could say something that wasn't true. No new command.
+
+- **An accepted review covers the commit it was given for.** A task or bug whose evidence moves to a newer commit after a reviewer accepted fails the gate's new `reviews_cover_commit` check, goes back on that reviewer's queue, and is asked for again at the next handoff. A review that names a commit covers that commit only. One that names none covers the commit the unit delivered when the review was written, read from the evidence as it stood then, so a base named beside a head, a return to an earlier commit, or a later `softory supersede` doesn't move the review onto another commit. Only required reviews count: a sign-off nobody required holds nothing, and one reviewer's acceptance at the commit meets a requirement whoever else accepted an earlier one. Releases already worked this way; the gate, the queue, and the handoff now read one rule (`coverage.py`). Before, Jade could accept commit A, Gold could record commit B, and the unit closed with B unread.
+- **Sync and uninstall leave an `AGENTS.md` the project now tracks.** Softory remembered that it created the file and kept rewriting or deleting it after the owner committed project rules in it. Both now ask git each time; sync moves softory's block to `AGENTS.override.md`. Once softory writes the override it keeps writing it, refreshed from the project's `AGENTS.md` whether that file is tracked or not, because linked worktrees link to it and Codex reads it first. Paths hidden for `softory worktree --share` stay hidden.
+- **Two verifies started together run the tests once.** The check for a pass to reuse ran before the verify lock was taken, so both ran. It is checked again inside the lock.
+- **An error keeps its code while the scaffold logs operations.** With `COORDINATION_LOG` set, the scaffold's log lines broke softory's reading of an error, which came back as `coordination_failed`. Softory turns the log off for its own calls.
+- **Work that changed in the second a role last started still wakes it.** Records are stamped to the second, and `softory pending` asked for strictly later. A tie now counts.
+- **Escalation defaults apply without a runner.** `softory pending` applies the ones that are due, so attended work, which has no runner tick, gets them too. It ends no session and returns no claim; that stays with the runner.
+- **Tests.** The fixtures resolve the temporary project path (macOS reports `/var` as `/private/var`) and the two source checkouts, so relative paths work.
+
 ## [0.6.5] - 2026-11-13
 
 Right-first-time handoff. In Tablet 116 of 126 bugs were found in review, Jade typed 366 review requests by hand, and corrections went round the whole review again. The owner's remedy there (ask every review at once, re-review the change only, batch small fixes) is now what softory does. No new command.

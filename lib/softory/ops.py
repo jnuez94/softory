@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from . import SCAFFOLD_DIR, gitlocal, instructions, sessions
@@ -203,7 +204,7 @@ def _stack_siblings(project: Project, coordination: Coordination, args: list[str
     (``stack:<name>``) also counts for the stack's other bugs in review under the same parent, at the commit
     the review's ``--artifact`` names, that the reviewer didn't build. One review for several small fixes, by the owner's Tablet ruling;
     the reviewer opts in by naming the stack, so a verdict never spreads by accident."""
-    from . import lifecycle, verify  # noqa: PLC0415
+    from . import coverage, verify  # noqa: PLC0415
     from .gate import builders  # noqa: PLC0415
     from .units import parent_of, stack_of, unit_of  # noqa: PLC0415
 
@@ -222,7 +223,7 @@ def _stack_siblings(project: Project, coordination: Coordination, args: list[str
     task = shown["data"]
     # The verdict is for the commit its artifact names. A sibling that moved on since holds changes the
     # reviewer never saw, so it is covered only while its evidence still names that commit.
-    sha = lifecycle._reviewed_commit(project, {"artifact_uri": _option(args, "--artifact")})  # noqa: SLF001
+    sha = coverage.reviewed_commit(project, {"artifact_uri": _option(args, "--artifact")})
     siblings = []
     for summary in coordination.all_tasks("--tag", f"stack:{name}"):
         if summary["id"] == target or summary["status"] != "review" or unit_of(summary, gates) != "bug":
@@ -377,14 +378,45 @@ def tracker(project: Project, args: list[str]) -> int:
 
 
 def sync(project: Project) -> list[str]:
-    """Rewrite the instruction files: after AGENTS.md changes, or stand-ins change."""
-    actions = project.manifest()["instruction_actions"]
+    """Rewrite the instruction files: after AGENTS.md changes, or stand-ins change.
+
+    Which file gets what is decided again each time, from what git tracks now. The install's answer goes
+    stale: a file softory created is the project's own once the project commits it."""
+    manifest = project.manifest()
+    before = set(manifest.get("owned_files", []))
+    actions = instructions.plan(project.root, before)
+    was = manifest["instruction_actions"]
+    if "AGENTS.override.md" in was and "AGENTS.override.md" not in actions:
+        # Once softory writes the override it keeps writing it: linked worktrees link to that file, and Codex
+        # reads it before AGENTS.md. It follows the project's AGENTS.md, tracked or not.
+        actions = {"AGENTS.override.md": was["AGENTS.override.md"],
+                   **{name: action for name, action in actions.items() if name != "AGENTS.md"}}
     generated = project.bundle / "generated"
     base_file = generated / "base.md" if (generated / "base.md").is_file() else generated / "instructions.md"
     body = instructions.compose(base_file.read_text(encoding="utf-8"), project.stand_ins())
-    instructions.write(project.root, actions, body, _installed_scaffold_block(project))
+    owned = sorted(instructions.write(project.root, actions, body, _installed_scaffold_block(project)))
     (generated / "instructions.md").write_text(body, encoding="utf-8")
+    if actions != was or owned != manifest.get("owned_files"):
+        # Only the instruction files' own entries change: paths softory worktree --share added stay hidden.
+        patterns = [p for p in manifest["exclude_patterns"] if p.lstrip("/") not in before]
+        patterns += [f"/{name}" for name in owned]
+        gitlocal.write_exclude_block(project.root, patterns)
+        project.save_manifest({**manifest, "instruction_actions": actions, "owned_files": owned,
+                               "exclude_patterns": patterns})
     return sorted(actions)
+
+
+def _retire(root: Path, name: str, owned: set[str]) -> bool:
+    """Take softory out of one instruction file: delete a file it owns, or cut its block from the project's.
+    A file the project tracks is left as it is: the project committed it, softory's text included."""
+    path = root / name
+    if not path.exists() or gitlocal.is_tracked(root, name):
+        return False
+    if name in owned:
+        path.unlink()
+    else:
+        path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
+    return True
 
 
 def uninstall(project: Project, purge: bool) -> dict[str, Any]:
@@ -399,15 +431,7 @@ def uninstall(project: Project, purge: bool) -> dict[str, Any]:
                 shutil.rmtree(path)
                 removed.append(f"{skill_root}/{name}")
     owned = set(manifest.get("owned_files", []))
-    for name, action in manifest.get("instruction_actions", {}).items():
-        path = root / name
-        if not path.exists():
-            continue
-        if name in owned:
-            path.unlink()
-        else:
-            path.write_text(instructions.remove_block(path.read_text(encoding="utf-8")), encoding="utf-8")
-        removed.append(name)
+    removed += [name for name in manifest.get("instruction_actions", {}) if _retire(root, name, owned)]
     # Agents' feedback, the run log and the verify ledger live in .coordination/softory, kept with the history.
     keep_scaffold = manifest.get("scaffold_preexisting", True)
     for directory in ([] if keep_scaffold else [SCAFFOLD_DIR]) + [".agents/softory"]:

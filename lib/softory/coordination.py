@@ -63,6 +63,7 @@ class Coordination:
         env = dict(os.environ)
         env.pop("COORDINATION_SESSION", None)  # only pass the session we were told to
         env.pop("COORDINATION_DB", None)  # the project at self.root decides the database, not the caller's shell
+        env["COORDINATION_LOG"] = "off"  # an operation log on stderr would sit in front of the error envelope
         for attempt in (0, 1):
             completed = subprocess.run(  # noqa: S603 - fixed binary, argument list, no shell
                 command, cwd=self.root, env=env, capture_output=True, text=True, check=False

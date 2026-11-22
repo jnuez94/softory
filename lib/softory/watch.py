@@ -61,8 +61,10 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         if task_id in touched:
             touched[task_id] = max(touched[task_id], retried)
 
+    # Records are stamped to the second, so a change in the very second the role last started can't be told
+    # from one just before it. It counts as new: an extra look costs less than work nobody is woken for.
     def changed(ids: list[str]) -> list[str]:
-        return [i for i in ids if (since is None or touched.get(i, "") > since) and i not in capped]
+        return [i for i in ids if (since is None or touched.get(i, "") >= since) and i not in capped]
 
     work = queue(project, coord, agent, board)
     caps = charter["task_caps"]
@@ -123,7 +125,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     if agent == "quinn":
         unsettled = in_scope([i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
                               and i not in on_hold and decide.quinn_may_settle(project, charter, board.show(i))])
-        stuck = [i for i in unsettled if since is None or touched.get(i, "") > since]
+        stuck = [i for i in unsettled if since is None or touched.get(i, "") >= since]
         if stuck:
             reasons.append({"why": "units at the review cap: settle each with softory settle (retry, split, or drop)",
                             "ids": stuck})
@@ -137,7 +139,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
                           and i not in capped
                           and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
                           and str(board.by_id[i].get("updated_at") or "") <= at])
-    freed = [i for i in unhandled if since is None or freed_at[i] > since]
+    freed = [i for i in unhandled if since is None or freed_at[i] >= since]
     if freed:
         reasons.append({"why": "held work released: the owner answered, or the deferral ended", "ids": freed})
     # Capped units wait for a settlement, so a run that missed one retries it like any other waiting work.
