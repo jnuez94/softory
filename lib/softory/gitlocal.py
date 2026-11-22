@@ -36,6 +36,20 @@ def exclude_path(root: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def commit(root: Path, ref: str) -> str | None:
+    """The full hash of the commit ``ref`` names in this repository, or None."""
+    found = git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    return found.stdout.strip() if found.returncode == 0 else None
+
+
+def need_commit(root: Path, ref: str) -> str:
+    """``commit``, or a ``not_found`` error that names the ref."""
+    found = commit(root, ref)
+    if found is None:
+        raise SoftoryError(f"{ref} is not a commit in this repository", "not_found")
+    return found
+
+
 def toplevel(path: Path) -> Path | None:
     """The checkout (main or linked worktree) that contains ``path``."""
     result = git(path, "rev-parse", "--show-toplevel")

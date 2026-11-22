@@ -71,6 +71,10 @@ class Project:
     def roster(self) -> dict[str, Any]:
         return self.load_json("roles/roster.json")
 
+    @property
+    def owner_id(self) -> str:
+        return self.roster()["owner"]["id"]
+
     def gates(self) -> dict[str, Any]:
         """gates.json plus this project's stand-ins and waivers, today's date, and the integrity check."""
         gates = self.load_json("governance/gates.json")

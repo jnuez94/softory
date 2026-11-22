@@ -85,7 +85,7 @@ def apply_due(project: Project, coord: Coordination, charter: dict[str, Any],
               clock: datetime | None = None) -> list[str]:
     """Apply every undoable escalation's recommendation once its time is up. The runner calls this each tick."""
     clock = clock or _now()
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     applied: list[str] = []
     with _editing(project, "escalations.json") as rows:
         _apply(coord, charter, clock, owner, rows, applied)
@@ -125,7 +125,7 @@ def answer(project: Project, coord: Coordination, escalation_id: str, text: str,
     if not shown.get("ok"):
         raise SoftoryError(f"No escalation {escalation_id}", "not_found")
     row = recommendations(project).get(escalation_id, {})
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     raised_by = row.get("raised_by") or shown["data"].get("raised_by")
     confirm(f"Answer {escalation_id}: {text}")
     reversing = row.get("settled") == "defaulted"
@@ -168,7 +168,7 @@ def close_as_told(project: Project, coord: Coordination, escalation: dict[str, A
                   recorded_by: str) -> None:
     """Close an open escalation with the answer the owner gave in chat, which ``recorded_by`` wrote down as
     ruling ``decision``. In Tablet an escalation the owner had answered in a session stayed open for days."""
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     escalation_id = escalation["id"]
     row = recommendations(project).get(escalation_id, {})
     # Only if it still waits as it did when it was read: the owner's own answer in the meantime stands.
@@ -241,7 +241,7 @@ def settle(project: Project, coord: Coordination, charter: dict[str, Any], task_
         raise SoftoryError(f"Settle with one of {', '.join(ACTIONS)}", "invalid_arguments")
     if not reason.strip():
         raise SoftoryError("Say why with --reason", "invalid_arguments")
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     task = coord.task(task_id)
     if actor != owner and not (actor == "quinn" and quinn_may_settle(project, charter, task)):
         raise SoftoryError(f"Only the owner may settle {task_id} now: Quinn built it, already allowed its extra "

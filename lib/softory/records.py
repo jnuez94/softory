@@ -22,7 +22,7 @@ from . import charter as charters
 from . import decide, feasibility, holds as unit_holds, ops, prose
 from .coordination import Coordination
 from .errors import SoftoryError
-from .gitlocal import git, is_tracked
+from .gitlocal import is_tracked, need_commit
 from .project import Project
 from .work import actor_of
 
@@ -116,8 +116,8 @@ def dispatch(args: argparse.Namespace, project: Project, coord: Coordination) ->
 
 def commit(project: Project, coord: Coordination, task_id: str, sha: str, base: str | None,
            actor: str) -> dict[str, Any]:
-    head = _full(project, sha)
-    uri = f"commit:{head}" + (f";base={_full(project, base)}" if base else "")
+    head = need_commit(project.root, sha)
+    uri = f"commit:{head}" + (f";base={need_commit(project.root, base)}" if base else "")
     coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", "commit", "--actor", actor)
     return {"task": task_id, "commit": head, "uri": uri}
 
@@ -168,13 +168,6 @@ def _reserve(folder: Path, name: str) -> Path:
     raise SoftoryError(f"Too many reports named {name} under {folder}", "invalid_arguments")
 
 
-def _full(project: Project, sha: str) -> str:
-    found = git(project.root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
-    if found.returncode != 0:
-        raise SoftoryError(f"{sha} is not a commit in this repository", "not_found")
-    return found.stdout.strip()
-
-
 def supersede(project: Project, coord: Coordination, task_id: str, evidence_id: str, reason: str,
               actor: str) -> dict[str, Any]:
     """Only whoever added the row, Quinn, or the owner may retract it. The reason is kept on the retracting
@@ -183,7 +176,7 @@ def supersede(project: Project, coord: Coordination, task_id: str, evidence_id: 
     row = next((e for e in task.get("evidence") or [] if str(e.get("id")) == str(evidence_id)), None)
     if row is None:
         raise SoftoryError(f"{task_id} has no evidence row {evidence_id}", "not_found")
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     if actor not in (row.get("added_by"), "quinn", owner):
         raise SoftoryError(f"Only {row.get('added_by')}, quinn, or the owner may supersede evidence {evidence_id}",
                            "not_allowed")
@@ -232,7 +225,7 @@ def escalate(project: Project, coord: Coordination, issue: str, ask: str, tasks:
         raise SoftoryError("Rewrite the escalation so the owner can read it at a glance: " + "; ".join(problems),
                            "invalid_arguments")
     held = unit_holds.check_units(coord, [h.strip() for h in (holds or "").split(",") if h.strip()])
-    decider = owner or project.roster()["owner"]["id"]
+    decider = owner or project.owner_id
     related = list(dict.fromkeys([t.strip() for t in (tasks or "").split(",") if t.strip()] + held))
     # The same question is the same words about the same issue and units, to the same owner.
     asked = (_words(ask), _words(issue), decider, frozenset(related))

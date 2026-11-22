@@ -8,6 +8,15 @@ Records with words run together. In Tablet the owner read "blocks265, backend la
 - **The instructions say who reads a record.** One line: full sentences, a space between every word, number and name, IDs in full (`BUG-265`, not `265`), code in backticks, and short means fewer sentences, not dropped words.
 - **Not caught:** words joined with no number or role name in them ("multipleclaims", "existingICAL"), and an ID cut to its number with spaces around it. The instruction line covers those; the check has no word list.
 
+## [0.6.8] - 2026-11-22
+
+Duplicate code folded together. Nothing softory does changes.
+
+- **One way to resolve a commit.** `gitlocal.commit` and `gitlocal.need_commit` replace the same `git rev-parse --verify` call written in eight modules, two of them as identical private functions.
+- **One place for the owner's ID.** `Project.owner_id` replaces `project.roster()["owner"]["id"]` in 32 places.
+- **One comma-list splitter.** `units.split_list` replaces the two copies in `cli.py` and `work.py`, and `tags_of` uses it.
+- `softory workspace` with no commit now names `HEAD` in its error when the repository has no commit, where it said `None`.
+
 ## [0.6.7] - 2026-11-22
 
 The README says only what is true. A review of 0.6.4 checked its claims against the code; three were false and nine were partly true. No behaviour changes except the one fix below.

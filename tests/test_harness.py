@@ -238,9 +238,7 @@ class OrderingTest(unittest.TestCase):
             reviews: dict = {}
 
             class project:
-                @staticmethod
-                def roster() -> dict:
-                    return {"owner": {"id": "owner"}}
+                owner_id = "owner"
 
         wanted, rest = watch.unread_messages(Coord(), "jade", Board(), {}, page=2)
         self.assertEqual([m["id"] for m in wanted], ["MSG-5"])

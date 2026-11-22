@@ -97,7 +97,7 @@ def defer(project: Project, coord: Coordination, unit: str, decision: str, until
     """Hide ``unit`` from every queue, citing a decision the owner owns."""
     check_units(coord, [unit])
     shown = coord.call("decision", "show", decision)
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     if not shown.get("ok"):
         raise SoftoryError(f"No decision {decision}. Record the owner's word first with softory ruling", "not_found")
     if shown["data"].get("owner_id") != owner:

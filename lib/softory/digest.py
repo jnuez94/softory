@@ -37,7 +37,7 @@ def _hours_since(board: Board, task_id: str) -> float:
 
 def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Everything waiting on the owner, split into urgent and digest items. Each has a stable key."""
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     urgent, later = [], []
     for row in team._closed_outside_softory(project, coord):  # noqa: SLF001 - the same check triage runs
         urgent.append({"key": f"bypass-{row['id']}", "text": f"{row['id']} reached done without softory's gate"})
@@ -222,7 +222,7 @@ def _sent(project: Project) -> dict[str, str]:
 
 def _page(project: Project, coord: Coordination, charter: dict[str, Any], title: str, body: str, file: str,
           digest_day: str | None = None) -> None:
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     if digest_day:
         message_id = f"SOFTORY-DIGEST-{digest_day.replace('-', '')}"
         if not coord.call("message", "show", message_id).get("ok"):

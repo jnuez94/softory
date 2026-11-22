@@ -36,6 +36,7 @@ from . import design, leaks, verifyenv
 from .coordination import Coordination
 from .errors import SoftoryError
 from .gate import builders, with_stand_ins
+from .gitlocal import commit as resolve_commit
 from .gitlocal import git
 from .gitlocal import status_entries as gitlocal_status
 from .project import Project
@@ -98,7 +99,7 @@ def named_commit(root: Path, text: str) -> str | None:
     text = text.lower()
     named = _HEAD.findall(text)
     candidates = named[-1:] if named else list(dict.fromkeys(_SHA.findall(text)))
-    found = {full for full in (_resolve(root, c) for c in candidates) if full}
+    found = {full for full in (resolve_commit(root, c) for c in candidates) if full}
     return found.pop() if len(found) == 1 else None
 
 
@@ -108,13 +109,8 @@ def commits_of(root: Path, task: dict[str, Any]) -> set[str]:
     for row in live_evidence(task.get("evidence")):
         if str(row.get("evidence_type", "")).lower() in CODE_EVIDENCE:
             uri = str(row.get("uri", "")).lower()
-            found |= {_resolve(root, c) for c in _HEAD.findall(uri)[-1:] or _SHA.findall(uri)}
+            found |= {resolve_commit(root, c) for c in _HEAD.findall(uri)[-1:] or _SHA.findall(uri)}
     return found - {None}
-
-
-def _resolve(root: Path, candidate: str) -> str | None:
-    found = git(root, "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}")
-    return found.stdout.strip() if found.returncode == 0 else None
 
 
 def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id: str, actor: str,
@@ -132,9 +128,7 @@ def run(project: Project, coord: Coordination, charter: dict[str, Any], task_id:
                            "configuration_error")
     task = coord.task(task_id)
     sha = commit or commit_of(project.root, task)
-    if sha:
-        resolved = git(project.root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
-        sha = resolved.stdout.strip() if resolved.returncode == 0 else None
+    sha = resolve_commit(project.root, sha) if sha else None
     if not sha:
         raise SoftoryError(f"{task_id} has no commit evidence this repository knows; add one with softory commit "
                            "or pass --commit", "not_found")

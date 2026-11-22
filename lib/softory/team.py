@@ -81,7 +81,7 @@ def _review_targets(project: Project, coord: Coordination, task: dict[str, Any],
     ``--for``, the tasks it links to with ``informs`` are the targets, less
     other review runs and the reviewer's own work.
     """
-    owner = project.roster()["owner"]["id"]
+    owner = project.owner_id
     reviewers = gate_rules.builders(task)
     if actor not in reviewers and actor != owner:
         raise SoftoryError(f"Only {', '.join(sorted(reviewers)) or 'its reviewer'} or the owner may mark "
