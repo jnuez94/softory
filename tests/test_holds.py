@@ -132,6 +132,13 @@ class HoldsTest(unittest.TestCase):
         softory(self.root, "defer", "TASK-1", "--decision", ruling, "--actor", "quinn")
         self.assertEqual([h["id"] for h in self.queue()["held"]], ["TASK-1"])
 
+    def test_a_decision_id_that_ends_in_a_number_defers_as_given(self) -> None:
+        coord(self.root, "decision", "add", "--id", "decision1", "--title", "Park it", "--owner", "owner",
+              "--status", "accepted", "--context", "c", "--decision", "d")
+        done = softory(self.root, "defer", "TASK-1", "--decision", "decision1", "--actor", "quinn", check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([h["id"] for h in self.queue()["held"]], ["TASK-1"])
+
     def test_an_owner_ruling_defers_a_unit_until_lifted(self) -> None:
         refused = softory(self.root, "defer", "TASK-1", "--decision", "nope", "--actor", "quinn", check=False)
         self.assertIn("not_found", refused.stderr)

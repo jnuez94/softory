@@ -13,7 +13,7 @@ from tests.helpers import REPO
 
 sys.path.insert(0, str(REPO / "lib"))
 
-from softory import charter, digest, gate, perms, records, runner, team, units, verify, verifyenv, watch  # noqa: E402
+from softory import charter, digest, gate, perms, prose, records, runner, team, units, verify, verifyenv, watch  # noqa: E402
 
 GATES = json.loads((REPO / "factory/governance/gates.json").read_text())
 
@@ -111,6 +111,19 @@ class OwnerTextTest(unittest.TestCase):
         self.assertTrue(any("contain9" in p and "runnerusage0" in p for p in problems))
         self.assertEqual(records.text_problems("BUG-60 has 9 rounds at e3e4ab5fdbad.", "Approve one more cycle?"), [])
         self.assertTrue(records.text_problems("x" * 700, "Ok?"))
+
+    def test_words_run_together_are_named_and_code_is_left_alone(self) -> None:
+        roles = ["jade", "quinn"]
+        tablet = ("BUG267 blocks265, backend lane assignedJade. Use existingICAL iterator with countednext calls "
+                  "beyond200000. CurrentJade owns265: retain2a5checkpoint and4159. Independent peer+Quinn review267.")
+        found = prose.fused(tablet, roles)
+        for word in ("blocks265", "assignedJade", "beyond200000", "CurrentJade", "owns265", "retain2a5checkpoint",
+                     "and4159", "review267"):
+            self.assertIn(word, found)
+        plain = ("BUG-267 blocks BUG-265, assigned to Jade at e3e4ab5fdbad. REVIEW-TASK91 passed in 250ms on "
+                 "tests/integrations/google-feed2.test.mjs with sha256, base64 and utf8; `deadline0` and "
+                 "`retain2a5` are code. Peer+Quinn review it, scope stack:fixes2. See https://example.com/run12 and p95.")
+        self.assertEqual(prose.fused(plain, roles), [])
 
     def test_charter_diff_lists_only_what_changes(self) -> None:
         before = {"verify": {"command": "npm test", "share": [], "description": "x"}, "vision": "a"}

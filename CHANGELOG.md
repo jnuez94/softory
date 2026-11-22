@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.9] - 2026-11-22
+
+Records with words run together. In Tablet the owner read "blocks265, backend lane assignedJade", "retain2a5checkpoint and4159" and "CurrentJade owns265" in coordination records. Nothing in softory, the scaffold, or the tracker console changes a record's text: a message sent through `softory coord` reads back character for character. The role's model wrote it that way, dropping the space before a number or a name, and softory checked for that only in `softory escalate`.
+
+- **A record with words run together is refused.** `softory coord` and softory's own commands check the options that hold sentences (`--body`, `--title`, `--description`, `--acceptance`, `--note`, `--context`, `--decision`, `--required-changes`, `--reason`, `--why`, and the like) for a word joined to a number (`blocks265`, `retain2a5checkpoint`) or to a role's name (`assignedJade`). The error names the words and the role writes the record again. A description read from `--description-file` is checked as the text that is saved. An option that holds a record's ID (`softory defer --decision`) or a `key:value` word (`stack:fixes2`) is not checked. Code in backticks, paths, links, IDs, commit hashes, and names such as `sha256` pass. `softory escalate` uses the same check, so backticked code now passes there too.
+- **The instructions say who reads a record.** One line: full sentences, a space between every word, number and name, IDs in full (`BUG-265`, not `265`), code in backticks, and short means fewer sentences, not dropped words.
+- **Not caught:** words joined with no number or role name in them ("multipleclaims", "existingICAL"), and an ID cut to its number with spaces around it. The instruction line covers those; the check has no word list.
+
 ## [0.6.8] - 2026-11-22
 
 Duplicate code folded together. Nothing softory does changes.
