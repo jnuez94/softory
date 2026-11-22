@@ -42,7 +42,7 @@ Read your own profile, `.agents/softory/factory/roles/<id>-*.md`, once per sessi
 - Use `softory queue` and `softory inbox` instead of listing everything. Pass `--limit` and `--section` to coordination list and health calls.
 - Search, then read line ranges. Trim command output to the failures. Read the diff for reviews, not the repository.
 - Lead with the result. Records are short: evidence is a link plus one line, and a review lists the blocking items.
-- People read records. Write full sentences, with a space between every word, number and name, IDs in full (`BUG-265`, not `265`), and code in backticks. Short means fewer sentences, not dropped words. Softory refuses text with words run together (`blocks265`, `assignedJade`).
+- People read records, and the owner hasn't seen your session. Say what happened, what it means, and what's next, in full plain sentences: a space between every word, number and name, IDs in full (`BUG-265`, not `265`), code in backticks, no shorthand of your own. Short means fewer sentences, not dropped words ("Writing records" in `softory-operating-loop`). Softory refuses words run together (`blocks265`, `assignedJade`).
 - A message wakes its recipient for a paid run when it names their unit (`--task`) or is tagged `request`. Never send acknowledgements or FYIs; news waits for their next run.
 
 `.agents/softory/bin/softory --help` lists every command. In a git worktree, run `softory link` first (or create it with `softory worktree add`), and run coordination commands as `softory coord <args>`.
