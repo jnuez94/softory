@@ -153,6 +153,23 @@ def builders(task: dict[str, Any]) -> set[str]:
     return holders(task) | {tag.split(":", 1)[1] for tag in tags_of(task) if tag.startswith(BUILT_BY) and tag != BUILT_BY}
 
 
+def builder_requests(task: dict[str, Any], requirement: dict[str, Any], latest: dict[str, dict[str, Any]],
+                     built_by: set[str], accepting: set[str]) -> tuple[list[str], list[str]]:
+    """Reviewers of ``requirement`` who asked for changes and then built part of the task (``built-by``), so they
+    can't be asked back: those whose request someone who may still give the review accepted after, and those
+    still waiting for that. The accepting reviewer takes the request over; a builder never clears their own."""
+    order = {(r.get("reviewer_id") or r.get("reviewer")): i for i, r in enumerate(task.get("reviews") or [])}
+    taken, waiting = [], []
+    for reviewer in requirement["reviewers"]:
+        mine = latest.get(reviewer)
+        if not (requirement.get("not_self") and reviewer in built_by - holders(task) and mine) or mine.get("decision") in accepting:
+            continue
+        after = [r for r in eligible(requirement, built_by)
+                 if latest.get(r, {}).get("decision") in accepting and order.get(r, -1) > order.get(reviewer, -1)]
+        (taken if after else waiting).append(reviewer)
+    return taken, waiting
+
+
 def closers(task: dict[str, Any], gates: dict[str, Any]) -> set[str]:
     """Who may close the task: its spec's closers, their stand-ins, and its holders if ``assignee`` is listed."""
     _, spec = spec_for(task, gates)
@@ -236,8 +253,10 @@ def evaluate(
 
     if record:
         checks += _record_checks(task, built_by, latest, accepting, related or {})
+    taken_over: set[str] = set()
     for requirement in required_reviews(task, gates):
         candidates = eligible(requirement, built_by)
+        taken_over |= set(builder_requests(task, requirement, latest, built_by, accepting)[0])
         passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
         named = " or ".join(candidates)
         detail = (
@@ -249,8 +268,13 @@ def evaluate(
             detail += f" ({requirement['note']})"
         checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
     if not record:
-        blocking = sorted(r for r, review in latest.items() if review.get("decision") not in accepting)
-        checks.append(_check("no_open_rejections", not blocking, "latest review requests changes from: " + ", ".join(blocking) if blocking else "no reviewer is requesting changes"))
+        blocking = sorted(r for r, review in latest.items()
+                          if review.get("decision") not in accepting and r not in taken_over)
+        passed = (f" ({', '.join(sorted(taken_over))} asked for changes, then built part of it: the reviewer who "
+                  f"accepted after took the request over)" if taken_over else "")
+        checks.append(_check("no_open_rejections", not blocking,
+                             "latest review requests changes from: " + ", ".join(blocking) if blocking
+                             else "no reviewer is requesting changes" + passed))
 
     checks += extra or []
     if actor is not None:

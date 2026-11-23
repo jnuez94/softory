@@ -267,6 +267,46 @@ class HandoffTest(unittest.TestCase):
         self.assertNotIn("built_by", result)
         self.assertEqual(json.loads(softory(self.root, "reviewers", task).stdout)["builders"], ["jade"])
 
+    def test_a_change_request_from_someone_who_then_built_part_of_it_passes_to_the_next_reviewer(self) -> None:
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        sha = self.commit("a.txt", task)
+        self.handoff(task)
+        gold = {**os.environ, **start(self.root, "gold")}
+        softory(self.root, "coord", "review", "add", "--id", "REV-1", "--task", task, "--reviewer", "gold",
+                "--artifact", f"commit:{sha}", "--scope", "all", "--decision", "changes_requested",
+                "--required-changes", "Cap the parser", env=gold)
+        bug = json.loads(softory(self.root, "new", "bug", "--from", task, "--blocks-source", "--type", "functional",
+                                 "--title", "Parser cap", "--assignee", "gold", "--actor", "quinn").stdout)["id"]
+        coord(self.root, "--session", gold["COORDINATION_SESSION"], "task", "claim", bug, "--agent", "gold",
+              "--if-revision", revision(self.root, bug))
+        softory(self.root, "commit", bug, "HEAD", "--base", self.base, "--actor", "gold")
+        softory(self.root, "handoff", bug, "--actor", "gold", env=gold)
+        coord(self.root, "agent", "add", "--id", "avery", "--name", "Avery", "--role", "Reviewer", "--actor", "owner")
+        at_terminal(self.root, "standin", "add", "avery", "--for", "jade,gold")
+
+        def rejections() -> dict:
+            report = json.loads(softory(self.root, "gate", task, "--actor", "jade", check=False).stdout)
+            return next(c for c in report["checks"] if c["check"] == "no_open_rejections")
+
+        self.assertFalse(rejections()["pass"])  # Gold's request stands until someone independent answers it
+        self.assertFalse([r for r in json.loads(softory(self.root, "queue", "--agent", "gold").stdout)["reviews_waiting"]
+                          if r["id"] == task])
+        row = next(r for r in json.loads(softory(self.root, "queue", "--agent", "avery").stdout)["reviews_waiting"]
+                   if r["id"] == task)
+        self.assertEqual((row["takes_over"][0]["from"], row["takes_over"][0]["asked"]), ("gold", "Cap the parser"))
+        avery = {**os.environ, **dict(line.removeprefix("export ").split("=", 1) for line in softory(
+            self.root, "start", "avery", "--harness", "codex").stdout.splitlines())}
+        softory(self.root, "coord", "review", "add", "--id", "REV-2", "--task", task, "--reviewer", "avery",
+                "--artifact", f"commit:{sha}", "--scope", "all", "--decision", "accepted", env=avery)
+        settled = rejections()
+        self.assertTrue(settled["pass"], settled)
+        self.assertIn("gold asked for changes, then built part of it", settled["detail"])
+        softory(self.root, "coord", "review", "add", "--id", "REV-3", "--task", task, "--reviewer", "gold",
+                "--artifact", f"commit:{sha}", "--scope", "all", "--decision", "changes_requested",
+                "--required-changes", "Still wrong", env=gold)
+        self.assertFalse(rejections()["pass"])  # a request made after the acceptance is a new one
+
     def test_a_follow_up_whose_block_was_resolved_tags_nothing(self) -> None:
         task = self.new("task", "--title", "Today list")
         self.claim(task)

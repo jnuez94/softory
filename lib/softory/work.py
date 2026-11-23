@@ -490,10 +490,18 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
                 continue
             owed = review_owed(task, requirement, agent, built_by, latest, set(gates["accepting_decisions"]),
                                lambda e, r: _audit_id(coord, "evidence", e) > _audit_id(coord, "review", r))
-            if owed is None:
+            # A reviewer who asked for changes and then built part of it can't be asked back: whoever may still
+            # give this review takes the request over, even after accepting before it was made.
+            inherited = gate_rules.builder_requests(task, requirement, latest, built_by, set(gates["accepting_decisions"]))[1]
+            if owed is None and not inherited:
                 continue  # another listed reviewer already covered it; maybe the next requirement is the agent's
-            if owed:
+            if owed or inherited:
                 row = {"id": task["id"], "why": requirement["why"], "title": task["title"]}
+                if inherited:
+                    row["takes_over"] = [{"from": r, "asked": latest[r].get("required_changes") or "",
+                                          "scope": f"{r} asked for this, then built part of the unit, so can't review "
+                                                   f"it again. Check it is answered: your verdict settles it"}
+                                         for r in inherited]
                 if latest.get(agent):  # a correction of what this reviewer sent back
                     row["re_review"] = re_review(project, task, latest[agent])
                 to_review.append(row)
