@@ -226,6 +226,66 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(report["handoff_to_close_hours"], 0.0)
         self.assertEqual(report["fix_bugs_per_unit"], 1.0)
 
+    # 0.6.12: whoever built a follow-up a task can't close without isn't its independent peer, and a commit
+    # recorded on the base branch is pointed out.
+
+    def test_the_builder_of_a_blocking_follow_up_is_not_asked_to_review_its_source(self) -> None:
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        self.commit("a.txt", task)
+        self.handoff(task)
+        self.assertEqual(json.loads(softory(self.root, "reviewers", task).stdout)["requirements"][0]["reviewers"], ["gold"])
+        bug = json.loads(softory(self.root, "new", "bug", "--from", task, "--blocks-source", "--type", "functional", "--title", "Parser cap",
+                                 "--assignee", "gold", "--actor", "quinn").stdout)["id"]
+        gold = {**os.environ, **start(self.root, "gold")}
+        coord(self.root, "--session", gold["COORDINATION_SESSION"], "task", "claim", bug, "--agent", "gold",
+              "--if-revision", revision(self.root, bug))
+        (self.root / "b.txt").write_text("b")
+        run(["git", "add", "b.txt"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "b"], self.root)
+        softory(self.root, "commit", bug, "HEAD", "--base", self.base, "--actor", "gold")
+        result = json.loads(softory(self.root, "handoff", bug, "--actor", "gold", env=gold).stdout)
+        self.assertIn(f"{task} is tagged built-by:gold", result["built_by"][0])
+        found = json.loads(softory(self.root, "reviewers", task).stdout)
+        self.assertEqual(found["builders"], ["gold", "jade"])
+        self.assertEqual(found["requirements"][0]["reviewers"], [])
+        refused = softory(self.root, "close", task, "--actor", "gold", env=gold, check=False)
+        self.assertNotEqual(refused.returncode, 0)  # built-by makes Gold a builder for reviews, not a holder who may close
+
+    def test_a_follow_up_that_does_not_block_its_source_tags_nothing(self) -> None:
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        self.commit("a.txt", task)
+        self.handoff(task)
+        bug = json.loads(softory(self.root, "new", "bug", "--from", task, "--type", "functional", "--title", "Later polish",
+                                 "--assignee", "gold", "--actor", "quinn").stdout)["id"]
+        gold = {**os.environ, **start(self.root, "gold")}
+        coord(self.root, "--session", gold["COORDINATION_SESSION"], "task", "claim", bug, "--agent", "gold",
+              "--if-revision", revision(self.root, bug))
+        softory(self.root, "commit", bug, "HEAD", "--base", self.base, "--actor", "gold")
+        result = json.loads(softory(self.root, "handoff", bug, "--actor", "gold", env=gold).stdout)
+        self.assertNotIn("built_by", result)
+        self.assertEqual(json.loads(softory(self.root, "reviewers", task).stdout)["builders"], ["jade"])
+
+    def test_a_commit_recorded_on_the_base_branch_is_pointed_out(self) -> None:
+        branch = run(["git", "branch", "--show-current"], self.root).stdout.strip()
+        path = self.root / ".git" / "charter.json"
+        path.write_text(json.dumps({"git": {"base": branch}}))
+        at_terminal(self.root, "charter", "approve", str(path))
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        (self.root / "a.txt").write_text("a")
+        run(["git", "add", "a.txt"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "a"], self.root)
+        on_base = json.loads(softory(self.root, "commit", task, "HEAD", "--actor", "jade").stdout)
+        self.assertIn(f"is already on {branch}, the base branch", on_base["warning"])
+        run(["git", "switch", "-qc", "jade/today"], self.root)
+        (self.root / "b.txt").write_text("b")
+        run(["git", "add", "b.txt"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "b"], self.root)
+        on_branch = json.loads(softory(self.root, "commit", task, "HEAD", "--actor", "jade").stdout)
+        self.assertNotIn("warning", on_branch)
+
 
 if __name__ == "__main__":
     unittest.main()

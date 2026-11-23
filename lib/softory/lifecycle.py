@@ -48,6 +48,9 @@ def handoff(project: Project, coord: Coordination, task_id: str, actor: str, not
               str(task["revision"]), *extra, session=True)
     asked, unasked = request_reviews(project, coord, task, actor, note)
     result: dict[str, Any] = {"task": task_id, "status": "review", "asked": asked}
+    credited = credit_sources(coord, task, actor)
+    if credited:
+        result["built_by"] = credited
     if unasked:
         result["unasked"] = unasked
         result["next"] = "Message a reviewer for each unasked review: softory reviewers " + task_id
@@ -55,6 +58,27 @@ def handoff(project: Project, coord: Coordination, task_id: str, actor: str, not
     if warnings:
         result["warnings"] = warnings
     return result
+
+
+def credit_sources(coord: Coordination, task: dict[str, Any], actor: str) -> list[str]:
+    """Tag each task this follow-up was filed from, and that can't close without it, ``built-by:<actor>``, so
+    the actor isn't asked to review that task as an independent peer. Returns what happened, one line per task."""
+    sources = [d["depends_on_task_id"] for d in task.get("dependencies") or [] if d.get("dependency_type") == "informs"]
+    told = []
+    for source_id in dict.fromkeys(sources):
+        source = coord.task(source_id)
+        waits = any(d.get("depends_on_task_id") == task["id"] and d.get("dependency_type") == "blocks"
+                    for d in source.get("dependencies") or [])
+        if not waits or source["status"] == "done" or actor in gate_rules.builders(source):
+            continue
+        tag = gate_rules.BUILT_BY + actor
+        done = coord.call("task", "update", source_id, "--tags", ",".join([*tags_of(source), tag]), "--actor", actor,
+                          "--if-revision", str(source["revision"]))
+        told.append(f"{source_id} is tagged {tag}: you built part of it, so another reviewer gives its peer review"
+                    if done.get("ok") else
+                    f"{source_id} could not be tagged {tag} ({(done.get('error') or {}).get('code', 'failed')}). "
+                    f"Ask its holder or Quinn to add the tag, so you aren't asked to review your own fix")
+    return told
 
 
 _BASE = re.compile(r";base=([0-9a-f]{7,40})")
@@ -256,7 +280,7 @@ def drop(project: Project, coord: Coordination, task_id: str, reason: str, super
     listed = spec.get("dropper", ["owner"])
     allowed = set(gate_rules.with_stand_ins([d for d in listed if d != "assignee"], gates, task_id))
     if "assignee" in listed:
-        allowed |= gate_rules.builders(task)
+        allowed |= gate_rules.holders(task)
     if actor not in allowed:
         raise SoftoryError(f"Only {', '.join(sorted(allowed))} may drop {task_id}", "not_allowed")
     if superseded_by:

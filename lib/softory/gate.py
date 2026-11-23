@@ -35,6 +35,8 @@ from . import grants
 from .units import code_evidence_types, follow_up_ids, lane_of, live_evidence, tags_of, targets_of, unit_of
 
 RECORD_STATUSES = ("review", "blocked", "todo")
+#: ``built-by:<role>``: the role wrote part of what the task delivers without holding it.
+BUILT_BY = "built-by:"
 
 
 def spec_for(task: dict[str, Any], gates: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
@@ -136,20 +138,27 @@ def may_review(requirement: dict[str, Any], agent: str, built_by: set[str]) -> b
     return agent in requirement["reviewers"]
 
 
-def builders(task: dict[str, Any]) -> set[str]:
-    """Who built the task: its assignees and any current claim holder."""
+def holders(task: dict[str, Any]) -> set[str]:
+    """Whose task it is: its assignees and any current claim holder."""
     people = set(task.get("assignees") or [])
     if task.get("claimed_by"):
         people.add(task["claimed_by"])
     return people
 
 
+def builders(task: dict[str, Any]) -> set[str]:
+    """Who built the task, so can't review it: its holders, and whoever a ``built-by:<role>`` tag names.
+    ``softory handoff`` adds the tag to a task when another role delivers a follow-up it can't close without.
+    In Tablet, Gold fixed the parser under TASK-112 and still counted as its independent peer."""
+    return holders(task) | {tag.split(":", 1)[1] for tag in tags_of(task) if tag.startswith(BUILT_BY) and tag != BUILT_BY}
+
+
 def closers(task: dict[str, Any], gates: dict[str, Any]) -> set[str]:
-    """Who may close the task: its spec's closers, their stand-ins, and the builders if ``assignee`` is listed."""
+    """Who may close the task: its spec's closers, their stand-ins, and its holders if ``assignee`` is listed."""
     _, spec = spec_for(task, gates)
     listed = spec.get("closer", [])
     named = with_stand_ins([c for c in listed if c != "assignee"], gates, task.get("id"))
-    return (builders(task) if "assignee" in listed else set()) | set(named)
+    return (holders(task) if "assignee" in listed else set()) | set(named)
 
 
 def latest_reviews(task: dict[str, Any]) -> dict[str, dict[str, Any]]:

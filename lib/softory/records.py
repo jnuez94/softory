@@ -22,8 +22,9 @@ from . import charter as charters
 from . import decide, feasibility, holds as unit_holds, ops, prose
 from .coordination import Coordination
 from .errors import SoftoryError
-from .gitlocal import is_tracked, need_commit
+from .gitlocal import git, is_tracked, need_commit
 from .project import Project
+from .units import unit_of
 from .work import actor_of
 
 COMMANDS = ("commit", "supersede", "escalate", "answer", "feasible", "report")
@@ -99,7 +100,15 @@ def commit(project: Project, coord: Coordination, task_id: str, sha: str, base: 
     head = need_commit(project.root, sha)
     uri = f"commit:{head}" + (f";base={need_commit(project.root, base)}" if base else "")
     coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", "commit", "--actor", actor)
-    return {"task": task_id, "commit": head, "uri": uri}
+    result = {"task": task_id, "commit": head, "uri": uri}
+    branch = charters.load(project)["git"]["base"]
+    on_base = bool(branch) and git(project.root, "merge-base", "--is-ancestor", head, f"refs/heads/{branch}").returncode == 0
+    if on_base and unit_of(coord.task(task_id), project.gates()) != "release":
+        # Tablet's BUG-254 was committed on mainline while its work belonged on another branch.
+        result["warning"] = (f"{head[:12]} is already on {branch}, the base branch. A unit's commits go on its own "
+                             f"branch, and the owner or softory ship moves {branch}. If the owner asked for it "
+                             f"there, carry on; otherwise move the commit to the unit's branch and record it again")
+    return result
 
 
 def evidence_folder(project: Project, task_id: str) -> Path:

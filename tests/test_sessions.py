@@ -35,6 +35,7 @@ class SessionTest(unittest.TestCase):
 
     def test_an_attended_session_hears_about_its_work_during_a_pause(self) -> None:
         softory(self.root, "feasible", "STORY-1", "--pass", "--actor", "quinn")
+        self.charter({"run": {"mode": "unattended"}})  # the shipped mode is attended since 0.6.12
         softory(self.root, "pause", "--reason", "owner runs the sessions")
         code, report = self.pending("jade")
         self.assertEqual((code, report["state"]), (3, "paused"))  # unattended: a pause stops a check-in too
@@ -159,7 +160,7 @@ class SessionTest(unittest.TestCase):
             self.assertIsNone(report[key], key)
 
     def test_doctor_does_not_call_attended_sessions_a_second_scheduler(self) -> None:
-        self.charter({"feasibility": {"required": False}})
+        self.charter({"feasibility": {"required": False}, "run": {"mode": "unattended"}})
         start(self.root, "jade")
         warned = json.loads(softory(self.root, "doctor", check=False).stdout)["warnings"]
         self.assertTrue([w for w in warned if "started outside the runner" in w])

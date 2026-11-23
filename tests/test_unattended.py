@@ -112,6 +112,8 @@ class UnattendedTest(unittest.TestCase):
 
     def approve(self, settings: dict) -> dict:
         path = self.root / ".git" / "charter.json"
+        if "harnesses" in settings.get("run", {}):  # these tests run a headless harness; the shipped mode is attended
+            settings = {**settings, "run": {"mode": "unattended", **settings["run"]}}
         path.write_text(json.dumps(settings))
         return at_terminal(self.root, "charter", "approve", str(path))
 
@@ -286,7 +288,7 @@ class UnattendedTest(unittest.TestCase):
         self.assertIn("accepted by gold", lane["detail"])
 
     def test_doctor_warns_when_sessions_start_outside_the_runner(self) -> None:
-        self.approve({"verify": {"command": "true"}})
+        self.approve({"verify": {"command": "true"}, "run": {"mode": "unattended"}})
         start(self.root, "jade")
         warnings = json.loads(softory(self.root, "doctor", check=False).stdout)["warnings"]
         self.assertTrue(any("outside the runner (jade)" in w for w in warnings), warnings)
@@ -403,6 +405,7 @@ class UnattendedTest(unittest.TestCase):
                          ("true", 4))
 
     def test_runner_starts_only_roles_with_work_and_respects_pause(self) -> None:
+        self.approve({"run": {"mode": "unattended"}})  # in the shipped attended mode a pause stops only the runner
         plan = json.loads(softory(self.root, "run", "--dry-run").stdout)
         self.assertEqual(plan["started"], ["greg", "jade"])  # Greg owns STORY-1, Jade TASK-1; nobody else has work
         self.assertEqual(plan["skipped"]["toby"], "nothing pending")
