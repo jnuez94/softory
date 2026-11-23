@@ -41,6 +41,12 @@ class HoldsTest(unittest.TestCase):
     def pending(self, agent: str = "jade") -> dict:
         return json.loads(softory(self.root, "pending", agent, check=False).stdout)
 
+    def hold(self) -> str:
+        """Quinn asks the owner something that holds TASK-1; the escalation's ID."""
+        return json.loads(softory(self.root, "escalate", "--issue", "The list waits for the second version.",
+                                  "--ask", "Park the list?", "--recommend", "Park it", "--reversible", "no",
+                                  "--holds", "TASK-1", "--actor", "quinn").stdout)["escalation"]
+
     def test_an_escalation_holds_its_units_until_the_answer(self) -> None:
         self.assertEqual([a["id"] for a in self.queue()["assigned"]], ["TASK-1"])
         made = json.loads(softory(self.root, "escalate", "--issue", "The chat provider needs a paid key.",
@@ -127,59 +133,23 @@ class HoldsTest(unittest.TestCase):
                                       "--why", "a text-only fix", "--actor", "jade").stdout)
         at_terminal(self.root, "approve", proposal["proposal"])
         softory(self.root, "handoff", "TASK-1", "--actor", "jade")
-        ruling = json.loads(softory(self.root, "ruling", "--title", "Park it", "--decision", "Wait", "--where", "x",
-                                    "--actor", "quinn").stdout)["decision"]
-        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--actor", "quinn")
+        self.hold()
         self.assertEqual([h["id"] for h in self.queue()["held"]], ["TASK-1"])
 
-    def test_a_decision_id_that_ends_in_a_number_defers_as_given(self) -> None:
-        coord(self.root, "decision", "add", "--id", "decision1", "--title", "Park it", "--owner", "owner",
-              "--status", "accepted", "--context", "c", "--decision", "d")
-        done = softory(self.root, "defer", "TASK-1", "--decision", "decision1", "--actor", "quinn", check=False)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual([h["id"] for h in self.queue()["held"]], ["TASK-1"])
-
-    def test_an_owner_ruling_defers_a_unit_until_lifted(self) -> None:
-        refused = softory(self.root, "defer", "TASK-1", "--decision", "nope", "--actor", "quinn", check=False)
-        self.assertIn("not_found", refused.stderr)
-        coord(self.root, "decision", "add", "--id", "DEC-Q", "--title", "Mine", "--owner", "quinn",
-              "--status", "accepted", "--context", "c", "--decision", "d")
-        self.assertIn("not_allowed", softory(self.root, "defer", "TASK-1", "--decision", "DEC-Q", "--actor", "quinn",
-                                             check=False).stderr)
-        ruling = json.loads(softory(self.root, "ruling", "--title", "Park the list", "--decision", "Wait for v2",
-                                    "--where", "thread, 9 Nov", "--actor", "quinn").stdout)["decision"]
-        coord(self.root, "decision", "add", "--id", "DEC-ASK", "--title", "Asked", "--owner", "owner",
-              "--status", "proposed", "--context", "c", "--decision", "d")
-        self.assertIn("not accepted", softory(self.root, "defer", "TASK-1", "--decision", "DEC-ASK",
-                                              "--actor", "quinn", check=False).stderr)
-        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--until", "2099-01-01", "--actor", "quinn")
-        coord(self.root, "message", "send", "--id", "MSG-FYI", "--sender", "quinn", "--recipient", "jade",
-              "--task", "TASK-1", "--body", "FYI on the list")
-        self.assertFalse(self.pending()["pending"])  # news about held work wakes nobody
-        time.sleep(1.1)
-        self.assertFalse(json.loads(softory(self.root, "pending", "jade", "--retry-hours", "0.0001",
-                                            check=False).stdout)["pending"])  # not even on the retry
-        self.assertEqual(self.queue()["assigned"], [])
-        self.assertIn("2099-01-01", self.queue()["held"][0]["why"])
-        softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
-        self.assertEqual([a["id"] for a in self.queue()["assigned"]], ["TASK-1"])
-
-    def test_a_blocked_unit_wakes_its_builder_when_its_deferral_is_lifted(self) -> None:
+    def test_a_blocked_unit_wakes_its_builder_when_its_hold_ends(self) -> None:
         session = start(self.root, "jade")["COORDINATION_SESSION"]
         coord(self.root, "--session", session, "task", "claim", "TASK-1", "--agent", "jade",
               "--if-revision", revision(self.root, "TASK-1"))
         coord(self.root, "--session", session, "task", "release", "TASK-1", "--to", "blocked", "--actor", "jade",
               "--if-revision", revision(self.root, "TASK-1"), "--note", "waits for the owner")
         softory(self.root, "end", "--actor", "jade")
-        ruling = json.loads(softory(self.root, "ruling", "--title", "Park it", "--decision", "Wait", "--where", "x",
-                                    "--actor", "quinn").stdout)["decision"]
-        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--actor", "quinn")
+        asked = self.hold()
         self.assertFalse(self.pending()["pending"])
         time.sleep(1.1)
-        softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
+        at_terminal(self.root, "answer", asked, "Build it now")
         woke = self.pending()
         self.assertTrue(woke["pending"], woke)
-        self.assertIn({"why": "held work released: the owner answered, or the deferral ended", "ids": ["TASK-1"]},
+        self.assertIn({"why": "held work released: the owner answered", "ids": ["TASK-1"]},
                       woke["reasons"])
         start(self.root, "jade")  # a run that ends without touching the unit
         softory(self.root, "end", "--actor", "jade")
@@ -289,7 +259,7 @@ class HoldsTest(unittest.TestCase):
     def test_start_refuses_a_harness_the_charter_doesnt_name(self) -> None:
         refused = softory(self.root, "start", "jade", "--harness", "codex", check=False)
         self.assertIn("wrong_harness", refused.stderr)
-        self.approve({"models": {"jade": {"harness": "claude", "model": "m", "escalate": None, "also": ["codex"]}}})
+        self.approve({"models": {"jade": {"harness": "claude", "model": "m", "also": ["codex"]}}})
         allowed = softory(self.root, "start", "jade", "--harness", "codex")
         self.assertIn("COORDINATION_SESSION=jade-codex-", allowed.stdout)
 

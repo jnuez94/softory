@@ -84,8 +84,6 @@ A reviewer who wants to claim a long review, heartbeat through it, and attach a 
 - It holds reports, not code, and its reviewer didn't build what it reviewed.
 - Its reviewer or the owner closes it, from review, blocked, or todo.
 
-For a review run from before softory, its reviewer (or the owner) runs `softory adopt VR-REVIEW-12 --unit review`. It reads what the run reviewed from its `informs` links, leaving out other review runs and the reviewer's own work; add `--for BUG-3` when the run has no links. That only asks: a record closes on its author's own verdict, so turning existing work into one would let a builder close their own work unreviewed. The owner checks the list, where anything not tagged or named as a review run comes first, and approves it in one go with `softory approve --all` at a terminal.
-
 ## Work nobody will build
 
 Plans change. A unit that won't be built closes as dropped, with a reason and a decision record: `softory drop TASK-9 --reason "..."`, or `--superseded-by TASK-12` when another unit replaces it. Quinn, Greg, or the owner drops tasks and bugs; Greg or the owner drops stories and epics. A unit with open children can't be dropped. `softory tree` shows it as `done: won't do` or `done: superseded by TASK-12`, and its parent stops waiting for it.
@@ -108,9 +106,8 @@ After each merge, softory deploys the new base to every `auto` target in the cha
 
 When softory joins a project that already has tasks, those tasks have no `unit:` tag. They keep the project's own process, and `softory tree` leaves them out unless you pass `--all`.
 
-- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review, older review runs to adopt, sessions to end or restart, and roles that have gone silent. Check each task against the code, and close what's done or drop what won't be built.
-- `softory close` still works on them, under the minimum rule in `gates.json` (`legacy`): evidence, resolved blocking dependencies, no open rejection, and one accepted review from anyone but the builder. The assignee or the owner closes.
-- To give one the full gate, Quinn adopts it into a story: `softory adopt VR-12 --unit task --parent STORY-3 --lane backend [--tags data] [--assignee gold]`. It keeps its ID and history, gains the unit tags, and the story then waits for it.
+- **Triage before planning.** Many old open tasks are finished work nobody closed. `softory triage` lists open tasks that already have an accepted review, sessions to end or restart, and roles that have gone silent. Check each task against the code, and close what's done or drop what won't be built.
+- Softory doesn't close them: `softory gate` fails a task with no unit. Close it with the project's own process, or give it the full gate by tagging it as a unit: `softory coord task update VR-12 --tags unit:task,parent:STORY-3,lane:backend --actor quinn --if-revision <n>`.
 - If the project already has an agent doing a softory role's job, the owner names it a stand-in, for example `softory standin add avery --for jade,gold`. A stand-in can be limited to tasks (`--task VR-SEC-1,VR-SEC-2`) and given an end date (`--until 2026-10-31`). Agents ask for one with `softory propose standin`; the owner applies it with `softory approve`.
 
 ## Definition of ready

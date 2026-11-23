@@ -1,13 +1,9 @@
-"""Decisions that don't stop the work: escalations that default on timeout, and Quinn settling stuck units.
+"""Decisions that don't stop the work: escalations that default on timeout.
 
 Every escalation names a recommended option and whether it can be undone. If it can, the runner applies
 the recommendation once ``decisions.default_after_hours`` pass with no answer, as a decision the owner
 can still reverse with ``softory answer``. If it can't, it waits, and work that doesn't depend on it
 carries on.
-
-A unit at the review-round cap goes to Quinn, who splits it, drops it, or allows one more round (once per
-unit). The owner sees what Quinn did in the digest. A unit Quinn built, or one already given its extra
-round, goes to the owner as before.
 """
 
 from __future__ import annotations
@@ -23,9 +19,6 @@ from .errors import SoftoryError
 from .owner import record_decision
 from .project import Project
 from .runstate import state_dir
-
-ACTIONS = ("retry", "split", "drop")
-QUINN_EXTRA_ROUNDS = 1
 
 
 def _load(project: Project, name: str) -> dict[str, Any]:
@@ -206,83 +199,6 @@ def _tell(coord: Coordination, sender: str, recipient: str | None, message_id: s
     if recipient and not coord.call("message", "show", message_id).get("ok"):
         coord.call("message", "send", "--id", message_id, "--sender", sender, "--recipient", recipient,
                    "--body", body)
-
-
-# ---- Quinn settles units at the review cap ------------------------------------------------------
-
-def extra_rounds(project: Project, task_id: str) -> int:
-    return int(_load(project, "settled.json").get(task_id, {}).get("extra", 0))
-
-
-def retried_at(project: Project) -> dict[str, str]:
-    """When each unit was last given an extra round: a retry is news for its builder."""
-    return {task_id: entry["log"][-1]["at"] for task_id, entry in _load(project, "settled.json").items()
-            if entry.get("log")}
-
-
-def cap_for(project: Project, charter: dict[str, Any], task_id: str) -> int:
-    return int(charter["task_caps"]["review_rounds"]) + extra_rounds(project, task_id)
-
-
-def quinn_may_settle(project: Project, charter: dict[str, Any], task: dict[str, Any]) -> bool:
-    from .gate import builders  # noqa: PLC0415 - gate is heavier than this module needs at import
-
-    return (bool((charter.get("decisions") or {}).get("quinn_settles"))
-            and "quinn" not in builders(task) and extra_rounds(project, task["id"]) < QUINN_EXTRA_ROUNDS)
-
-
-def settle(project: Project, coord: Coordination, charter: dict[str, Any], task_id: str, action: str,
-           reason: str, actor: str, into: list[str] | None = None) -> dict[str, Any]:
-    """Quinn (or the owner) settles a unit stopped at the review cap: one more round, a split, or a drop."""
-    from . import lifecycle, watch  # noqa: PLC0415 - both import the work board, which imports this module
-    from .work import Board  # noqa: PLC0415
-
-    if action not in ACTIONS:
-        raise SoftoryError(f"Settle with one of {', '.join(ACTIONS)}", "invalid_arguments")
-    if not reason.strip():
-        raise SoftoryError("Say why with --reason", "invalid_arguments")
-    owner = project.owner_id
-    task = coord.task(task_id)
-    if actor != owner and not (actor == "quinn" and quinn_may_settle(project, charter, task)):
-        raise SoftoryError(f"Only the owner may settle {task_id} now: Quinn built it, already allowed its extra "
-                           "round, or the charter turned quinn_settles off", "not_allowed")
-    board = Board(project, coord)
-    rounds = watch.review_rounds(board, int(charter["task_caps"].get("free_evidence_rounds", 1))).get(task_id, 0)
-    if rounds < cap_for(project, charter, task_id):
-        raise SoftoryError(f"{task_id} isn't at its review cap ({rounds} rounds)", "invalid_task_state")
-    if action == "split" and not into:
-        raise SoftoryError("Create the smaller units first, then name them with --into", "invalid_arguments")
-    for unit_id in into or []:
-        coord.task(unit_id)  # must exist
-    result: dict[str, Any] = {"task": task_id, "action": action}
-    if action == "retry":
-        with _editing(project, "settled.json") as settled:  # check again under the lock: two retries race
-            entry = settled.setdefault(task_id, {"extra": 0, "log": []})
-            if actor != owner and entry["extra"] >= QUINN_EXTRA_ROUNDS:
-                raise SoftoryError(f"{task_id} already had its extra round; only the owner may settle it now",
-                                   "not_allowed")
-            if rounds < int(charter["task_caps"]["review_rounds"]) + entry["extra"]:
-                raise SoftoryError(f"{task_id} isn't at its review cap ({rounds} rounds)", "invalid_task_state")
-            entry["extra"] += 1
-            entry["log"].append({"by": actor, "at": _now().isoformat(timespec="seconds"), "reason": reason})
-        result["decision"] = record_decision(coord, actor, "SETTLE", f"One more review round for {task_id}", reason,
-                                             f"{task_id} had {rounds} rounds of requested changes.")
-    else:
-        why = (f"Split into {', '.join(into or [])}: " if action == "split" else "") + reason
-        dropped = lifecycle.drop(project, coord, task_id, why, (into or [None])[0], actor)
-        result["decision"] = dropped["decision"]
-    _log(project, task_id, action, actor, reason)
-    return result
-
-
-def _log(project: Project, task_id: str, action: str, actor: str, reason: str) -> None:
-    with (state_dir(project) / "settlements.jsonl").open("a", encoding="utf-8") as log:
-        log.write(json.dumps({"at": _now().isoformat(timespec="seconds"), "task": task_id, "action": action,
-                              "by": actor, "reason": reason}) + "\n")
-
-
-def recent_settlements(project: Project, hours: float = 24) -> list[dict[str, Any]]:
-    return _recent(project, "settlements.jsonl", hours)
 
 
 def _recent(project: Project, name: str, hours: float) -> list[dict[str, Any]]:

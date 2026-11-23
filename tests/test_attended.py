@@ -47,7 +47,7 @@ class AttendedTest(unittest.TestCase):
             "run": {"mode": "attended", "roles": ["jade"], "attended": {"fake": ["sh", "-c", script]},
                     "harnesses": {"fake": ["sh", "-c", headless]}},
             "feasibility": {"harness": "fake", "model": "m2"},
-            "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+            "models": {"jade": {"harness": "fake", "model": "m1"}},
             "budget": {"minutes_per_run": minutes}}))
         self.assertTrue(at_terminal(self.root, "charter", "approve", str(path))["approved"])
 
@@ -165,12 +165,12 @@ class TmuxRaceTest(unittest.TestCase):
 
 
 class AttendedCharterTest(unittest.TestCase):
-    def test_attended_mode_needs_a_command_for_each_escalation_harness(self) -> None:
+    def test_attended_mode_needs_a_command_for_each_harness_a_role_runs_on(self) -> None:
         defaults = json.loads((REPO / "factory/governance/charter.json").read_text())
         project = SimpleNamespace(role_ids=lambda: ["greg", "darwin", "quinn", "jade", "gold", "toby"])
         charter = charters.merge(defaults, {
             "run": {"mode": "attended", "harnesses": {"esc": ["esc", "{prompt}"]}},
-            "models": {"jade": {"harness": "claude", "model": "m", "escalate": {"harness": "esc", "model": "big"}}}})
+            "models": {"jade": {"harness": "esc", "model": "big"}}})
         self.assertIn("run.mode is attended, but run.attended has no interactive command for esc",
                       charters.validate(project, charter))
 

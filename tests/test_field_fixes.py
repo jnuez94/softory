@@ -13,7 +13,7 @@ from tests.helpers import REPO
 
 sys.path.insert(0, str(REPO / "lib"))
 
-from softory import charter, digest, gate, perms, prose, records, runner, team, units, verify, verifyenv, watch  # noqa: E402
+from softory import charter, digest, gate, perms, prose, records, runner, units, verify, verifyenv, watch  # noqa: E402
 
 GATES = json.loads((REPO / "factory/governance/gates.json").read_text())
 
@@ -92,16 +92,6 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(verify.commit_of(self.root, {"evidence": rows}), self.base)
         self.assertEqual(units.code_evidence_types({"evidence": rows}), ["commit"])
         self.assertEqual(units.code_evidence_types({"evidence": rows[1:]}), [])
-
-
-class TriageTest(unittest.TestCase):
-    def test_a_review_named_task_that_shipped_code_is_not_a_review_run(self) -> None:
-        built = {"id": "VR-FOUNDATION-REVIEW-TS-001", "title": "Fix lint", "tags": "",
-                 "evidence": [{"evidence_type": "commit", "uri": "commit:abc"}]}
-        run = {"id": "VR-REVIEW-BATCH-006", "title": "Independent review queue", "tags": "",
-               "evidence": [{"evidence_type": "report", "uri": "files/reviews/x.md"}]}
-        self.assertFalse(team._looks_like_review_run(built))  # noqa: SLF001
-        self.assertTrue(team._looks_like_review_run(run))  # noqa: SLF001
 
 
 class OwnerTextTest(unittest.TestCase):

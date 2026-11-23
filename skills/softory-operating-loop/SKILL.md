@@ -72,7 +72,7 @@ A follow-up doesn't hold its source open unless you add `--blocks-source`.
 
 A unit you sent back returns with `re_review` in your queue: check what you asked for against its `diff`. What you accepted stands, and a new finding outside the change is a new bug. Several small bugs of one stack at one commit take one verdict: review one and put `stack:<name>` in `--scope`.
 
-**Review records.** To claim, heartbeat, and attach a report for a long review: `$S new review --title "..." --for TASK-7[,BUG-2]`. It closes on your verdict once the report is attached and every change you asked for names a follow-up that exists. Nobody reviews it again. For a review run from before softory: `$S adopt <ID> --unit review`, which asks the owner.
+**Review records.** To claim, heartbeat, and attach a report for a long review: `$S new review --title "..." --for TASK-7[,BUG-2]`. It closes on your verdict once the report is attached and every change you asked for names a follow-up that exists. Nobody reviews it again.
 
 ## 7. Close
 
@@ -86,9 +86,9 @@ The closer is the assignee for tasks, bugs, and review records, and Greg for sto
 ## 8. Block or escalate
 
 - Waiting on something: `$C task release TASK-7 --to blocked --note "<what and who>" ...`, and message whoever can unblock it.
-- Two roles both claim a call, or only the owner can decide: `$S escalate --issue "<plain sentences>" --ask "<one question>?" --recommend "<the option you'd take>" --reversible yes|no --tasks TASK-7`. If it can be undone, carry on as if your recommendation applies: it does after the charter's timeout unless the owner answers. If it can't, name the units that must wait in `--holds TASK-7,TASK-8` (they leave every queue and wake their builders on the answer), and finish what doesn't depend on it. When the owner rules that a unit waits, record it with `$S ruling`, then `$S defer <ID> --decision <that decision> [--until YYYY-MM-DD]`. Route it per `governance/boundaries.md#escalation-paths` (`--owner quinn` for a call Quinn makes). It refuses text the owner can't read at a glance; rewrite it, don't work around it.
+- Two roles both claim a call, or only the owner can decide: `$S escalate --issue "<plain sentences>" --ask "<one question>?" --recommend "<the option you'd take>" --reversible yes|no --tasks TASK-7`. If it can be undone, carry on as if your recommendation applies: it does after the charter's timeout unless the owner answers. If it can't, name the units that must wait in `--holds TASK-7,TASK-8` (they leave every queue and wake their builders on the answer), and finish what doesn't depend on it. When the owner rules that a unit waits, record it with `$S ruling`, then hold it with `$S escalate --reversible no --holds <ID>` that asks when it resumes: it stays off every queue until the owner answers. Route it per `governance/boundaries.md#escalation-paths` (`--owner quinn` for a call Quinn makes). It refuses text the owner can't read at a glance; rewrite it, don't work around it.
 - A plan needs something the charter's `environment` doesn't declare (a sign-in, a paid tier, an unlocked desktop): don't start it. Re-plan around what is reachable (a fake provider, a headless check) and let the feasibility check run again.
-- Quinn, for a unit at the review cap: `$S settle TASK-7 retry|split|drop --reason "..." [--into TASK-9,TASK-10]`. One extra round per unit; never reassign.
+- A unit at the review cap waits for the owner, who sees it in the digest. Don't work on it, and never reassign it.
 - Wrong evidence on a unit: `$S supersede TASK-7 <evidence number> --reason "..."`. The row stays in the audit; the gate reads past it.
 
 ## Writing records

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import charter as charters
-from . import clutter, decide, flow, design, feasibility, feedback, grants, holds, verify
+from . import clutter, flow, design, feasibility, feedback, grants, holds, verify
 from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, allowed_tasks, is_paused
@@ -54,12 +54,9 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     for task_id, done in design.released(board, charter).items():  # so does a finished design
         touched[task_id] = max(touched.get(task_id, ""), done)
     freed_at = holds.released(project, coord)
-    for task_id, freed in freed_at.items():  # and the owner's answer, or a deferral lifted
+    for task_id, freed in freed_at.items():  # and the owner's answer
         if task_id in touched:
             touched[task_id] = max(touched[task_id], freed)
-    for task_id, retried in decide.retried_at(project).items():  # so is an extra round past the review cap
-        if task_id in touched:
-            touched[task_id] = max(touched[task_id], retried)
 
     # Records are stamped to the second, so a change in the very second the role last started can't be told
     # from one just before it. It counts as new: an extra look costs less than work nobody is woken for.
@@ -69,7 +66,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     work = queue(project, coord, agent, board)
     caps = charter["task_caps"]
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
-    capped = {i for i, n in rounds.items() if n >= decide.cap_for(project, charter, i)}
+    capped = {i for i, n in rounds.items() if n >= int(caps["review_rounds"])}
     waits = feasibility.held(board, charter)  # todo tasks whose story hasn't passed its feasibility check
     waits |= set(design.held(board, charter))  # and UI build tasks whose story's design isn't done
     reasons = []
@@ -121,29 +118,20 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"
                                   and t["id"] not in waits],
     }.items()}
-    unsettled: list[str] = []  # units at the review cap that Quinn may settle and hasn't yet
-    if agent == "quinn":
-        unsettled = in_scope([i for i in sorted(capped) if board.by_id.get(i, {}).get("status") not in (None, "done")
-                              and i not in on_hold and decide.quinn_may_settle(project, charter, board.show(i))])
-        stuck = [i for i in unsettled if since is None or touched.get(i, "") >= since]
-        if stuck:
-            reasons.append({"why": "units at the review cap: settle each with softory settle (retry, split, or drop)",
-                            "ids": stuck})
     for why, ids in waiting.items():
         if changed(ids):
             reasons.append({"why": why, "ids": changed(ids)})
     # A hold keeps the tracker's status, so a blocked unit freed by the owner fits no list above: wake its builder.
     # Until the unit changes after its release, a run that missed it retries it like other waiting work.
-    # A unit at its review cap still waits for Quinn or the owner, released or not.
+    # A unit at its review cap still waits for the owner, released or not.
     unhandled = in_scope([i for i, at in sorted(freed_at.items()) if i in board.by_id and i not in on_hold
                           and i not in capped
                           and board.by_id[i]["status"] != "done" and agent in (board.by_id[i].get("assignees") or [])
                           and str(board.by_id[i].get("updated_at") or "") <= at])
     freed = [i for i in unhandled if since is None or freed_at[i] >= since]
     if freed:
-        reasons.append({"why": "held work released: the owner answered, or the deferral ended", "ids": freed})
-    # Capped units wait for a settlement, so a run that missed one retries it like any other waiting work.
-    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unsettled + unhandled
+        reasons.append({"why": "held work released: the owner answered", "ids": freed})
+    everything = [i for ids in waiting.values() for i in ids if i not in capped] + unhandled
     stale = last_start is None or now - parse_time(last_start) >= timedelta(hours=retry_hours)
     if not reasons and everything and retry_hours > 0 and stale:
         reasons.append({"why": f"work waiting and no run in {retry_hours:g} hours", "ids": everything[:20]})
@@ -161,8 +149,6 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     # A pause stops the runner from starting the role. In attended mode the owner opens the sessions, and one
     # checking on itself is told about its work: in Tablet every check-in stopped on exit 3 for an hour.
     runner_only = bool(hold) and from_own_run and charter["run"].get("mode") == "attended"
-    ids = {i for r in reasons for i in r.get("ids", [])}
-    escalate = sorted(i for i in ids if rounds.get(i, 0) >= caps["escalate_model_after"])
     ready = bool(reasons) and not running and (not hold or runner_only)
     state = "work" if ready else "running" if running and reasons else "paused" if hold and reasons else "idle"
     result = {"agent": agent, "pending": ready, "state": state, "since": since,
@@ -173,8 +159,6 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
             result["paused_for"] = "runner starts only; this session may work"
     if scope:
         result["scoped_to"] = sorted(scope)
-    if escalate:
-        result["escalate"] = escalate
     if batching:
         result["batching"] = batching
     held = sorted(capped & {i for ids in waiting.values() for i in ids})
@@ -278,7 +262,7 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
 def _queued_for_review(board: Board, message: dict[str, Any]) -> bool:
     """Whether the review queue lists the message's task, so the queue and not the message wakes its reviewer."""
     summary = getattr(board, "by_id", {}).get(message.get("task_id"))
-    return bool(summary) and gate_spec(summary, board.gates)[0] not in (None, "legacy")
+    return bool(summary) and gate_spec(summary, board.gates)[0] is not None
 
 
 def _live(sessions: list[dict[str, Any]], now: datetime) -> list[str]:

@@ -53,8 +53,7 @@ def check_harness(settings: dict[str, Any], role_id: str, harness: str) -> None:
     """Refuse a harness the charter doesn't run the role on. Tablet had a Codex Jade review after the owner
     ruled Jade runs on Claude (TASK-72). The owner allows more in the charter: ``models.<role>.also``."""
     choice = (settings.get("models") or {}).get(role_id) or {}
-    allowed = {pick.get("harness") for pick in (choice, choice.get("escalate") or {}) if pick.get("harness")}
-    allowed |= set(choice.get("also") or [])
+    allowed = {choice["harness"], *(choice.get("also") or [])} if choice.get("harness") else set(choice.get("also") or [])
     if allowed and harness not in allowed:
         raise SoftoryError(f"The charter runs {role_id} on {', '.join(sorted(allowed))}, not {harness}. Start it "
                            f"there, or ask the owner to add {harness} to models.{role_id}.also", "wrong_harness")
@@ -389,15 +388,14 @@ def reviewers(project: Project, coord: Coordination, task_id: str) -> dict[str, 
     rotation = (charter.load(project).get("review") or {}).get("rotation") or []
     rows = []
     for requirement in gate_rules.required_reviews(task, gates):
-        candidates = gate_rules.eligible(requirement, built_by, latest)
-        anyone = gate_rules.ANYONE in requirement["reviewers"]
+        candidates = gate_rules.eligible(requirement, built_by)
         row = {
             "why": requirement["why"],
             "source": requirement["source"],
-            "reviewers": ["anyone but the builder"] if anyone else candidates,
+            "reviewers": candidates,
             "latest": {r: latest[r]["decision"] for r in candidates if r in latest},
         }
-        if not anyone and len(candidates) > 1:  # several may give it: name the one to ask
+        if len(candidates) > 1:  # several may give it: name the one to ask
             row["ask"] = gate_rules.ask(candidates, latest, rotation, task_id,
                                         set(gates["accepting_decisions"]))
         if requirement.get("note"):
@@ -428,7 +426,7 @@ class Board:
 
     @property
     def held(self) -> dict[str, str]:
-        """Units held off every queue (an open escalation, an owner's deferral) -> why."""
+        """Units held off every queue (an open escalation) -> why."""
         if self._held is None:
             self._held = holds.held(self.project, self.coord)
         return self._held
@@ -474,8 +472,8 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
     to_review = []
     for summary in board.tasks:
         unit, spec = gate_rules.spec_for(summary, gates)
-        if unit in (None, "legacy"):
-            continue  # older tasks keep the project's own review routing
+        if unit is None:
+            continue
         if spec.get("record"):  # a record needs a sign-off only for a tag its reviewer can't give
             if summary["status"] not in gate_rules.RECORD_STATUSES or not any(
                     tag in gates["tag_reviews"] for tag in tags_of(summary)):
@@ -590,7 +588,7 @@ def review_owed(task: dict[str, Any], requirement: dict[str, Any], agent: str, b
                 return True
         return False
     covered = any(latest.get(r, {}).get("decision") in accepting
-                  for r in gate_rules.eligible(requirement, built_by, latest) if r != agent)
+                  for r in gate_rules.eligible(requirement, built_by) if r != agent)
     return None if covered else True
 
 

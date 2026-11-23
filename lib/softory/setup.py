@@ -41,7 +41,7 @@ def checklist(project: Project) -> dict[str, Any]:
          "Set `paging.command`, a shell command that reads $SOFTORY_TITLE and $SOFTORY_MESSAGE, for example "
          "`osascript -e \"display notification \\\"$SOFTORY_MESSAGE\\\" with title \\\"$SOFTORY_TITLE\\\"\"`, "
          "or a curl to a push service. Then test it with `softory digest --send`.")
-    harnesses = {charters.model_for(charter, role, False)["harness"] for role in charter["run"]["roles"]}
+    harnesses = {charters.model_for(charter, role)["harness"] for role in charter["run"]["roles"]}
     for name in sorted(harnesses):
         binary = charter["run"]["harnesses"][name][0]
         step(f"{name} installed", shutil.which(binary), f"Install `{binary}` and sign in, on this Mac.")

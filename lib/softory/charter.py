@@ -62,6 +62,14 @@ def unknown_keys(base: Any, overrides: Any, prefix: str = "") -> list[str]:
     return found
 
 
+def without_unset_escalation(overrides: dict[str, Any]) -> dict[str, Any]:
+    """The overrides less each ``models.<role>.escalate: null``. Until 0.6.11 every model entry carried one, so
+    a charter approved before then holds them, and the next approval would refuse them as unknown settings."""
+    models = {role: {k: v for k, v in pick.items() if (k, v) != ("escalate", None)} if isinstance(pick, dict) else pick
+              for role, pick in (overrides.get("models") or {}).items()}
+    return {**overrides, "models": models} if "models" in overrides else overrides
+
+
 def approve(project: Project, coord: Coordination, path: Path, confirm: Any, layer: bool = False) -> dict[str, Any]:
     """Replace the owner's overrides with the file's, after a typed yes at a terminal, and record a decision.
 
@@ -78,6 +86,7 @@ def approve(project: Project, coord: Coordination, path: Path, confirm: Any, lay
     current = project.local().get("charter", {}).get("settings", {})
     if layer:
         overrides = merge(current, overrides)
+    overrides = without_unset_escalation(overrides)
     bad = unknown_keys(defaults(project), overrides)
     if bad:
         raise SoftoryError(f"Unknown charter settings: {', '.join(bad)}. `softory charter show` lists them.",
@@ -132,15 +141,13 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
     for role, choice in charter["models"].items():
         if role == "description":
             continue
-        for pick in (choice, choice.get("escalate")):
-            if pick and pick.get("harness") not in charter["run"]["harnesses"]:
-                problems.append(f"models.{role} uses harness {pick.get('harness')!r}, which run.harnesses doesn't define")
+        if choice.get("harness") not in charter["run"]["harnesses"]:
+            problems.append(f"models.{role} uses harness {choice.get('harness')!r}, which run.harnesses doesn't define")
     mode = charter["run"].get("mode", "unattended")
     if mode not in ("unattended", "attended"):
         problems.append(f"run.mode is {mode!r}: use unattended or attended")
     elif mode == "attended":
-        used = {pick.get("harness") for r, c in charter["models"].items() if r != "description"
-                for pick in (c, c.get("escalate")) if pick}
+        used = {c.get("harness") for r, c in charter["models"].items() if r != "description"}
         for harness in sorted(h for h in used if h and h not in (charter["run"].get("attended") or {})):
             problems.append(f"run.mode is attended, but run.attended has no interactive command for {harness}")
     merging = (charter.get("merge") or {}).get("by", "owner")
@@ -164,9 +171,8 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
     return problems
 
 
-def model_for(charter: dict[str, Any], role: str, escalated: bool) -> dict[str, str]:
-    choice = charter["models"].get(role) or {}
-    pick = (choice.get("escalate") if escalated else None) or choice
+def model_for(charter: dict[str, Any], role: str) -> dict[str, str]:
+    pick = charter["models"].get(role) or {}
     if not pick.get("harness"):
         raise SoftoryError(f"The charter names no harness for {role}", "configuration_error")
     return {"harness": pick["harness"], "model": pick.get("model", "")}

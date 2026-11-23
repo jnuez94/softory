@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
-from concurrent.futures import ThreadPoolExecutor
 import sys
 import unittest
 from datetime import datetime
@@ -48,13 +46,10 @@ class CharterUnitTest(unittest.TestCase):
         self.assertEqual(limits_for(DEFAULTS, "greg")["runs_per_role_per_day"], 24)
         self.assertEqual(charters.unknown_keys(DEFAULTS, {"budget": {"roles": {"quinn": {"minutes_per_run": 60}}}}), [])
 
-    def test_escalation_switches_model(self) -> None:
-        self.assertEqual(charters.model_for(DEFAULTS, "toby", False), {"harness": "codex", "model": "gpt-6-astra"})
-        self.assertEqual(charters.model_for(DEFAULTS, "jade", True)["model"], "claude-opus-5-5")  # no escalation set
-        cheap = charters.merge(DEFAULTS, {"models": {"gold": {"harness": "codex", "model": "gpt-6.1-sol",
-                                                             "escalate": {"harness": "claude", "model": "claude-opus-5-5"}}}})
-        self.assertEqual(charters.model_for(cheap, "gold", False)["model"], "gpt-6.1-sol")
-        self.assertEqual(charters.model_for(cheap, "gold", True)["harness"], "claude")
+    def test_each_role_runs_on_the_charters_model(self) -> None:
+        self.assertEqual(charters.model_for(DEFAULTS, "toby"), {"harness": "codex", "model": "gpt-6-astra"})
+        cheap = charters.merge(DEFAULTS, {"models": {"gold": {"harness": "codex", "model": "gpt-6.1-sol"}}})
+        self.assertEqual(charters.model_for(cheap, "gold"), {"harness": "codex", "model": "gpt-6.1-sol"})
 
     def test_claude_settings_keep_a_role_in_its_lane(self) -> None:
         charter = charters.merge(DEFAULTS, {"lanes": {"frontend": ["web/**"]}})
@@ -423,7 +418,7 @@ class UnattendedTest(unittest.TestCase):
 
     def test_a_run_is_logged_and_counts_against_the_budget(self) -> None:
         self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", "echo {model} > .git/ran-{role}"]}},
-                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}},
+                      "models": {"jade": {"harness": "fake", "model": "m1"}},
                       "budget": {"runs_per_role_per_day": 1}})
         ran = json.loads(softory(self.root, "run-role", "jade").stdout)
         self.assertEqual((ran["exit"], ran["model"]), (0, "m1"))
@@ -436,55 +431,30 @@ class UnattendedTest(unittest.TestCase):
         self.assertEqual([row["key"] for row in found["urgent"]], ["budget-jade"])
 
     def test_a_task_past_its_review_cap_stops_and_goes_to_the_owner(self) -> None:
-        self.approve({"task_caps": {"review_rounds": 2, "escalate_model_after": 1}})
+        self.approve({"task_caps": {"review_rounds": 2}})
         sha = self.commit("web/a.js", "x\n")
         self.build("TASK-1", "jade", sha)
         coord(self.root, "review", "add", "--id", "REV-TASK-1-2", "--task", "TASK-1", "--reviewer", "gold",
               "--artifact", sha, "--scope", "t", "--decision", "changes_requested", "--required-changes", "x")
         once = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01").stdout)
-        self.assertEqual(once["escalate"], ["TASK-1"])
+        self.assertIn("TASK-1", json.dumps(once["reasons"]))  # one round short of the cap: still the builder's
+        self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
         coord(self.root, "review", "add", "--id", "REV-TASK-1-3", "--task", "TASK-1", "--reviewer", "gold",
               "--artifact", sha, "--scope", "t", "--decision", "changes_requested", "--required-changes", "x")
-        capped = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
-        self.assertEqual(capped["capped"], ["TASK-1"])
-        self.assertNotIn("TASK-1", json.dumps(capped["reasons"]))
-        quinn = json.loads(softory(self.root, "pending", "quinn", "--since", "2000-01-01").stdout)
-        self.assertIn("TASK-1", json.dumps(quinn["reasons"]))  # Quinn settles it, not the owner
-        missed = json.loads(softory(self.root, "pending", "quinn", "--since", "2999-01-01").stdout)
-        self.assertIn("TASK-1", json.dumps(missed["reasons"]))  # a run that missed it retries it
-        ruling = json.loads(softory(self.root, "ruling", "--title", "Park it", "--decision", "Wait", "--where", "x",
-                                    "--actor", "quinn").stdout)["decision"]
-        softory(self.root, "defer", "TASK-1", "--decision", ruling, "--actor", "quinn")
-        for since in ("2000-01-01", "2999-01-01"):  # held: no settlement wake, and no retry either
-            parked = json.loads(softory(self.root, "pending", "quinn", "--since", since, check=False).stdout)
-            self.assertNotIn("TASK-1", json.dumps(parked["reasons"]))
-        softory(self.root, "defer", "TASK-1", "--lift", "--actor", "quinn")
-        for since in ("2000-01-01", "2999-01-01"):  # released, but still at the cap: the builder waits
-            builder = json.loads(softory(self.root, "pending", "jade", "--since", since, "--retry-hours", "0.0001",
-                                         check=False).stdout)
-            self.assertNotIn("TASK-1", json.dumps(builder["reasons"]))
-            self.assertEqual(builder["capped"], ["TASK-1"])
-        self.assertNotIn("cap-TASK-1", [row["key"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]])
-        refused = softory(self.root, "settle", "TASK-1", "retry", "--reason", "x", "--actor", "gold", check=False)
-        self.assertIn("not_allowed", refused.stderr)
-        time.sleep(1.1)  # the extra round lands after the review that capped it
-        with ThreadPoolExecutor(2) as pool:  # two retries at once: the lock lets only one extra round through
-            raced = list(pool.map(lambda _: softory(self.root, "settle", "TASK-1", "retry", "--reason",
-                                                    "one fix left, scoped", "--actor", "quinn", check=False), range(2)))
-        self.assertEqual(sorted(r.returncode == 0 for r in raced), [False, True])
-        shown = coord(self.root, "task", "show", "TASK-1")["data"]
-        later = max([shown["updated_at"], *(r["created_at"] for r in shown.get("reviews") or [])])  # Jade ran since
-        woken = json.loads(softory(self.root, "pending", "jade", "--since", later, "--retry-hours", "0",
-                                   check=False).stdout)
-        self.assertIn("TASK-1", json.dumps(woken["reasons"]))  # the extra round wakes the builder
-        lifted = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
-        self.assertNotIn("capped", lifted)
-        coord(self.root, "review", "add", "--id", "REV-TASK-1-4", "--task", "TASK-1", "--reviewer", "gold",
-              "--artifact", sha, "--scope", "t", "--decision", "changes_requested", "--required-changes", "x")
-        found = json.loads(softory(self.root, "digest").stdout)  # Quinn's one extra round is spent: the owner's now
-        keys = [row["key"] for row in found["digest"]]
-        self.assertIn("cap-TASK-1", keys)
-        self.assertTrue(any(k.startswith("settled-TASK-1") for k in keys))
+        for role in ("jade", "quinn"):  # nobody on the team is woken for it, on news or on the retry
+            for since in ("2000-01-01", "2999-01-01"):
+                capped = json.loads(softory(self.root, "pending", role, "--since", since, "--retry-hours", "0.0001",
+                                            check=False).stdout)
+                self.assertNotIn("TASK-1", json.dumps(capped["reasons"]), (role, since))
+        builder = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01", check=False).stdout)
+        self.assertEqual(builder["capped"], ["TASK-1"])
+        found = {row["key"]: row["text"] for row in json.loads(softory(self.root, "digest").stdout)["digest"]}
+        self.assertIn("softory drop TASK-1", found["cap-TASK-1"])
+        self.assertIn("task_caps.review_rounds", found["cap-TASK-1"])
+        self.approve({"task_caps": {"review_rounds": 3}})  # the owner's way to allow another round
+        raised = json.loads(softory(self.root, "pending", "jade", "--since", "2000-01-01").stdout)
+        self.assertIn("TASK-1", json.dumps(raised["reasons"]))
+        self.assertNotIn("capped", raised)
 
     def test_digest_pages_a_gate_bypass_once(self) -> None:
         marker = self.root / ".git" / "pages"
@@ -534,7 +504,7 @@ class UnattendedTest(unittest.TestCase):
         script = ('printf %s "$1" > .git/prompt; echo {effort} > .git/effort; echo "$COORDINATION_SESSION" > .git/session; '
                   'cat .git/report.json')
         self.approve({"run": {"roles": ["jade"], "harnesses": {"fake": ["sh", "-c", script, "sh", "{prompt}"]}},
-                      "models": {"jade": {"harness": "fake", "model": "m1", "escalate": None}}})
+                      "models": {"jade": {"harness": "fake", "model": "m1"}}})
         ran = json.loads(softory(self.root, "run-role", "jade").stdout)
         self.assertEqual((ran["job"], ran["effort"], ran["usd"], ran["output_tokens"]), ("build", "high", 0.5, 5))
         self.assertEqual((self.root / ".git/effort").read_text().strip(), "high")

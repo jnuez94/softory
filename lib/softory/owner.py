@@ -1,7 +1,6 @@
-"""The owner's changes: stand-ins, waivers, review adoptions, proposals, and rulings recorded for the owner.
+"""The owner's changes: stand-ins, waivers, proposals, and rulings recorded for the owner.
 
-Stand-ins and waivers change who and what the gate accepts, and adopting an
-older task as a review record lets it close on its author's own verdict, so
+Stand-ins and waivers change who and what the gate accepts, so
 only the owner makes them, at a terminal: ``softory standin add`` and ``softory
 approve`` ask for a typed "yes" and refuse to run without one. An agent's
 shell has no terminal, so agents propose instead (``softory propose``),
@@ -165,125 +164,44 @@ def propose(project: Project, coord: Coordination, kind: str, change: dict[str, 
             "next": f"Tell the owner: softory approve {proposal_id} (run it in a terminal). Nothing changes until then."}
 
 
-def request_adoption(project: Project, coord: Coordination, task_id: str, targets: list[str], skipped: list[str],
-                     actor: str, looks_like_review: bool = True) -> dict[str, Any]:
-    """Ask the owner to let an older task close as a review record. Changes nothing until approved.
-
-    A record closes on its author's own verdict, so turning existing work into
-    one would let a builder close their own work unreviewed. The owner checks
-    the list and approves it in one go with ``softory approve --all``.
-    """
-    existing = _load_proposals(project)
-    same = next((p for p in existing if p["status"] == "open" and p["kind"] == "adopt"
-                 and p["change"]["task"] == task_id), None)
-    if same is None:
-        title = str(coord.task(task_id).get("title") or "")[:80]
-        change = {"task": task_id, "targets": targets, "title": title, "looks_like_review": looks_like_review}
-        same = {"id": _next_id(existing), "kind": "adopt", "change": change,
-                "why": f"{task_id} is a review run of {', '.join(targets)}", "proposed_by": actor,
-                "session": os.environ.get("COORDINATION_SESSION") or "no session", "created_at": _now(),
-                "decision": None, "status": "open"}
-        _save_proposals(project, [*existing, same])
-    result: dict[str, Any] = {"proposal": same["id"], "task": task_id, "targets": same["change"]["targets"],
-                              "next": "Tell the owner: softory approve --all (in a terminal) approves every waiting "
-                                      "adoption at once. Nothing changes until then."}
-    if skipped:
-        result["not_targets"] = skipped
-    return result
-
-
 def _next_id(existing: list[dict[str, Any]]) -> str:
     number = 1 + max((int(p["id"].split("-")[-1]) for p in existing if re.fullmatch(r"PROP-\d+", p["id"])), default=0)
     return f"PROP-{number}"
-
-
-def _summary(chosen: list[dict[str, Any]], reject: bool) -> str:
-    """What the owner reads before typing yes: anything that doesn't look like a review run comes first."""
-    odd = [p for p in chosen if p["kind"] == "adopt" and not p["change"].get("looks_like_review", True)]
-    usual = [p for p in chosen if p not in odd]
-    flag = bool(odd) and not reject
-    lines = [f"{'Reject' if reject else 'Approve'} {len(chosen)} proposal(s):"]
-    if flag:
-        lines += ["CHECK THESE FIRST. Not tagged or named as a review run, so it may be work posing as one "
-                  "(to leave one out, run softory approve <ID> --reject first):", *(_describe(p) for p in odd), ""]
-    lines += [_describe(p) for p in (usual if flag else chosen)]
-    return "\n".join(lines)
 
 
 def _describe(proposal: dict[str, Any]) -> str:
     change = proposal["change"]
     if proposal["kind"] == "standin":
         what = f"Stand-in: {grants.describe(change)}"
-    elif proposal["kind"] == "waiver":
-        what = f"Waive {change['check']} on {change['task']}: {change['reason']}"
     else:
-        what = (f"Close {change['task']} (\"{change.get('title', '')}\") as a review record of "
-                f"{', '.join(change['targets'])}")
-    return f"{proposal['id']} from {proposal['proposed_by']}: {what}" + (
-        f"\n  Why: {proposal['why']}" if proposal["kind"] != "adopt" else "")
+        what = f"Waive {change['check']} on {change['task']}: {change['reason']}"
+    return f"{proposal['id']} from {proposal['proposed_by']}: {what}\n  Why: {proposal['why']}"
 
 
 def approve(project: Project, coord: Coordination, proposal_ids: list[str], reject: bool = False,
-            every: bool = False, confirm: Confirm = confirm_at_terminal) -> dict[str, Any]:
-    """Apply (or reject) proposals, after one typed yes. Only the owner, at a terminal.
-
-    ``every`` takes every waiting review adoption. Stand-ins and waivers change
-    who the gate trusts, so they're approved one by one, by ID.
-    """
+            confirm: Confirm = confirm_at_terminal) -> dict[str, Any]:
+    """Apply (or reject) proposals, after one typed yes. Only the owner, at a terminal."""
     rows = _load_proposals(project)
     open_rows = [p for p in rows if p["status"] == "open"]
-    if every:
-        chosen = [p for p in open_rows if p["kind"] == "adopt"]
-        others = [p["id"] for p in open_rows if p["kind"] != "adopt"]
-        if not chosen:
-            note = "No review adoptions are waiting."
-            if others:
-                note += f" Approve stand-ins and waivers by ID: {', '.join(others)}."
-            return {"results": [], "note": note}
-    else:
-        missing = [i for i in proposal_ids if i not in {p["id"] for p in open_rows}]
-        if missing or not proposal_ids:
-            raise SoftoryError(f"No open proposal {', '.join(missing) or '(none named)'}; softory proposals lists them",
-                               "not_found")
-        chosen = [p for p in open_rows if p["id"] in proposal_ids]
-    confirm(_summary(chosen, reject))
+    missing = [i for i in proposal_ids if i not in {p["id"] for p in open_rows}]
+    if missing or not proposal_ids:
+        raise SoftoryError(f"No open proposal {', '.join(missing) or '(none named)'}; softory proposals lists them",
+                           "not_found")
+    chosen = [p for p in open_rows if p["id"] in proposal_ids]
+    confirm("\n".join([f"{'Reject' if reject else 'Approve'} {len(chosen)} proposal(s):", *map(_describe, chosen)]))
     owner = project.owner_id
     results = []
-    adopted = [p for p in chosen if p["kind"] == "adopt"]
-    batch = None
-    if adopted and not reject:  # one decision for the whole batch
-        batch = record_decision(coord, owner, "ADOPT", f"Owner approved {len(adopted)} review run(s) as records",
-                                "Close as review records: " + "; ".join(
-                                    f"{p['change']['task']} (reviews {', '.join(p['change']['targets'])})" for p in adopted),
-                                "Approved with softory approve at the owner's terminal.")
     for proposal in chosen:
-        result = _decide(project, coord, proposal, reject, owner, batch)
-        results.append(result)
-        if proposal["status"] != "open":
-            proposal["decided_at"] = _now()
+        results.append(_decide(project, coord, proposal, reject, owner))
+        proposal["decided_at"] = _now()
     _save_proposals(project, rows)
-    return {"results": results} if len(results) > 1 or every else results[0]
+    return {"results": results} if len(results) > 1 else results[0]
 
 
-def _decide(project: Project, coord: Coordination, proposal: dict[str, Any], reject: bool, owner: str,
-            batch: str | None) -> dict[str, Any]:
+def _decide(project: Project, coord: Coordination, proposal: dict[str, Any], reject: bool, owner: str) -> dict[str, Any]:
     proposal_id = proposal["id"]
     change = proposal["change"]
     result: dict[str, Any] = {"proposal": proposal_id}
-    if proposal["kind"] == "adopt":
-        if reject:
-            proposal["status"] = "rejected"
-        else:
-            from . import team  # imported here: team -> work -> ops would import this module first
-            try:
-                result.update(team.adopt(project, coord, change["task"], "review",
-                                         {"actor": owner, "for": ",".join(change["targets"]), "approved": True}))
-            except SoftoryError as error:  # it changed since it was proposed; leave it for another look
-                result.update(status="open", error=error.message)
-                return result
-            proposal.update(status="approved", decision=batch)
-        result["status"] = proposal["status"]
-        return result
     if not reject:
         if proposal["kind"] == "standin":
             result.update(_apply_grant(project, coord, change, proposal["decision"]))
