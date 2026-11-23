@@ -267,6 +267,24 @@ class HandoffTest(unittest.TestCase):
         self.assertNotIn("built_by", result)
         self.assertEqual(json.loads(softory(self.root, "reviewers", task).stdout)["builders"], ["jade"])
 
+    def test_a_follow_up_whose_block_was_resolved_tags_nothing(self) -> None:
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        self.commit("a.txt", task)
+        self.handoff(task)
+        bug = json.loads(softory(self.root, "new", "bug", "--from", task, "--blocks-source", "--type", "functional",
+                                 "--title", "Parser cap", "--assignee", "gold", "--actor", "quinn").stdout)["id"]
+        coord(self.root, "dependency", "resolve", "--task", task, "--depends-on", bug, "--type", "blocks",
+              "--actor", "quinn")  # the fix was put off: the task no longer waits on it
+        gold = {**os.environ, **start(self.root, "gold")}
+        coord(self.root, "--session", gold["COORDINATION_SESSION"], "task", "claim", bug, "--agent", "gold",
+              "--if-revision", revision(self.root, bug))
+        softory(self.root, "commit", bug, "HEAD", "--base", self.base, "--actor", "gold")
+        result = json.loads(softory(self.root, "handoff", bug, "--actor", "gold", env=gold).stdout)
+        self.assertNotIn("built_by", result)
+        found = json.loads(softory(self.root, "reviewers", task).stdout)
+        self.assertEqual((found["builders"], found["requirements"][0]["reviewers"]), (["jade"], ["gold"]))
+
     def test_a_commit_recorded_on_the_base_branch_is_pointed_out(self) -> None:
         branch = run(["git", "branch", "--show-current"], self.root).stdout.strip()
         path = self.root / ".git" / "charter.json"

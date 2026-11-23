@@ -67,8 +67,9 @@ def credit_sources(coord: Coordination, task: dict[str, Any], actor: str) -> lis
     told = []
     for source_id in dict.fromkeys(sources):
         source = coord.task(source_id)
+        # A resolved block stays on the record: the task no longer waits on this work, so it isn't part of it.
         waits = any(d.get("depends_on_task_id") == task["id"] and d.get("dependency_type") == "blocks"
-                    for d in source.get("dependencies") or [])
+                    and d.get("status") == "active" for d in source.get("dependencies") or [])
         if not waits or source["status"] == "done" or actor in gate_rules.builders(source):
             continue
         tag = gate_rules.BUILT_BY + actor
