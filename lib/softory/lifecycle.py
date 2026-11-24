@@ -361,7 +361,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
     its lane), when the other members count as done. Members close bottom first: a member
     closes after every member it waits on.
     """
-    from . import verify, work  # noqa: PLC0415 - both import this module's neighbours
+    from . import coverage, verify, work  # noqa: PLC0415 - all import this module's neighbours
 
     gates = project.gates()
     name = stack_of(coord.task(task_id))
@@ -373,6 +373,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
     children = {i: [t for t in everything if f"parent:{i}" in tags_of(t)] for i in members}
     related = {i: work.related_live(coord, t, gates) for i, t in members.items()}
     objective = {i: work.objective_checks(project, t, gates) for i, t in members.items()}
+    stale = {i: set(coverage.stale_reviews(project, t)) for i, t in members.items()}
 
     passing = set(members)
     while True:
@@ -382,7 +383,7 @@ def close_stack(project: Project, coord: Coordination, task_id: str, actor: str)
                     else statuses.get(dep["depends_on_task_id"], "")
                     for dep in task.get("dependencies") or []}
             reports[member_id] = gate_rules.evaluate(task, gates, deps, children[member_id], actor, related[member_id],
-                                                     objective[member_id])
+                                                     objective[member_id], stale[member_id])
         now = {i for i, report in reports.items() if report["pass"]}
         if now == passing:
             break

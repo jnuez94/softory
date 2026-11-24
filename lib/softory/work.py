@@ -303,7 +303,7 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
     children = coord.all_tasks("--tag", f"parent:{task_id}")
     report = gate_rules.evaluate(task, gates, dependency_status, children,
                                  actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
-                                 objective_checks(project, task, gates))
+                                 objective_checks(project, task, gates), set(coverage.stale_reviews(project, task)))
     report["commit"] = verify.commit_of(project.root, task)  # the commit these checks judged; close records it
     return report
 
@@ -454,7 +454,8 @@ class Board:
         statuses = {dep["depends_on_task_id"]: self.by_id.get(dep["depends_on_task_id"], {}).get("status", "")
                     for dep in task.get("dependencies") or []}
         return gate_rules.evaluate(task, self.gates, statuses, self.children.get(task_id, []), actor,
-                                   self.related(task), objective_checks(self.project, task, self.gates))
+                                   self.related(task), objective_checks(self.project, task, self.gates),
+                                   set(coverage.stale_reviews(self.project, task)))
 
 
 def queue(project: Project, coord: Coordination, agent: str | None, board: Board | None = None) -> dict[str, Any]:

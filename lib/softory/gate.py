@@ -154,10 +154,12 @@ def builders(task: dict[str, Any]) -> set[str]:
 
 
 def builder_requests(task: dict[str, Any], requirement: dict[str, Any], latest: dict[str, dict[str, Any]],
-                     built_by: set[str], accepting: set[str]) -> tuple[list[str], list[str]]:
+                     built_by: set[str], accepting: set[str],
+                     stale: set[str] | frozenset[str] = frozenset()) -> tuple[list[str], list[str]]:
     """Reviewers of ``requirement`` who asked for changes and then built part of the task (``built-by``), so they
     can't be asked back: those whose request someone who may still give the review accepted after, and those
-    still waiting for that. The accepting reviewer takes the request over; a builder never clears their own."""
+    still waiting for that. The accepting reviewer takes the request over; a builder never clears their own.
+    An acceptance in ``stale`` (coverage.py: given for another commit than the unit delivers now) takes nothing over."""
     order = {(r.get("reviewer_id") or r.get("reviewer")): i for i, r in enumerate(task.get("reviews") or [])}
     taken, waiting = [], []
     for reviewer in requirement["reviewers"]:
@@ -165,7 +167,8 @@ def builder_requests(task: dict[str, Any], requirement: dict[str, Any], latest: 
         if not (requirement.get("not_self") and reviewer in built_by - holders(task) and mine) or mine.get("decision") in accepting:
             continue
         after = [r for r in eligible(requirement, built_by)
-                 if latest.get(r, {}).get("decision") in accepting and order.get(r, -1) > order.get(reviewer, -1)]
+                 if r not in stale and latest.get(r, {}).get("decision") in accepting
+                 and order.get(r, -1) > order.get(reviewer, -1)]
         (taken if after else waiting).append(reviewer)
     return taken, waiting
 
@@ -203,13 +206,15 @@ def evaluate(
     actor: str | None = None,
     related: dict[str, dict[str, Any]] | None = None,
     extra: list[dict[str, Any]] | None = None,
+    stale: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Run every gate check. ``dependency_status`` maps task ID to status.
 
     ``related`` is only needed for a review record: ``tasks`` maps each ID from
     ``related_ids`` to its summary (None if it doesn't exist), and ``reviews``
     maps each reviewed task to its reviews, oldest first. ``extra`` holds checks
-    computed outside (verify.py: tests at the commit, lane paths).
+    computed outside (verify.py: tests at the commit, lane paths). ``stale`` names reviewers whose
+    acceptance is for another commit (coverage.py); it can't take over a builder's change request.
     """
     checks: list[dict[str, Any]] = []
     unit, spec = spec_for(task, gates)
@@ -256,7 +261,7 @@ def evaluate(
     taken_over: set[str] = set()
     for requirement in required_reviews(task, gates):
         candidates = eligible(requirement, built_by)
-        taken_over |= set(builder_requests(task, requirement, latest, built_by, accepting)[0])
+        taken_over |= set(builder_requests(task, requirement, latest, built_by, accepting, stale)[0])
         passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
         named = " or ".join(candidates)
         detail = (

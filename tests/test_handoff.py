@@ -307,6 +307,48 @@ class HandoffTest(unittest.TestCase):
                 "--required-changes", "Still wrong", env=gold)
         self.assertFalse(rejections()["pass"])  # a request made after the acceptance is a new one
 
+    def test_an_acceptance_of_another_commit_takes_over_no_change_request(self) -> None:
+        for agent in ("avery", "blair"):
+            coord(self.root, "agent", "add", "--id", agent, "--name", agent.title(), "--role", "Reviewer",
+                  "--actor", "owner")
+            at_terminal(self.root, "standin", "add", agent, "--for", "jade,gold")
+
+        def session(agent: str) -> dict:
+            exports = softory(self.root, "start", agent, "--harness", "codex").stdout.splitlines()
+            return {**os.environ, **dict(line.removeprefix("export ").split("=", 1) for line in exports)}
+
+        def review(number: int, who: str, env: dict, sha: str, decision: str, *more: str) -> None:
+            softory(self.root, "coord", "review", "add", "--id", f"REV-{number}", "--task", task, "--reviewer", who,
+                    "--artifact", f"commit:{sha}", "--scope", "all", "--decision", decision, *more, env=env)
+
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        old = self.commit("a.txt", task)
+        current = self.commit("b.txt", task)
+        self.handoff(task)
+        gold = {**os.environ, **start(self.root, "gold")}
+        review(1, "avery", session("avery"), current, "accepted")
+        review(2, "gold", gold, current, "changes_requested", "--required-changes", "Cap the parser")
+        bug = json.loads(softory(self.root, "new", "bug", "--from", task, "--blocks-source", "--type", "functional",
+                                 "--title", "Parser cap", "--assignee", "gold", "--actor", "quinn").stdout)["id"]
+        coord(self.root, "--session", gold["COORDINATION_SESSION"], "task", "claim", bug, "--agent", "gold",
+              "--if-revision", revision(self.root, bug))
+        softory(self.root, "commit", bug, current, "--base", self.base, "--actor", "gold")
+        softory(self.root, "handoff", bug, "--actor", "gold", env=gold)
+        blair = session("blair")
+        review(3, "blair", blair, old, "accepted")  # after Gold's request, but of a commit the task no longer delivers
+
+        def checks() -> dict:
+            report = json.loads(softory(self.root, "gate", task, "--actor", "jade", check=False).stdout)
+            return {c["check"]: c["pass"] for c in report["checks"]}
+
+        self.assertTrue(checks()["reviews_cover_commit"])  # Avery's earlier acceptance covers the commit
+        self.assertFalse(checks()["no_open_rejections"])  # nobody independent accepted it after Gold's request
+        waiting = json.loads(softory(self.root, "queue", "--agent", "blair").stdout)["reviews_waiting"]
+        self.assertEqual(next(r for r in waiting if r["id"] == task)["takes_over"][0]["from"], "gold")
+        review(4, "blair", blair, current, "accepted")
+        self.assertTrue(checks()["no_open_rejections"])
+
     def test_a_follow_up_whose_block_was_resolved_tags_nothing(self) -> None:
         task = self.new("task", "--title", "Today list")
         self.claim(task)
