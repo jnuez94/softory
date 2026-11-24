@@ -499,10 +499,10 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
             if owed or inherited:
                 row = {"id": task["id"], "why": requirement["why"], "title": task["title"]}
                 if inherited:
-                    row["takes_over"] = [{"from": r, "asked": latest[r].get("required_changes") or "",
+                    row["takes_over"] = [{"from": r, "asked": asked.get("required_changes") or "",
                                           "scope": f"{r} asked for this, then built part of the unit, so can't review "
                                                    f"it again. Check it is answered: your verdict settles it"}
-                                         for r in inherited]
+                                         for r, asked in inherited.items()]
                 if latest.get(agent):  # a correction of what this reviewer sent back
                     row["re_review"] = re_review(project, task, latest[agent])
                 to_review.append(row)

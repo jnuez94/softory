@@ -155,21 +155,31 @@ def builders(task: dict[str, Any]) -> set[str]:
 
 def builder_requests(task: dict[str, Any], requirement: dict[str, Any], latest: dict[str, dict[str, Any]],
                      built_by: set[str], accepting: set[str],
-                     stale: set[str] | frozenset[str] = frozenset()) -> tuple[list[str], list[str]]:
-    """Reviewers of ``requirement`` who asked for changes and then built part of the task (``built-by``), so they
+                     stale: set[str] | frozenset[str] = frozenset()) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Reviewers of ``requirement`` who asked for changes and built part of the task (``built-by``), so they
     can't be asked back: those whose request someone who may still give the review accepted after, and those
-    still waiting for that. The accepting reviewer takes the request over; a builder never clears their own.
-    An acceptance in ``stale`` (coverage.py: given for another commit than the unit delivers now) takes nothing over."""
-    order = {(r.get("reviewer_id") or r.get("reviewer")): i for i, r in enumerate(task.get("reviews") or [])}
-    taken, waiting = [], []
+    still waiting for that, each with the review that asked. The accepting reviewer takes the request over.
+
+    The request is the builder's last review that asked for changes, whatever they recorded after it: a
+    builder's own acceptance settles nothing. An acceptance in ``stale`` (coverage.py: given for another
+    commit than the unit delivers now) takes nothing over."""
+    reviews = task.get("reviews") or []
+    order = {(r.get("reviewer_id") or r.get("reviewer")): i for i, r in enumerate(reviews)}
+    taken: list[str] = []
+    waiting: dict[str, dict[str, Any]] = {}
     for reviewer in requirement["reviewers"]:
-        mine = latest.get(reviewer)
-        if not (requirement.get("not_self") and reviewer in built_by - holders(task) and mine) or mine.get("decision") in accepting:
+        if not requirement.get("not_self") or reviewer not in built_by - holders(task):
+            continue
+        asked = [i for i, r in enumerate(reviews)
+                 if (r.get("reviewer_id") or r.get("reviewer")) == reviewer and r.get("decision") not in accepting]
+        if not asked:
             continue
         after = [r for r in eligible(requirement, built_by)
-                 if r not in stale and latest.get(r, {}).get("decision") in accepting
-                 and order.get(r, -1) > order.get(reviewer, -1)]
-        (taken if after else waiting).append(reviewer)
+                 if r not in stale and latest.get(r, {}).get("decision") in accepting and order.get(r, -1) > asked[-1]]
+        if after:
+            taken.append(reviewer)
+        else:
+            waiting[reviewer] = reviews[asked[-1]]
     return taken, waiting
 
 
@@ -259,9 +269,12 @@ def evaluate(
     if record:
         checks += _record_checks(task, built_by, latest, accepting, related or {})
     taken_over: set[str] = set()
+    unsettled: set[str] = set()
     for requirement in required_reviews(task, gates):
         candidates = eligible(requirement, built_by)
-        taken_over |= set(builder_requests(task, requirement, latest, built_by, accepting, stale)[0])
+        taken, waiting = builder_requests(task, requirement, latest, built_by, accepting, stale)
+        taken_over |= set(taken)
+        unsettled |= set(waiting)
         passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
         named = " or ".join(candidates)
         detail = (
@@ -273,12 +286,15 @@ def evaluate(
             detail += f" ({requirement['note']})"
         checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
     if not record:
-        blocking = sorted(r for r, review in latest.items()
-                          if review.get("decision") not in accepting and r not in taken_over)
+        # A builder's request holds the task until someone independent settles it, whatever the builder said since.
+        blocking = sorted({r for r, review in latest.items()
+                           if review.get("decision") not in accepting and r not in taken_over} | unsettled)
         passed = (f" ({', '.join(sorted(taken_over))} asked for changes, then built part of it: the reviewer who "
                   f"accepted after took the request over)" if taken_over else "")
+        stands = (f" ({', '.join(sorted(unsettled))} asked, then built part of it: the request stands until a "
+                  f"reviewer who may still give that review accepts this commit)" if unsettled else "")
         checks.append(_check("no_open_rejections", not blocking,
-                             "latest review requests changes from: " + ", ".join(blocking) if blocking
+                             "latest review requests changes from: " + ", ".join(blocking) + stands if blocking
                              else "no reviewer is requesting changes" + passed))
 
     checks += extra or []
