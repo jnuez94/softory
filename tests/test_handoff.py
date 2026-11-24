@@ -307,6 +307,51 @@ class HandoffTest(unittest.TestCase):
                 "--required-changes", "Still wrong", env=gold)
         self.assertFalse(rejections()["pass"])  # a request made after the acceptance is a new one
 
+    def test_a_request_that_was_taken_over_stops_holding_the_task_everywhere(self) -> None:
+        path = self.root / ".git" / "charter.json"  # the secret scan needs a base this repository has
+        path.write_text(json.dumps({"git": {"base": self.base}}))
+        at_terminal(self.root, "charter", "approve", str(path))
+        coord(self.root, "agent", "add", "--id", "avery", "--name", "Avery", "--role", "Reviewer", "--actor", "owner")
+        at_terminal(self.root, "standin", "add", "avery", "--for", "jade,gold")
+        avery = {**os.environ, **dict(line.removeprefix("export ").split("=", 1) for line in softory(
+            self.root, "start", "avery", "--harness", "codex").stdout.splitlines())}
+        task = self.new("task", "--title", "Today list")
+        self.claim(task)
+        sha = self.commit("a.txt", task)
+        self.handoff(task)
+        gold = {**os.environ, **start(self.root, "gold")}
+        softory(self.root, "coord", "review", "add", "--id", "REV-1", "--task", task, "--reviewer", "gold",
+                "--artifact", f"commit:{sha}", "--scope", "all", "--decision", "changes_requested",
+                "--required-changes", "Cap the parser", env=gold)
+        bug = json.loads(softory(self.root, "new", "bug", "--from", task, "--blocks-source", "--type", "functional",
+                                 "--title", "Parser cap", "--assignee", "gold", "--actor", "quinn").stdout)["id"]
+        coord(self.root, "--session", gold["COORDINATION_SESSION"], "task", "claim", bug, "--agent", "gold",
+              "--if-revision", revision(self.root, bug))
+        (self.root / "fix.txt").write_text("fix")
+        run(["git", "add", "fix.txt"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "fix"], self.root)
+        fix = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        softory(self.root, "commit", bug, fix, "--base", sha, "--actor", "gold")
+        softory(self.root, "handoff", bug, "--actor", "gold", env=gold)
+        softory(self.root, "coord", "review", "add", "--id", "REV-2", "--task", bug, "--reviewer", "jade",
+                "--artifact", f"commit:{fix}", "--scope", "all", "--decision", "accepted", env=self.jade)
+        closed = json.loads(softory(self.root, "close", bug, "--actor", "gold", env=gold, check=False).stdout)
+        self.assertTrue(closed["closed"], closed)
+
+        def view() -> tuple[bool, list, list]:
+            ready = [r["id"] for r in json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["ready_to_close"]]
+            pending = json.loads(softory(self.root, "pending", "jade", check=False).stdout)
+            asked = [i for reason in pending["reasons"] if reason["why"] == "changes requested" for i in reason["ids"]]
+            gate = json.loads(softory(self.root, "gate", task, "--actor", "jade", check=False).stdout)
+            return gate["pass"], ready, asked
+
+        self.assertEqual(view(), (False, [], [task]))  # Gold's request still holds it
+        softory(self.root, "coord", "review", "add", "--id", "REV-3", "--task", task, "--reviewer", "avery",
+                "--artifact", f"commit:{sha}", "--scope", "all", "--decision", "accepted", env=avery)
+        self.assertEqual(view(), (True, [task], []))  # Avery took it over: the gate, the queue and pending agree
+        done = json.loads(softory(self.root, "close", "--ready", "--actor", "jade", env=self.jade).stdout)
+        self.assertEqual(done["closed"], [task])
+
     def test_a_builder_cannot_settle_their_own_change_request(self) -> None:
         coord(self.root, "agent", "add", "--id", "avery", "--name", "Avery", "--role", "Reviewer", "--actor", "owner")
         at_terminal(self.root, "standin", "add", "avery", "--for", "jade,gold")

@@ -27,7 +27,8 @@ def triage(project: Project, coord: Coordination) -> dict[str, Any]:
         accepted = sorted(r for r, review in latest.items() if review.get("decision") in gates["accepting_decisions"])
         if not accepted:
             continue
-        rejecting = sorted(r for r, review in latest.items() if review.get("decision") not in gates["accepting_decisions"])
+        rejecting = sorted(work.open_requests(project, gates, task, reviews.get(task["id"], []),
+                                              lambda task=task: coord.task(task["id"])))
         row = {"id": task["id"], "status": task["status"], "title": task["title"],
                "assignees": task.get("assignees") or [], "accepted_by": accepted, "changes_requested_by": rejecting}
         (ready if task["status"] == "review" and not rejecting else accepted_but_open).append(row)

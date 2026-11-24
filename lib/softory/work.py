@@ -449,6 +449,11 @@ class Board:
         return {"tasks": {i: self.by_id.get(i) for i in dict.fromkeys(targets + follow_ups)},
                 "reviews": {t: self.reviews.get(t, []) for t in targets}}
 
+    def open_requests(self, task_id: str) -> dict[str, dict[str, Any]]:
+        """The change requests holding the unit open, as the gate counts them (``gate.open_requests``)."""
+        return open_requests(self.project, self.gates, self.by_id[task_id], self.reviews.get(task_id, []),
+                             lambda: self.show(task_id))
+
     def evaluate(self, task_id: str, actor: str) -> dict[str, Any]:
         task = self.show(task_id)
         statuses = {dep["depends_on_task_id"]: self.by_id.get(dep["depends_on_task_id"], {}).get("status", "")
@@ -608,10 +613,18 @@ def _audit_id(coord: Coordination, kind: str, object_id: str) -> int:
     return int(found[0]["id"]) if found else 0
 
 
+def open_requests(project: Project, gates: dict[str, Any], summary: dict[str, Any], reviews: list[dict[str, Any]],
+                  show: Callable[[], dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """``gate.open_requests`` for a task from a listing. Only a task with a ``built-by`` tag can have a request
+    taken over, so only then is the whole task read (``show``) to find acceptances of another commit."""
+    tagged = any(tag.startswith(gate_rules.BUILT_BY) for tag in tags_of(summary))
+    stale = set(coverage.stale_reviews(project, show())) if tagged else set()
+    return gate_rules.open_requests({**summary, "reviews": reviews}, gates, stale)[0]
+
+
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:
     """Units that pass the gate and that ``agent`` may close."""
     gates = board.gates
-    accepting = set(gates["accepting_decisions"])
     on_hold = getattr(board, "held", {})
     ready = []
     for summary in board.tasks:
@@ -626,7 +639,7 @@ def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:
             continue
         latest = gate_rules.latest_reviews({"reviews": board.reviews.get(summary["id"], [])})
         if not record:
-            if any(r.get("decision") not in accepting for r in latest.values()):
+            if board.open_requests(summary["id"]):
                 continue  # someone wants changes; no need to ask the CLI
             needs_reviews = bool(spec.get("required_reviews")) or (
                 spec.get("tag_reviews", True) and any(tag in gates["tag_reviews"] for tag in tags_of(summary)))

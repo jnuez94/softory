@@ -183,6 +183,24 @@ def builder_requests(task: dict[str, Any], requirement: dict[str, Any], latest: 
     return taken, waiting
 
 
+def open_requests(task: dict[str, Any], gates: dict[str, Any],
+                  stale: set[str] | frozenset[str] = frozenset()) -> tuple[dict[str, dict[str, Any]], set[str]]:
+    """The change requests that hold the task open, by reviewer, and the builders whose request another
+    reviewer took over. Every reader of "who wants changes" goes through here, so the gate, the queue,
+    ``softory pending`` and the run prompt agree: a latest verdict that asks for changes counts unless it was
+    taken over, and a builder's request counts until it is (``builder_requests``)."""
+    accepting = set(gates["accepting_decisions"])
+    latest, built_by = latest_reviews(task), builders(task)
+    taken: set[str] = set()
+    unsettled: dict[str, dict[str, Any]] = {}
+    for requirement in required_reviews(task, gates):
+        done, waiting = builder_requests(task, requirement, latest, built_by, accepting, stale)
+        taken |= set(done)
+        unsettled.update(waiting)
+    asking = {r: review for r, review in latest.items() if review.get("decision") not in accepting and r not in taken}
+    return {**asking, **unsettled}, taken - set(unsettled)
+
+
 def closers(task: dict[str, Any], gates: dict[str, Any]) -> set[str]:
     """Who may close the task: its spec's closers, their stand-ins, and its holders if ``assignee`` is listed."""
     _, spec = spec_for(task, gates)
@@ -268,13 +286,8 @@ def evaluate(
 
     if record:
         checks += _record_checks(task, built_by, latest, accepting, related or {})
-    taken_over: set[str] = set()
-    unsettled: set[str] = set()
     for requirement in required_reviews(task, gates):
         candidates = eligible(requirement, built_by)
-        taken, waiting = builder_requests(task, requirement, latest, built_by, accepting, stale)
-        taken_over |= set(taken)
-        unsettled |= set(waiting)
         passed_by = [r for r in candidates if latest.get(r, {}).get("decision") in accepting]
         named = " or ".join(candidates)
         detail = (
@@ -287,11 +300,12 @@ def evaluate(
         checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
     if not record:
         # A builder's request holds the task until someone independent settles it, whatever the builder said since.
-        blocking = sorted({r for r, review in latest.items()
-                           if review.get("decision") not in accepting and r not in taken_over} | unsettled)
+        asking, taken_over = open_requests(task, gates, stale)
+        blocking = sorted(asking)
+        unsettled = sorted(r for r in asking if r in built_by - holders(task))
         passed = (f" ({', '.join(sorted(taken_over))} asked for changes, then built part of it: the reviewer who "
                   f"accepted after took the request over)" if taken_over else "")
-        stands = (f" ({', '.join(sorted(unsettled))} asked, then built part of it: the request stands until a "
+        stands = (f" ({', '.join(unsettled)} asked, then built part of it: the request stands until a "
                   f"reviewer who may still give that review accepts this commit)" if unsettled else "")
         checks.append(_check("no_open_rejections", not blocking,
                              "latest review requests changes from: " + ", ".join(blocking) + stands if blocking
