@@ -526,7 +526,7 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         if row["id"] in waits:
             row["waits_for"] = "its story's feasibility check"
         elif row["id"] in designs:
-            row["waits_for"] = f"its story's design, {designs[row['id']]}"
+            row["waits_for"] = design_rules.waits_for(designs[row["id"]])
     on_hold = board.held
     # Assigned and claimed lists skip review, and ready_to_close skips held units, so look at the board too:
     # a held unit the role builds or would close shows under held, whatever its status.
@@ -548,6 +548,10 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         result["held"] = [{"id": i, "why": on_hold[i]} for i in mine_held]
     if scope is not None:
         result["scoped_to"] = sorted(scope)
+    targets = [i for i in design_rules.targets_due(board, settings, agent)
+               if i not in on_hold and (scope is None or i in scope)]
+    if targets:  # ui work nobody may start until this role says how it should look
+        result["design_targets_due"] = [{"id": i, "title": board.by_id[i]["title"]} for i in targets]
     if agent == feasibility.CHECKER:  # the runner won't start a check beside a live session, so the queue shows them
         checks = [row for row in feasibility.due_rows(board, settings) if scope is None or row["story"] in scope]
         if checks:

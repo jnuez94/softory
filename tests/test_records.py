@@ -118,6 +118,20 @@ class RecordsTest(unittest.TestCase):
         prose = self.review("--id", "REV-2", "--reviewer", "jade", "--artifact", "docs/design/today.md")
         self.assertEqual(prose.returncode, 0, prose.stderr)
 
+    def test_a_review_whose_artifact_names_two_commits_is_refused_when_written(self) -> None:
+        (self.root / "a.txt").write_text("a\n")
+        run(["git", "add", "a.txt"], self.root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "a"], self.root)
+        head = run(["git", "rev-parse", "HEAD"], self.root).stdout.strip()
+        both = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", f"{head};base={self.sha};evidence=4556-4560")
+        self.assertNotEqual(both.returncode, 0)
+        self.assertIn("names 2 commits", both.stderr)
+        self.assertIn("--scope", both.stderr)
+        self.assertEqual(coord(self.root, "review", "list")["data"], [])
+        for n, artifact in enumerate((f"commit:{head};base={self.sha}", head, f"head={head} base={self.sha}")):
+            made = self.review("--id", f"REV-{n}", "--reviewer", "jade", "--artifact", artifact)  # one commit is named
+            self.assertEqual(made.returncode, 0, made.stderr)
+
     def test_the_owners_approval_in_a_session_becomes_their_review(self) -> None:
         softory(self.root, "commit", "TASK-1", self.sha, "--actor", "jade")
         made = json.loads(softory(self.root, "ruling", "--title", "Today list approved", "--decision",

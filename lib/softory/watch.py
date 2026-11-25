@@ -67,7 +67,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
     capped = {i for i, n in rounds.items() if n >= int(caps["review_rounds"])}
     waits = feasibility.held(board, charter)  # todo tasks whose story hasn't passed its feasibility check
-    waits |= set(design.held(board, charter))  # and UI build tasks whose story's design isn't done
+    designs = design.held(board, charter)
+    waits |= set(designs)  # and UI build work whose design isn't done
     reasons = []
     hold = is_paused(project, agent)
     # The owner let this role work on a few tasks while the pause holds. Scope every list before anything
@@ -112,6 +113,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         "tests not passed at the commit (run softory verify, fix if it fails)": untested,
         "ui unit in review without its reference check (add one; reviewers wait for it)": no_reference,
         "reviews waiting": [] if batching else reviews,
+        "ui work waiting for your design target (softory report <ID> <file> --type design)":
+            [i for i in design.targets_due(board, charter, agent) if i not in on_hold],
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"
                                   and t["id"] not in waits],

@@ -46,6 +46,9 @@ class Board:
         self.tasks, self.gates = tasks, GATES
         self.children = children_by_parent(tasks)
 
+    def show(self, task_id: str) -> dict:
+        return next(t for t in self.tasks if t["id"] == task_id)
+
 
 def unit(task_id: str, status: str, tags: str) -> dict:
     return {"id": task_id, "status": status, "tags": tags}
@@ -75,6 +78,36 @@ class DesignUnitTest(unittest.TestCase):
         self.assertEqual(design.released(Board(tasks), CHARTER), {"TASK-2": "2026-11-06T10:00:00Z"})
         tasks[1]["status"] = "review"
         self.assertEqual(design.released(Board(tasks), CHARTER), {})
+
+    def test_a_ui_bug_or_task_outside_a_designed_story_waits_for_the_designers_target(self) -> None:
+        target = {"evidence_type": "design", "uri": "docs/design/BUG-1.md", "added_by": "darwin",
+                  "created_at": "2026-11-23T20:00:00Z"}
+        tasks = [
+            unit("BUG-1", "todo", "unit:bug,ui"),
+            unit("BUG-2", "todo", "unit:bug"),  # no ui tag: nothing to design
+            {**unit("BUG-3", "todo", "unit:bug,ui"), "evidence": [{**target, "added_by": "jade"}]},  # the builder's own
+            {**unit("BUG-4", "todo", "unit:bug,ui"), "evidence": [target]},
+            {**unit("BUG-5", "todo", "unit:bug,ui"), "created_by": "darwin", "created_at": "2026-11-23T19:00:00Z"},
+            {**unit("TASK-6", "todo", "unit:task,ui"), "assignees": ["darwin"]},  # the designer builds it
+            unit("STORY-7", "todo", "unit:story"),
+            unit("TASK-8", "todo", "unit:task,parent:STORY-7,ui"),  # a story filed without --design
+            {**unit("BUG-9", "todo", "unit:bug,ui"), "evidence": [{**target, "added_by": "owner"}]},
+        ]
+        board = Board(tasks)
+        self.assertEqual(design.held(board, CHARTER),
+                         {"BUG-1": design.TARGET, "BUG-3": design.TARGET, "TASK-8": design.TARGET})
+        self.assertEqual(design.targets_due(board, CHARTER, "darwin"), ["BUG-1", "BUG-3", "TASK-8"])
+        self.assertEqual(design.targets_due(board, CHARTER, "jade"), [])
+        self.assertEqual(design.released(board, CHARTER), {
+            "BUG-4": "2026-11-23T20:00:00Z", "BUG-5": "2026-11-23T19:00:00Z", "BUG-9": "2026-11-23T20:00:00Z"})
+        self.assertEqual(design.held(board, {"design": {"wait_for_design": False}}), {})
+
+    def test_a_stand_in_for_the_designer_may_give_the_target(self) -> None:
+        row = {"evidence_type": "design", "uri": "x.md", "added_by": "avery", "created_at": "2026-11-23T20:00:00Z"}
+        board = Board([{**unit("BUG-1", "todo", "unit:bug,ui"), "evidence": [row]}])
+        self.assertEqual(design.held(board, CHARTER), {"BUG-1": design.TARGET})
+        board.gates = {**GATES, "stand_ins": [{"agent": "avery", "roles": ["darwin"]}]}
+        self.assertEqual(design.held(board, CHARTER), {})
 
     def test_the_detector_fails_on_warnings_and_counts_advisories(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -144,6 +177,28 @@ class DesignWorkflowTest(unittest.TestCase):
         queue = json.loads(softory(self.root, "queue", "--agent", "jade").stdout)
         row = next(r for r in queue["assigned"] if r["id"] == self.task)
         self.assertEqual(row["waits_for"], f"its story's design, {self.design_task}")
+
+    def test_a_ui_bug_waits_for_darwins_target_and_wakes_him_then_its_builder(self) -> None:
+        bug = json.loads(softory(self.root, "new", "bug", "--title", "Save button is cut off", "--lane", "frontend",
+                                 "--tags", "ui", "--type", "visual", "--actor", "quinn").stdout)["id"]
+        row = next(r for r in json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["assigned"]
+                   if r["id"] == bug)
+        self.assertIn("designer's target", row["waits_for"])
+        self.assertNotIn(bug, json.dumps(json.loads(softory(self.root, "pending", "jade", check=False).stdout)))
+        due = json.loads(softory(self.root, "queue", "--agent", "darwin").stdout)["design_targets_due"]
+        self.assertEqual([r["id"] for r in due], [bug])
+        asked = json.loads(softory(self.root, "pending", "darwin", check=False).stdout)
+        self.assertIn(bug, next(r["ids"] for r in asked["reasons"] if "design target" in r["why"]))
+        spec = self.root / "docs/design" / f"{bug}.md"
+        spec.parent.mkdir(parents=True)
+        spec.write_text("The button keeps its full label at 320px.\n")
+        softory(self.root, "report", bug, str(spec), "--type", "design", "--actor", "darwin")
+        row = next(r for r in json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["assigned"]
+                   if r["id"] == bug)
+        self.assertNotIn("waits_for", row)
+        self.assertNotIn("design_targets_due", json.loads(softory(self.root, "queue", "--agent", "darwin").stdout))
+        woken = json.loads(softory(self.root, "pending", "jade", check=False).stdout)
+        self.assertIn(bug, json.dumps(woken["reasons"]))
 
     def test_verify_runs_the_detector_on_a_ui_units_own_files(self) -> None:
         fake_launcher(self.root)

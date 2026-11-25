@@ -21,7 +21,9 @@ class HoldsTest(unittest.TestCase):
         softory(self.root, "new", "story", "--title", "See today", "--actor", "greg")
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "List",
                 "--tags", "ui", "--actor", "quinn")
-        self.approve({"feasibility": {"required": False}, "verify": {"share": ["node_modules"]}})
+        # These tests are about holds: the designer's target for a ui task has its own in test_design.
+        self.approve({"feasibility": {"required": False}, "verify": {"share": ["node_modules"]},
+                      "design": {"wait_for_design": False}})
 
     def approve(self, settings: dict) -> dict:
         path = self.root / ".git" / "charter.json"
@@ -120,6 +122,12 @@ class HoldsTest(unittest.TestCase):
         proposal = json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "ui_reference",
                                       "--why", "a text-only fix", "--actor", "jade").stdout)
         at_terminal(self.root, "approve", proposal["proposal"])
+        later = self.commit("web/a.js", "a changed after the owner looked\n")
+        softory(self.root, "commit", "TASK-1", later, "--actor", "jade")
+        refused = softory(self.root, "handoff", "TASK-1", "--actor", "jade", check=False).stderr
+        self.assertIn("ui_reference_missing", refused)  # the waiver was for the first commit, not this one
+        self.assertIn(f"covers {sha[:12]}, not {later[:12]}", refused)
+        softory(self.root, "commit", "TASK-1", sha, "--actor", "jade")
         self.assertEqual(json.loads(softory(self.root, "handoff", "TASK-1", "--actor", "jade").stdout)["status"],
                          "review")
 

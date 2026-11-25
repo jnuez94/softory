@@ -25,7 +25,7 @@
     "effort": "high"
   },
   "design": {
-    "description": "The design standard's machine gates. With wait_for_design, a todo ui or frontend task under a story whose lane:design task isn't done waits: its builder isn't woken, and queue says why. With detect, and the impeccable skill installed, softory verify on a ui unit also scans the unit's own UI files with Impeccable's detector; error and warning findings fail the verify, advisory ones are counted. Exceptions live in .impeccable/config.json, each with a reason.",
+    "description": "The design standard's machine gates. With wait_for_design, a todo ui or frontend task under a story whose lane:design task isn't done waits: its builder isn't woken, and queue says why. So does a todo ui task or bug with no finished story design behind it, until the designer records a target on it (evidence of type design; gates.json ui_target). With detect, and the impeccable skill installed, softory verify on a ui unit also scans the unit's own UI files with Impeccable's detector; error and warning findings fail the verify, advisory ones are counted. Exceptions live in .impeccable/config.json, each with a reason.",
     "wait_for_design": true,
     "detect": true
   },

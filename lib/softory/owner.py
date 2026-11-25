@@ -20,7 +20,7 @@ import sys
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 
-from . import grants, ops
+from . import grants, ops, verify
 from .coordination import Coordination
 from .errors import SoftoryError
 from .project import Project
@@ -136,6 +136,33 @@ def proposals(project: Project, show_all: bool = False) -> list[dict[str, Any]]:
     return rows if show_all else [p for p in rows if p["status"] == "open"]
 
 
+def lapse_finished(project: Project, coord: Coordination) -> list[str]:
+    """Close open proposals whose every unit is done: there is nothing left to waive or stand in on. Three
+    waiver requests sat open in Tablet for weeks after their tasks closed, and the owner's digest kept
+    listing them. The proposal and its decision stay on record, marked as lapsed."""
+    rows = _load_proposals(project)
+    lapsed = []
+    for proposal in rows:
+        change = proposal["change"]
+        units = [change["task"]] if proposal["kind"] == "waiver" else change.get("tasks") or []
+        if proposal["status"] != "open" or not units:
+            continue
+        try:
+            finished = all(coord.task(unit)["status"] == "done" for unit in units)
+        except SoftoryError:
+            continue  # a unit the tracker no longer has: leave the question to the owner
+        if not finished:
+            continue
+        coord.run("decision", "status", proposal["decision"], "superseded", "--actor", project.owner_id,
+                  "--if-status", "proposed", "--note", f"{', '.join(units)} finished before the owner decided "
+                  f"{proposal['id']}, so softory closed it")
+        proposal.update(status="lapsed", decided_at=_now())
+        lapsed.append(proposal["id"])
+    if lapsed:
+        _save_proposals(project, rows)
+    return lapsed
+
+
 def propose(project: Project, coord: Coordination, kind: str, change: dict[str, Any], why: str,
             actor: str) -> dict[str, Any]:
     """Ask the owner for a stand-in or a waiver. Grants nothing until ``softory approve``."""
@@ -174,7 +201,8 @@ def _describe(proposal: dict[str, Any]) -> str:
     if proposal["kind"] == "standin":
         what = f"Stand-in: {grants.describe(change)}"
     else:
-        what = f"Waive {change['check']} on {change['task']}: {change['reason']}"
+        what = (f"Waive {change['check']} on {change['task']} at "
+                f"{change.get('commit') or 'no commit yet'}, for one close: {change['reason']}")
     return f"{proposal['id']} from {proposal['proposed_by']}: {what}\n  Why: {proposal['why']}"
 
 
@@ -207,10 +235,15 @@ def _decide(project: Project, coord: Coordination, proposal: dict[str, Any], rej
             result.update(_apply_grant(project, coord, change, proposal["decision"]))
         else:
             settings = project.local()
-            waiver = {**change, "decision": proposal["decision"]}
+            waiver = {**change, "commit": change.get("commit") or "", "decision": proposal["decision"],
+                      "approved_at": _now()}
             settings["waivers"] = [*grants.normalize_waivers(settings.get("waivers")), waiver]
             project.save_local(settings)
             result["waived"] = waiver
+            now = verify.commit_of(project.root, coord.task(change["task"])) or ""
+            if now != waiver["commit"]:
+                result["note"] = (f"{change['task']} has delivered {now[:12] or 'no commit'} since this was asked for at "
+                                  f"{waiver['commit'][:12] or 'no commit'}. The waiver covers what was asked for only.")
     coord.run("decision", "status", proposal["decision"], "rejected" if reject else "accepted", "--actor", owner,
               "--if-status", "proposed", "--note", f"softory approve {proposal_id}{' --reject' if reject else ''}")
     proposal["status"] = "rejected" if reject else "approved"
@@ -219,11 +252,11 @@ def _decide(project: Project, coord: Coordination, proposal: dict[str, Any], rej
 
 
 def _checked_waiver(project: Project, coord: Coordination, task_id: str, check: str, reason: str) -> dict[str, Any]:
-    coord.task(task_id)  # must exist
     if not grants.waivable(check):
         raise SoftoryError(f"{check} can't be waived. Waivable: review:<source>, {', '.join(grants.WAIVABLE_CHECKS)}",
                            "invalid_arguments")
-    return {"task": task_id, "check": check, "reason": reason}
+    return {"task": task_id, "check": check, "reason": reason,
+            "commit": verify.commit_of(project.root, coord.task(task_id)) or ""}
 
 
 # ---- rulings ----------------------------------------------------------------------------------

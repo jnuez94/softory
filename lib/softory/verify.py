@@ -104,6 +104,11 @@ def named_commit(root: Path, text: str) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
+def commits_in(root: Path, text: str) -> set[str]:
+    """Every commit of this repository ``text`` mentions, however it labels them."""
+    return {resolve_commit(root, c) for c in _SHA.findall(text.lower())} - {None}
+
+
 def commits_of(root: Path, task: dict[str, Any]) -> set[str]:
     """Every commit of this repository the task's standing code evidence names, old rows included."""
     found = set()

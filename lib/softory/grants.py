@@ -7,7 +7,9 @@ A grant lets an existing agent act for softory roles. It can name tasks, so
 it applies to those tasks only, and an end date (inclusive), after which it
 lapses on its own.
 
-A waiver lets one named gate check pass on one task, with the owner's reason.
+A waiver lets one named gate check pass on one task, with the owner's reason. It covers the commit the
+unit had delivered when it was asked for, and one close: Tablet's owner approved a waiver for one reviewed
+commit, and softory would have honoured it for any later commit, or after the task was opened again.
 """
 
 from __future__ import annotations
@@ -78,18 +80,37 @@ def describe(grant: dict[str, Any]) -> str:
 
 
 def normalize_waivers(raw: Any) -> list[dict[str, Any]]:
-    return [{"task": w["task"], "check": w["check"], "reason": w.get("reason", ""), "decision": w.get("decision")}
-            for w in raw or []]
+    """Waivers as stored. ``commit`` is what the unit had delivered when the waiver was proposed ("" when
+    nothing yet). One approved before softory 0.6.13 names none, and so covers nothing."""
+    return [{"task": w["task"], "check": w["check"], "reason": w.get("reason", ""), "decision": w.get("decision"),
+             "commit": w.get("commit"), "approved_at": w.get("approved_at")} for w in raw or []]
 
 
 def waivable(check: str) -> bool:
     return check in WAIVABLE_CHECKS or check.startswith(WAIVABLE_PREFIXES)
 
 
-def waiver_for(task_id: str, check: str, waivers: list[dict[str, Any]]) -> dict[str, Any] | None:
+def waiver_for(task_id: str, check: str, waivers: list[dict[str, Any]], commit: str | None = None,
+               closed_at: str | None = None) -> tuple[dict[str, Any] | None, str]:
+    """The waiver that lets ``check`` pass on the task as it stands, or None and why the one on file doesn't.
+
+    ``commit`` is what the unit delivers now. ``closed_at`` is when a unit that is open again last closed:
+    a waiver approved before that close was used by it.
+    """
     if not waivable(check):
-        return None
-    for waiver in waivers:
-        if waiver["task"] == task_id and waiver["check"] == check:
-            return waiver
-    return None
+        return None, ""
+    lapsed = ""
+    for waiver in reversed(waivers):  # the newest first: a fresh approval replaces a lapsed one
+        if waiver["task"] != task_id or waiver["check"] != check:
+            continue
+        name = waiver.get("decision") or "no decision id"
+        if waiver.get("commit") is None:
+            lapsed = lapsed or f"the owner's waiver ({name}) names no commit, so it covers none: propose it again"
+        elif waiver["commit"] != (commit or ""):
+            lapsed = lapsed or (f"the owner's waiver ({name}) covers {waiver['commit'][:12] or 'the unit before it had a commit'}"
+                                f", not {(commit or '')[:12] or 'a unit with no commit'}: another commit needs its own")
+        elif closed_at and str(waiver.get("approved_at") or "") <= closed_at:
+            lapsed = lapsed or f"the owner's waiver ({name}) was used when the unit closed at {closed_at}"
+        else:
+            return waiver, ""
+    return None, lapsed

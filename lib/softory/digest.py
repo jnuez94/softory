@@ -39,6 +39,7 @@ def items(project: Project, coord: Coordination, charter: dict[str, Any]) -> dic
                            f"{use['minutes']} min) and is paused until tomorrow"})
         elif use["warn"]:
             later.append({"key": f"budget-warn-{role}", "text": f"{role} has used {int(use['share'] * 100)}% of today's budget"})
+    owners.lapse_finished(project, coord)  # a request about finished work isn't waiting on anyone
     for proposal in owners.proposals(project):
         later.append({"key": f"prop-{proposal['id']}", "text": f"{proposal['id']} ({proposal['kind']}) from "
                       f"{proposal['proposed_by']}: {proposal['why'][:160]}. Run: softory approve {proposal['id']}"})

@@ -422,6 +422,19 @@ class WorkflowTest(unittest.TestCase):
                                     "--actor", "quinn", check=False).stderr)
         self.assertEqual(waiver["error"]["code"], "invalid_arguments")
 
+    def test_a_proposal_about_finished_work_closes_itself(self) -> None:
+        asked = json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "review:peer",
+                                   "--why", "Gold is away", "--actor", "jade").stdout)
+        self.assertEqual([p["id"] for p in json.loads(softory(self.root, "proposals").stdout)], ["PROP-1"])
+        session = self.build("TASK-1", "jade")["session"]
+        self.review("TASK-1", "gold", "accepted", 1)
+        softory(self.root, "close", "TASK-1", "--actor", "jade", env={"COORDINATION_SESSION": session})
+        self.assertEqual(json.loads(softory(self.root, "proposals").stdout), [])  # nothing left for the owner
+        kept = json.loads(softory(self.root, "proposals", "--all").stdout)
+        self.assertEqual([(p["id"], p["status"]) for p in kept], [("PROP-1", "lapsed")])
+        self.assertEqual(coord(self.root, "decision", "show", asked["decision"])["data"]["status"], "superseded")
+        self.assertIn("No open proposal", json.dumps(at_terminal(self.root, "approve", "PROP-1")))
+
     def test_rules_are_read_only_and_checked(self) -> None:
         gate_file = self.root / ".agents/softory/factory/governance/gates.json"
         self.assertFalse(gate_file.stat().st_mode & stat.S_IWUSR)

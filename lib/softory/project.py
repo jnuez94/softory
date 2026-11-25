@@ -82,6 +82,13 @@ class Project:
         gates["stand_ins"] = grants.normalize_stand_ins(settings.get("stand_ins"))
         gates["waivers"] = grants.normalize_waivers(settings.get("waivers"))
         gates["today"] = grants.today()
+        if gates["waivers"]:  # what a waiver is checked against: the unit's commit, and its last close
+            gates["root"] = str(self.root)
+            try:
+                closed = json.loads((self.state / "closed.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                closed = {}
+            gates["closed_at"] = {unit: row.get("at") for unit, row in closed.items()}
         changed = self.integrity_changes()
         if changed is not None:
             gates["integrity"] = {"changed": changed}

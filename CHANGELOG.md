@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.13] - 2026-11-25
+
+What Tablet asked for after 0.6.6. Four feedback notes of 23 November, and two rulings the owner had to give there because softory's instructions didn't.
+
+- **Every UI change starts with Darwin.** A todo `ui` task or bug with no finished story design behind it now waits for Darwin's target, as a story's build tasks already wait for the story's design: its builder isn't woken and `softory queue` says what it waits for. Darwin's `softory queue` lists these under `design_targets_due`, and `softory pending` wakes him for them. The target is one evidence row of type `design` (also `design_spec` or `target`) that Darwin, his stand-in, or the owner adds: `softory report <ID> <file> --type design`. A unit Darwin filed carries its target already, and one Darwin builds needs none. Darwin's profile and `softory-design` say what a target is (one bounded target for a routine fix, three rendered options for a new pattern) and that he uses the installed design skills without being asked. In Tablet, UI bugs and one-off tasks went straight to a builder, and the owner ruled twice on 23 November that every UI change, down to copy, icons and spacing, goes through the designer first. **After the upgrade**, todo `ui` tasks and bugs outside a designed story wait until Darwin gives each a target; `design.wait_for_design: false` turns the wait off.
+- **A waiver covers one commit and one close.** `softory propose waiver` records the commit the unit has delivered, the approval prompt shows it, and the gate counts the waiver only while the unit still delivers that commit. Once the unit has closed, the waiver is used: if the unit is opened again, the check needs a new one. A check that is failing with a waiver that no longer counts says why. **A waiver approved before this release names no commit and no longer counts**; propose it again if the unit is still open. In Tablet the owner approved a secrets waiver for one reviewed commit of TASK-118, and softory would have applied it to any later commit of that task.
+- **A review whose `--artifact` names several commits is refused when it is written.** It says to give the reviewed commit alone and put the base and evidence in `--scope`. Tablet's RELEASE-1 sign-off read `<sha>;base=<sha>;evidence=...`: `review add` took it, and the close refused it later because no single commit was named.
+- **A proposal about finished work closes itself.** When every unit a waiver or a task-scoped stand-in proposal names is done, `softory proposals` and the digest mark it `lapsed` and its decision `superseded`, and stop listing it. Three waiver requests of 6 November were still open in Tablet on tasks long closed.
+
+Not built: a way to carry an accepted review to a later commit (feedback of 23 November). A reviewer can already accept again at the new commit, cite the earlier review, and read only what changed.
+
 ## [0.6.12] - 2026-11-23
 
 What Tablet's records still asked for. Tablet's feedback list held one note nothing answered, and Quinn's decisions of 22 and 23 November held one workaround that was never filed as feedback. The owner's decision of 13 November that attended is the shipped mode lands here too.

@@ -18,6 +18,15 @@ Read `references/standard.md` (softory's ten principles and four design gates) a
 7. **Accessibility.** Bake it into each decision (checklist below). It's not a final pass.
 8. **Spec.** Write `docs/design/STORY-n.md` using `references/spec-template.md`, and link it as evidence on the design task. After acceptance, revise with `STORY-n-r2.md`, never in place.
 
+## A UI change outside a designed story
+
+A `ui` task or bug with no finished story design behind it waits for your target: its builder isn't woken, and your `softory queue` lists it under `design_targets_due`. This covers every UI change, including copy, an icon, or spacing. A unit you filed yourself already carries its target in your report.
+
+- **A routine fix or an established pattern:** one bounded target. Say what changes and what it should look and read like, against DESIGN.md and the current screen. A few lines, or a marked-up screenshot, is enough.
+- **A new surface, a real layout or interaction choice, or a new pattern:** three materially different options, rendered only as far as it takes to tell them apart, the simplest existing one among them, and the one you recommend with why.
+
+Write it under `docs/design/`, or as a note in the unit's evidence folder, and record it on the unit: `softory report <ID> <file> --type design --actor darwin`. That releases the unit to its builder. Pick the installed design skills that fit and use them without being asked. Add no new checklist, score, or review step: the target and your review at the end are the whole of it.
+
 ## Heuristics to check every design against
 
 From Nielsen's ten usability heuristics:
