@@ -31,6 +31,8 @@ class HarnessTest(unittest.TestCase):
 
     def approve(self, settings: dict) -> dict:
         path = self.root / ".git" / "charter.json"
+        if "harnesses" in settings.get("run", {}):  # these tests run a headless harness; the shipped mode is attended
+            settings = {**settings, "run": {"mode": "unattended", **settings["run"]}}
         path.write_text(json.dumps(settings))
         return at_terminal(self.root, "charter", "approve", str(path))
 

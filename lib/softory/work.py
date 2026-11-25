@@ -303,7 +303,7 @@ def gate(project: Project, coord: Coordination, task_id: str, actor: str | None)
     children = coord.all_tasks("--tag", f"parent:{task_id}")
     report = gate_rules.evaluate(task, gates, dependency_status, children,
                                  actor or os.environ.get("SOFTORY_ROLE"), related_live(coord, task, gates),
-                                 objective_checks(project, task, gates))
+                                 objective_checks(project, task, gates), set(coverage.stale_reviews(project, task)))
     report["commit"] = verify.commit_of(project.root, task)  # the commit these checks judged; close records it
     return report
 
@@ -449,12 +449,18 @@ class Board:
         return {"tasks": {i: self.by_id.get(i) for i in dict.fromkeys(targets + follow_ups)},
                 "reviews": {t: self.reviews.get(t, []) for t in targets}}
 
+    def open_requests(self, task_id: str) -> dict[str, dict[str, Any]]:
+        """The change requests holding the unit open, as the gate counts them (``gate.open_requests``)."""
+        return open_requests(self.project, self.gates, self.by_id[task_id], self.reviews.get(task_id, []),
+                             lambda: self.show(task_id))
+
     def evaluate(self, task_id: str, actor: str) -> dict[str, Any]:
         task = self.show(task_id)
         statuses = {dep["depends_on_task_id"]: self.by_id.get(dep["depends_on_task_id"], {}).get("status", "")
                     for dep in task.get("dependencies") or []}
         return gate_rules.evaluate(task, self.gates, statuses, self.children.get(task_id, []), actor,
-                                   self.related(task), objective_checks(self.project, task, self.gates))
+                                   self.related(task), objective_checks(self.project, task, self.gates),
+                                   set(coverage.stale_reviews(self.project, task)))
 
 
 def queue(project: Project, coord: Coordination, agent: str | None, board: Board | None = None) -> dict[str, Any]:
@@ -490,10 +496,18 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
                 continue
             owed = review_owed(task, requirement, agent, built_by, latest, set(gates["accepting_decisions"]),
                                lambda e, r: _audit_id(coord, "evidence", e) > _audit_id(coord, "review", r))
-            if owed is None:
+            # A reviewer who asked for changes and then built part of it can't be asked back: whoever may still
+            # give this review takes the request over, even after accepting before it was made.
+            inherited = gate_rules.builder_requests(task, requirement, latest, built_by, set(gates["accepting_decisions"]))[1]
+            if owed is None and not inherited:
                 continue  # another listed reviewer already covered it; maybe the next requirement is the agent's
-            if owed:
+            if owed or inherited:
                 row = {"id": task["id"], "why": requirement["why"], "title": task["title"]}
+                if inherited:
+                    row["takes_over"] = [{"from": r, "asked": asked.get("required_changes") or "",
+                                          "scope": f"{r} asked for this, then built part of the unit, so can't review "
+                                                   f"it again. Check it is answered: your verdict settles it"}
+                                         for r, asked in inherited.items()]
                 if latest.get(agent):  # a correction of what this reviewer sent back
                     row["re_review"] = re_review(project, task, latest[agent])
                 to_review.append(row)
@@ -599,10 +613,18 @@ def _audit_id(coord: Coordination, kind: str, object_id: str) -> int:
     return int(found[0]["id"]) if found else 0
 
 
+def open_requests(project: Project, gates: dict[str, Any], summary: dict[str, Any], reviews: list[dict[str, Any]],
+                  show: Callable[[], dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """``gate.open_requests`` for a task from a listing. Only a task with a ``built-by`` tag can have a request
+    taken over, so only then is the whole task read (``show``) to find acceptances of another commit."""
+    tagged = any(tag.startswith(gate_rules.BUILT_BY) for tag in tags_of(summary))
+    stale = set(coverage.stale_reviews(project, show())) if tagged else set()
+    return gate_rules.open_requests({**summary, "reviews": reviews}, gates, stale)[0]
+
+
 def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:
     """Units that pass the gate and that ``agent`` may close."""
     gates = board.gates
-    accepting = set(gates["accepting_decisions"])
     on_hold = getattr(board, "held", {})
     ready = []
     for summary in board.tasks:
@@ -617,7 +639,7 @@ def ready_to_close(board: Board, agent: str) -> list[dict[str, Any]]:
             continue
         latest = gate_rules.latest_reviews({"reviews": board.reviews.get(summary["id"], [])})
         if not record:
-            if any(r.get("decision") not in accepting for r in latest.values()):
+            if board.open_requests(summary["id"]):
                 continue  # someone wants changes; no need to ask the CLI
             needs_reviews = bool(spec.get("required_reviews")) or (
                 spec.get("tag_reviews", True) and any(tag in gates["tag_reviews"] for tag in tags_of(summary)))

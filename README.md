@@ -86,13 +86,13 @@ Each role starts a session, which records the harness and model, and works throu
 | `softory silent [--hours 12]` | Exits 0 if any role has work waiting and no session for that long. The digest lists these roles too |
 | `softory inbox` / `--mark-read N` / `softory message <ID>` | Unread messages and the number that marks exactly those read; one message by ID |
 | `softory all <entity> list [filters]` | A coordination list command with every page, past the 500-row limit |
-| `softory handoff <ID> [--note ...]` | Moves your claimed unit to review once it has evidence and, for a `ui` unit, its check against the design reference, then asks every reviewer it still needs, naming the commit (0.6.5). Refuses while untracked files that appeared during your claim sit in the main checkout |
+| `softory handoff <ID> [--note ...]` | Moves your claimed unit to review once it has evidence and, for a `ui` unit, its check against the design reference, then asks every reviewer it still needs, naming the commit (0.6.5). When the unit is a follow-up another task can't close without, it tags that task `built-by:<you>`, so you aren't asked to review it as a peer (0.6.12). Refuses while untracked files that appeared during your claim sit in the main checkout |
 | `softory report <ID> <file> [--type T] [--keep]` | Files a report or screenshot under `.coordination/softory/evidence/<ID>/` and records it as evidence. An untracked file is moved, so the main checkout stays clean |
 | `softory workspace <role> [commit]` | The role's reusable checkout of a commit for reviews, with `verify.share` folders linked from the main checkout. A worktree where git allows it, a snapshot where a sandbox protects `.git` |
 | `softory reviewers <ID>` | Who must review it, where each review stands, and who to `ask` when several may give it |
 | `softory gate <ID>` | Whether it may close, with a reason for every check |
 | `softory close <ID>` / `close --ready` | Runs the gate, then moves it to done only if it passes. `--ready` closes every unit you may close that passes now |
-| `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one. A review accepted for an earlier commit stops counting, and its reviewer is asked again |
+| `softory commit <ID> <sha> [--base <sha>]` | Records the commit a unit delivered by its full hash, with its base kept apart, so `verify` tests the right one. A review accepted for an earlier commit stops counting, and its reviewer is asked again. Its result carries a `warning` when the commit is already on the base branch (0.6.12) |
 | `softory supersede <ID> <evidence> --reason ...` | Retracts a wrong evidence row (its adder, Quinn, or the owner). The row and its audit stay, with the reason on the retraction; the gate and `verify` read past it |
 | `softory escalate --issue ... --ask "...?" [--tasks IDs] [--owner who]` | Raises an escalation, to the owner by default. Refuses text the owner can't read at a glance: more than one question, too long, or words fused with numbers |
 | `softory standin add <agent> --for toby [--task IDs] [--until YYYY-MM-DD]` | Owner only, at a terminal. Lets an existing agent act for softory roles, everywhere or on named tasks, until a date, and records the decision |
@@ -133,19 +133,20 @@ Softory runs the team without you up to finished, reviewed units on their branch
 
 1. Run `softory setup`. It lists each step and checks the ones it can. Start with `softory kickoff`: Greg interviews you once about the vision, what's out of scope, the environment agents can reach, and the accounts the work will need.
 2. Write the settings you want to change to a file, starting from `softory charter show`: your `vision`, `verify.command` (your test command), `lanes` paths, `paging.command`, and the `budget`. Approve it in a terminal with `softory charter approve <file>`.
-3. Protect your base branch on GitHub and require CI.
-4. Load the runner: turn off any other scheduler for the project first, such as an app's scheduled check-ins, then run `softory setup --load-schedule` and type yes. It loads a launchd job that runs `softory run` every five minutes (`softory schedule` prints a cron line for other systems). The runner should be the only thing that starts roles; otherwise roles run twice and the budget can't see half of them. `softory doctor` warns while no scheduler is loaded, when the runner has stopped ticking, and when sessions started outside the runner in the last day.
+3. Set `run.mode` to `unattended` in that file, so the runner starts each role headless. The shipped mode is `attended` (0.6.12), which opens a window per role for you to watch.
+4. Protect your base branch on GitHub and require CI.
+5. Load the runner: turn off any other scheduler for the project first, such as an app's scheduled check-ins, then run `softory setup --load-schedule` and type yes. It loads a launchd job that runs `softory run` every five minutes (`softory schedule` prints a cron line for other systems). The runner should be the only thing that starts roles; otherwise roles run twice and the budget can't see half of them. `softory doctor` warns while no scheduler is loaded, when the runner has stopped ticking, and when sessions started outside the runner in the last day.
 
 Each tick starts a role only when it has work, is under today's budget, and isn't paused or already running. The budget counts runs and minutes, not dollars, so it holds whatever a model costs: by default 24 runs and 120 minutes a day per role, 30 minutes a run, and tighter for the reviewing roles (Greg 15 minutes a run and 60 a day, Darwin and Toby 20 and 60). `budget.roles` overrides any cap for one role. At 80% you see it in the digest; at 100% the role stops until tomorrow and you're paged. A page is your `paging.command`, run at once; it ships empty, and then nothing is sent at that moment. The item is in `softory digest` either way, and in the next daily digest, which softory also writes as one message to you in the coordination database, where the tracker shows it. Optional dollar caps sit beside them: `usd_per_run` (Claude Code stops itself there) and `usd_per_role_per_day`, counted from the cost each run reports; both are off at 0.
 
 ### Watching runs (attended mode)
 
-By default the runner starts each role headless (`claude -p`, `codex exec`), so runs don't show in the Claude or Codex apps and you can't step in while one works. To watch them, set `run.mode` to `attended` in the charter (`softory charter approve --merge` a file with `{"run": {"mode": "attended"}}`). The runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`) where you can see it:
+`run.mode` is `attended` as shipped (0.6.12; it was `unattended` before). In `unattended` mode the runner starts each role headless (`claude -p`, `codex exec`), so runs don't show in the Claude or Codex apps and you can't step in while one works. In `attended` mode the runner still decides who to wake and when, but opens each role's interactive harness (`run.attended`) where you can see it:
 
 - **tmux**, if it is installed: one window per running role in the session `softory-<project>-<hash>`. `softory attach` attaches to it; `Ctrl-b w` lists the roles and `Ctrl-b d` leaves them running.
 - **Terminal**, on a Mac without tmux: one window per role. macOS asks once to let softory control Terminal.
 
-Type into any window to steer the role. A run ends when the role runs `softory end`, when you quit the harness or close the window, or at `minutes_per_run`; the runner then hands back unfinished claims as usual. Interactive harnesses don't report tokens or cost, so in attended mode the budget counts runs and minutes only. The run's log keeps a copy of the window. Set `run.mode` back to `unattended` to return to headless runs.
+Type into any window to steer the role. A run ends when the role runs `softory end`, when you quit the harness or close the window, or at `minutes_per_run`; the runner then hands back unfinished claims as usual. Interactive harnesses don't report tokens or cost, so in attended mode the budget counts runs and minutes only. The run's log keeps a copy of the window. Set `run.mode` to `unattended` for headless runs.
 
 Each run is shaped to waste as little as possible:
 
@@ -161,7 +162,7 @@ A task that has had `task_caps.review_rounds` rounds of requested changes stops 
 
 ### Sessions you open yourself (0.6.2)
 
-You can also run the team as sessions you open in the Claude or Codex app, each checking in on a timer, with no runner starting anything. Set `run.mode` to `attended` and, if a runner is loaded, `softory pause` it. Each session runs `softory pending <role>` and works when it exits 0.
+You can also run the team as sessions you open in the Claude or Codex app, each checking in on a timer, with no runner starting anything. `run.mode` is `attended` as shipped; if a runner is loaded, `softory pause` it. Each session runs `softory pending <role>` and works when it exits 0.
 
 - A pause then stops only the runner. A session checking on itself still hears about its work; `softory resume --task` still narrows a role to named tasks.
 - A session sees every unread message sent to its role, tagged or not, and Quinn's session sees the feasibility checks that are due and runs each with `softory run-check STORY-n`.

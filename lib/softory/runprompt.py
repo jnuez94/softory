@@ -13,7 +13,6 @@ from typing import Any
 
 from . import verify
 from .coordination import Coordination
-from .gate import latest_reviews
 from .project import Project
 from .units import parent_of
 from .work import Board
@@ -75,10 +74,8 @@ def _unit(project: Project, charter: dict[str, Any], board: Board, task_id: str)
     acceptance = task.get("acceptance_criteria") or task.get("acceptance")  # the scaffold's field name first
     if acceptance:
         parts.append(f"  Acceptance: {_trim(acceptance)}")
-    accepting = set(board.gates["accepting_decisions"])
     asked = [f"{who}: {_trim(r.get('required_changes') or r.get('decision', ''))}"
-             for who, r in latest_reviews({"reviews": board.reviews.get(task_id, [])}).items()
-             if r.get("decision") not in accepting]
+             for who, r in board.open_requests(task_id).items()]
     if asked:
         parts.append(f"  Changes asked: {' | '.join(asked)}")
     sha = verify.commit_of(project.root, task)

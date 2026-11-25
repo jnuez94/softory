@@ -143,7 +143,7 @@ def validate(project: Project, charter: dict[str, Any]) -> list[str]:
             continue
         if choice.get("harness") not in charter["run"]["harnesses"]:
             problems.append(f"models.{role} uses harness {choice.get('harness')!r}, which run.harnesses doesn't define")
-    mode = charter["run"].get("mode", "unattended")
+    mode = charter["run"].get("mode", "attended")
     if mode not in ("unattended", "attended"):
         problems.append(f"run.mode is {mode!r}: use unattended or attended")
     elif mode == "attended":

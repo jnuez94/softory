@@ -35,6 +35,8 @@ from . import grants
 from .units import code_evidence_types, follow_up_ids, lane_of, live_evidence, tags_of, targets_of, unit_of
 
 RECORD_STATUSES = ("review", "blocked", "todo")
+#: ``built-by:<role>``: the role wrote part of what the task delivers without holding it.
+BUILT_BY = "built-by:"
 
 
 def spec_for(task: dict[str, Any], gates: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
@@ -136,20 +138,75 @@ def may_review(requirement: dict[str, Any], agent: str, built_by: set[str]) -> b
     return agent in requirement["reviewers"]
 
 
-def builders(task: dict[str, Any]) -> set[str]:
-    """Who built the task: its assignees and any current claim holder."""
+def holders(task: dict[str, Any]) -> set[str]:
+    """Whose task it is: its assignees and any current claim holder."""
     people = set(task.get("assignees") or [])
     if task.get("claimed_by"):
         people.add(task["claimed_by"])
     return people
 
 
+def builders(task: dict[str, Any]) -> set[str]:
+    """Who built the task, so can't review it: its holders, and whoever a ``built-by:<role>`` tag names.
+    ``softory handoff`` adds the tag to a task when another role delivers a follow-up it can't close without.
+    In Tablet, Gold fixed the parser under TASK-112 and still counted as its independent peer."""
+    return holders(task) | {tag.split(":", 1)[1] for tag in tags_of(task) if tag.startswith(BUILT_BY) and tag != BUILT_BY}
+
+
+def builder_requests(task: dict[str, Any], requirement: dict[str, Any], latest: dict[str, dict[str, Any]],
+                     built_by: set[str], accepting: set[str],
+                     stale: set[str] | frozenset[str] = frozenset()) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Reviewers of ``requirement`` who asked for changes and built part of the task (``built-by``), so they
+    can't be asked back: those whose request someone who may still give the review accepted after, and those
+    still waiting for that, each with the review that asked. The accepting reviewer takes the request over.
+
+    The request is the builder's last review that asked for changes, whatever they recorded after it: a
+    builder's own acceptance settles nothing. An acceptance in ``stale`` (coverage.py: given for another
+    commit than the unit delivers now) takes nothing over."""
+    reviews = task.get("reviews") or []
+    order = {(r.get("reviewer_id") or r.get("reviewer")): i for i, r in enumerate(reviews)}
+    taken: list[str] = []
+    waiting: dict[str, dict[str, Any]] = {}
+    for reviewer in requirement["reviewers"]:
+        if not requirement.get("not_self") or reviewer not in built_by - holders(task):
+            continue
+        asked = [i for i, r in enumerate(reviews)
+                 if (r.get("reviewer_id") or r.get("reviewer")) == reviewer and r.get("decision") not in accepting]
+        if not asked:
+            continue
+        after = [r for r in eligible(requirement, built_by)
+                 if r not in stale and latest.get(r, {}).get("decision") in accepting and order.get(r, -1) > asked[-1]]
+        if after:
+            taken.append(reviewer)
+        else:
+            waiting[reviewer] = reviews[asked[-1]]
+    return taken, waiting
+
+
+def open_requests(task: dict[str, Any], gates: dict[str, Any],
+                  stale: set[str] | frozenset[str] = frozenset()) -> tuple[dict[str, dict[str, Any]], set[str]]:
+    """The change requests that hold the task open, by reviewer, and the builders whose request another
+    reviewer took over. Every reader of "who wants changes" goes through here, so the gate, the queue,
+    ``softory pending`` and the run prompt agree: a latest verdict that asks for changes counts unless it was
+    taken over, and a builder's request counts until it is (``builder_requests``)."""
+    accepting = set(gates["accepting_decisions"])
+    latest, built_by = latest_reviews(task), builders(task)
+    taken: set[str] = set()
+    unsettled: dict[str, dict[str, Any]] = {}
+    for requirement in required_reviews(task, gates):
+        done, waiting = builder_requests(task, requirement, latest, built_by, accepting, stale)
+        taken |= set(done)
+        unsettled.update(waiting)
+    asking = {r: review for r, review in latest.items() if review.get("decision") not in accepting and r not in taken}
+    return {**asking, **unsettled}, taken - set(unsettled)
+
+
 def closers(task: dict[str, Any], gates: dict[str, Any]) -> set[str]:
-    """Who may close the task: its spec's closers, their stand-ins, and the builders if ``assignee`` is listed."""
+    """Who may close the task: its spec's closers, their stand-ins, and its holders if ``assignee`` is listed."""
     _, spec = spec_for(task, gates)
     listed = spec.get("closer", [])
     named = with_stand_ins([c for c in listed if c != "assignee"], gates, task.get("id"))
-    return (builders(task) if "assignee" in listed else set()) | set(named)
+    return (holders(task) if "assignee" in listed else set()) | set(named)
 
 
 def latest_reviews(task: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -177,13 +234,15 @@ def evaluate(
     actor: str | None = None,
     related: dict[str, dict[str, Any]] | None = None,
     extra: list[dict[str, Any]] | None = None,
+    stale: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Run every gate check. ``dependency_status`` maps task ID to status.
 
     ``related`` is only needed for a review record: ``tasks`` maps each ID from
     ``related_ids`` to its summary (None if it doesn't exist), and ``reviews``
     maps each reviewed task to its reviews, oldest first. ``extra`` holds checks
-    computed outside (verify.py: tests at the commit, lane paths).
+    computed outside (verify.py: tests at the commit, lane paths). ``stale`` names reviewers whose
+    acceptance is for another commit (coverage.py); it can't take over a builder's change request.
     """
     checks: list[dict[str, Any]] = []
     unit, spec = spec_for(task, gates)
@@ -240,8 +299,17 @@ def evaluate(
             detail += f" ({requirement['note']})"
         checks.append(_check(f"review:{requirement['source']}", bool(passed_by), f"{requirement['why']}: {detail}"))
     if not record:
-        blocking = sorted(r for r, review in latest.items() if review.get("decision") not in accepting)
-        checks.append(_check("no_open_rejections", not blocking, "latest review requests changes from: " + ", ".join(blocking) if blocking else "no reviewer is requesting changes"))
+        # A builder's request holds the task until someone independent settles it, whatever the builder said since.
+        asking, taken_over = open_requests(task, gates, stale)
+        blocking = sorted(asking)
+        unsettled = sorted(r for r in asking if r in built_by - holders(task))
+        passed = (f" ({', '.join(sorted(taken_over))} asked for changes, then built part of it: the reviewer who "
+                  f"accepted after took the request over)" if taken_over else "")
+        stands = (f" ({', '.join(unsettled)} asked, then built part of it: the request stands until a "
+                  f"reviewer who may still give that review accepts this commit)" if unsettled else "")
+        checks.append(_check("no_open_rejections", not blocking,
+                             "latest review requests changes from: " + ", ".join(blocking) + stands if blocking
+                             else "no reviewer is requesting changes" + passed))
 
     checks += extra or []
     if actor is not None:

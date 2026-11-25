@@ -16,7 +16,6 @@ from . import clutter, flow, design, feasibility, feedback, grants, holds, verif
 from .coordination import Coordination
 from .project import Project
 from .runstate import all_runs, allowed_tasks, is_paused
-from .gate import latest_reviews
 from .gate import spec_for as gate_spec
 from .work import Board, actor_of, queue
 
@@ -90,9 +89,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
             reasons.append({"why": "unread messages waiting", "hours": retry_hours, "count": len(rest)})
     if in_scope([t["id"] for t in work["ready_to_close"]]):
         reasons.append({"why": "ready to close", "ids": in_scope([t["id"] for t in work["ready_to_close"]])})
-    accepting = set(board.gates["accepting_decisions"])
     sent_back = [t["id"] for t in board.tasks if t["status"] == "review" and agent in (t.get("assignees") or [])
-                 and any(r.get("decision") not in accepting for r in latest_reviews({"reviews": board.reviews.get(t["id"], [])}).values())]
+                 and board.open_requests(t["id"])]
     tests = {t["id"]: verify.tests_state(project, charter, board.show(t["id"]), board.gates)
              for t in board.tasks if t["status"] == "review"} if charter["verify"]["command"] else {}
     # A reviewer waits until softory saw the tests pass; the builder is woken to run or fix them instead.
