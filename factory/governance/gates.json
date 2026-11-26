@@ -90,7 +90,7 @@
     "evidence_types": ["reference", "screenshot", "visual"]
   },
   "ui_target": {
-    "description": "A todo task or bug with one of these tags, with no finished story design behind it and no designer among its builders, waits for a designer's target before anyone builds it: one evidence row of these types, added by the ui tag's reviewer, a stand-in, or the owner. A unit a designer filed already carries its target. Tablet's owner ruled twice that every UI change, down to copy, icons and spacing, starts with the designer. The charter's design.wait_for_design turns the wait off.",
+    "description": "A todo task or bug with one of these tags, with no finished story design behind it and no designer among its builders, waits for a designer's target before anyone builds it: one evidence row of these types, added by the ui tag's reviewer, a stand-in, or the owner. The row counts only if the tracker's audit log shows it was written in a session of the agent it names; softory report writes a designer's that way and the owner's after a typed yes at a terminal. A unit a designer filed in their own session already carries its target. A claim on a waiting unit is refused. Tablet's owner ruled twice that every UI change, down to copy, icons and spacing, starts with the designer. The charter's design.wait_for_design turns the wait off.",
     "tags": ["ui"],
     "evidence_types": ["design", "design_spec", "target"]
   },

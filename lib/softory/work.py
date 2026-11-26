@@ -145,6 +145,9 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             raise SoftoryError(f"{assignee} already has {twin} open for a task this review names. Continue that "
                                "record, or close it first.", "conflict", {"existing": twin})
     existing = [task["id"] for task in everything]
+    # A ui unit a designer files carries its own design target, if the tracker can tell the designer filed it.
+    own = sessions.own(project, coord, actor) if unit in ("task", "bug") and actor in design_rules.designers(gates) else None
+    session = ["--session", own] if own else []
     for _attempt in range(5):
         task_id = next_id(spec["id_prefix"], existing)
         args = ["task", "create", "--id", task_id, "--title", options["title"], "--actor", actor,
@@ -153,7 +156,7 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             args += ["--acceptance", options["acceptance"]]
         if assignee:
             args += ["--assignee", assignee]
-        envelope = coord.call(*args)
+        envelope = coord.call(*session, *args)
         if envelope.get("ok"):
             break
         error = envelope.get("error") or {}
@@ -423,6 +426,7 @@ class Board:
         self._shown: dict[str, dict[str, Any]] = {}
         self._held: dict[str, str] | None = None
         self._unreferenced: set[str] | None = None
+        self._in_session: dict[tuple[str, str], bool] = {}
 
     @property
     def held(self) -> dict[str, str]:
@@ -438,6 +442,17 @@ class Board:
             self._unreferenced = {t["id"] for t in self.tasks if t["status"] == "review" and not (
                 gate_rules.ui_reference_check(self.show(t["id"]), self.gates) or {"pass": True})["pass"]}
         return self._unreferenced
+
+    def in_session(self, kind: str, object_id: str) -> bool:
+        """Whether the evidence row or task was written in a session of whoever it names. The tracker's audit
+        row carries the session, and the tracker takes a session only from the agent it belongs to."""
+        key = (kind, object_id)
+        if key not in self._in_session:
+            rows = self.coord.call("audit", "list", "--object-type", kind, "--object-id", object_id,
+                                   "--action", "add" if kind == "evidence" else "create", "--limit", "1")
+            found = (rows.get("data") or []) if rows.get("ok") else []
+            self._in_session[key] = bool(found and found[0].get("session_id"))
+        return self._in_session[key]
 
     def show(self, task_id: str) -> dict[str, Any]:
         if task_id not in self._shown:

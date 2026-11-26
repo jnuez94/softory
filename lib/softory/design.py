@@ -78,15 +78,36 @@ def designers(gates: dict[str, Any], task_id: str | None = None) -> list[str]:
 
 def target_of(board: Any, task: dict[str, Any]) -> str | None:
     """When the unit got its target, or None. A designer's evidence row of a target type is one; so is a
-    unit a designer filed, because the report already says what it should look like."""
+    unit a designer filed, because the report already says what it should look like.
+
+    The name on a row is whatever ``--actor`` said, so a name alone releases nothing: the row, or the
+    unit, counts only if the tracker's audit log shows it was written in a session of the role named
+    (``board.in_session``). ``softory report`` and ``softory new`` write a designer's that way.
+    """
     shown = board.show(task["id"])
     who = set(designers(board.gates, task["id"]))
     kinds = set((board.gates.get("ui_target") or {}).get("evidence_types") or [])
     rows = [str(r.get("created_at") or "") for r in live_evidence(shown.get("evidence") or [])
-            if str(r.get("evidence_type", "")).lower() in kinds and r.get("added_by") in who]
+            if str(r.get("evidence_type", "")).lower() in kinds and r.get("added_by") in who
+            and board.in_session("evidence", str(r.get("id")))]
     if rows:
         return max(rows)
-    return str(shown.get("created_at") or "") if shown.get("created_by") in who else None
+    filed = shown.get("created_by") in who and board.in_session("task", task["id"])
+    return str(shown.get("created_at") or "") if filed else None
+
+
+def target_types(gates: dict[str, Any]) -> set[str]:
+    return set((gates.get("ui_target") or {}).get("evidence_types") or [])
+
+
+def claim_refusal(board: Any, charter: dict[str, Any], task_id: str, agent: str) -> str | None:
+    """Why ``agent`` may not claim the unit yet, or None. The design is a prerequisite, not a hint for the
+    scheduler: a builder already running could claim a waiting unit, which also took it off the
+    designer's list. A designer may claim a unit that waits for a target, since their build is the design."""
+    what = held(board, charter).get(task_id)
+    if not what or (what == TARGET and agent in designers(board.gates, task_id)):
+        return None
+    return f"{task_id} waits for {waits_for(what)}. Its builder claims it after that."
 
 
 def _builds_ui(task: dict[str, Any]) -> bool:

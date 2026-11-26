@@ -461,6 +461,29 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(owner.lapse_finished(project, board), [])  # and again changes nothing
         softory(self.root, "digest")  # the digest, which runs before any role starts, builds
 
+    def test_proposal_cleanup_that_cannot_write_leaves_the_proposal_for_the_next_run(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        from softory import owner  # noqa: PLC0415
+        from softory.coordination import Coordination  # noqa: PLC0415
+        from softory.project import Project  # noqa: PLC0415
+
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        softory(self.root, "propose", "waiver", "TASK-1", "--check", "review:peer", "--why", "Gold is away",
+                "--actor", "jade")
+        session = self.build("TASK-1", "jade")["session"]
+        self.review("TASK-1", "gold", "accepted", 1)
+        softory(self.root, "close", "TASK-1", "--actor", "jade", env={"COORDINATION_SESSION": session})
+        owner.lapse_finished(project, board)  # the close above already ran it; make the proposal open again
+        rows = owner.proposals(project, True)
+        rows[0]["status"] = "open"
+        owner._save_proposals(project, rows)
+        for broken in ("_save_proposals", "_load_proposals"):
+            with mock.patch.object(owner, broken, side_effect=OSError(28, "No space left on device")):
+                self.assertEqual(owner.lapse_finished(project, board), [])  # said nothing, raised nothing
+        self.assertEqual([p["status"] for p in owner.proposals(project, True)], ["open"])
+        self.assertEqual(owner.lapse_finished(project, board), ["PROP-1"])  # the next run finishes it
+
     def test_approval_decides_the_proposal_as_it_stands_after_the_owner_answers(self) -> None:
         from softory import owner  # noqa: PLC0415
         from softory.coordination import Coordination  # noqa: PLC0415
@@ -512,6 +535,30 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(done["status"], "approved")
         owner._apply_waiver(project, board, done["waived"], third["decision"])  # and once more writes nothing new
         self.assertEqual([w["decision"] for w in local()["waivers"]], [third["decision"]])
+
+        # The grant is two writes, local.json and its hash. A run that stops between them is finished by the
+        # next approve, and the gate doesn't read the half-written state as tampering.
+        fourth = json.loads(softory(self.root, "propose", "waiver", "TASK-2", "--check", "verified",
+                                    "--why", "No test runner here", "--actor", "gold").stdout)
+        saved = []
+
+        def stop_before_the_hash(manifest: dict) -> None:
+            if saved:
+                raise OSError("stopped before the hash was recorded")
+            saved.append(manifest)
+            Project.save_manifest(project, manifest)
+
+        with mock.patch.object(project, "save_manifest", side_effect=stop_before_the_hash):
+            with self.assertRaises(OSError):
+                owner.approve(project, board, ["PROP-4"], confirm=lambda _text: None)
+        self.assertEqual(len(local()["waivers"]), 2)  # written
+        self.assertEqual(owner.proposals(project)[0]["id"], "PROP-4")  # and not yet settled
+        self.assertEqual(project.integrity_changes(), [])
+        self.assertEqual(owner.approve(project, board, ["PROP-4"], confirm=lambda _text: None)["status"], "approved")
+        self.assertEqual([w["decision"] for w in local()["waivers"]], [third["decision"], fourth["decision"]])
+        project.local_path.chmod(0o644)
+        project.local_path.write_text(project.local_path.read_text().replace("No test runner", "Any"))
+        self.assertEqual(project.integrity_changes(), ["local.json"])  # a hand edit is still caught
 
     def test_rules_are_read_only_and_checked(self) -> None:
         gate_file = self.root / ".agents/softory/factory/governance/gates.json"

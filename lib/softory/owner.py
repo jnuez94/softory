@@ -201,12 +201,17 @@ def lapse_finished(project: Project, coord: Coordination) -> list[str]:
     after their tasks closed, and the owner's digest kept listing them. The proposal and its decision stay
     on record, marked as lapsed.
 
-    The digest calls this before the runner starts any role, so it never raises and is safe to repeat. A
+    The digest calls this before the runner starts any role, so it never raises and is safe to repeat: a tracker
+    that refuses and a state folder that can't be written both leave the proposal open for the next run. A
     run that stopped after the tracker was told and before the proposal was marked is finished by the next
     one, and a proposal the tracker won't answer for is left for the next run.
     """
-    lapsed = []
-    for seen in proposals(project):
+    lapsed: list[str] = []
+    try:
+        waiting = proposals(project)
+    except (OSError, ValueError):
+        return lapsed  # the file can't be read now: the next run looks again
+    for seen in waiting:
         try:
             if not _finished(coord, seen):
                 continue
@@ -214,13 +219,15 @@ def lapse_finished(project: Project, coord: Coordination) -> list[str]:
                              f"before the owner decided {seen['id']}, so softory closed it")
             if stands == "accepted" and not _granted(project, seen):
                 continue  # an approval that didn't finish: softory approve completes it
-        except SoftoryError:
-            continue
-        with _editing_proposals(project) as rows:
-            for row in rows:
-                if row["id"] == seen["id"] and row["status"] == "open":
-                    row.update(status=_SETTLED.get(stands, "lapsed"), decided_at=_now())
-                    lapsed += [row["id"]] if stands == "superseded" else []
+            marked = False
+            with _editing_proposals(project) as rows:
+                for row in rows:
+                    if row["id"] == seen["id"] and row["status"] == "open":
+                        row.update(status=_SETTLED.get(stands, "lapsed"), decided_at=_now())
+                        marked = True
+            lapsed += [seen["id"]] if marked and stands == "superseded" else []  # counted once it is saved
+        except (SoftoryError, OSError, ValueError):
+            continue  # the tracker or the state folder refused: the proposal stays open for the next run
     return lapsed
 
 

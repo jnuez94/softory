@@ -128,7 +128,12 @@ class RecordsTest(unittest.TestCase):
         self.assertIn("names 2 commits", both.stderr)
         self.assertIn("--scope", both.stderr)
         self.assertEqual(coord(self.root, "review", "list")["data"], [])
-        for n, artifact in enumerate((f"commit:{head};base={self.sha}", head, f"head={head} base={self.sha}")):
+        two_heads = self.review("--id", "REV-1", "--reviewer", "jade", "--artifact", f"head={head} head={self.sha}")
+        self.assertNotEqual(two_heads.returncode, 0)
+        self.assertIn("2 different head= commits", two_heads.stderr)
+        self.assertEqual(coord(self.root, "review", "list")["data"], [])
+        for n, artifact in enumerate((f"commit:{head};base={self.sha}", head, f"head={head} base={self.sha}",
+                                      f"head={head} head={head[:12]} base={self.sha}")):  # one head, said twice
             made = self.review("--id", f"REV-{n}", "--reviewer", "jade", "--artifact", artifact)  # one commit is named
             self.assertEqual(made.returncode, 0, made.stderr)
 

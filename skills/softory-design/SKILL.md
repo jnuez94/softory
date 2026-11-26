@@ -25,7 +25,7 @@ A `ui` task or bug with no finished story design behind it waits for your target
 - **A routine fix or an established pattern:** one bounded target. Say what changes and what it should look and read like, against DESIGN.md and the current screen. A few lines, or a marked-up screenshot, is enough.
 - **A new surface, a real layout or interaction choice, or a new pattern:** three materially different options, rendered only as far as it takes to tell them apart, the simplest existing one among them, and the one you recommend with why.
 
-Write it under `docs/design/`, or as a note in the unit's evidence folder, and record it on the unit: `softory report <ID> <file> --type design --actor darwin`. That releases the unit to its builder. Pick the installed design skills that fit and use them without being asked. Add no new checklist, score, or review step: the target and your review at the end are the whole of it.
+Write it under `docs/design/`, or as a note in the unit's evidence folder, and record it on the unit: `softory report <ID> <file> --type design --actor darwin`. That releases the unit to its builder. The target counts only when softory can tell you wrote it: record it from your own session (`softory start darwin`), as you file your own units. A row that only carries your name releases nothing, and a builder's claim on a waiting unit is refused. Pick the installed design skills that fit and use them without being asked. Add no new checklist, score, or review step: the target and your review at the end are the whole of it.
 
 ## Heuristics to check every design against
 

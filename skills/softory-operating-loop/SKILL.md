@@ -37,7 +37,7 @@ $C task show TASK-7                                          # criteria, tags, r
 $C task claim TASK-7 --agent $SOFTORY_ROLE --if-revision <rev>
 ```
 
-Don't claim a todo task that `softory queue` marks as waiting for its story's feasibility check, or while a `blocks` dependency is open (the claim fails with `task_blocked`): message the owner of the blocking task. Building on a unit that isn't closed yet: `$S stack <bottom-ID> <next-ID> ...`, bottom first.
+A claim on ui work that `softory queue` marks as waiting for design is refused (`waits_for_design`). Don't claim a todo task that `softory queue` marks as waiting for its story's feasibility check, or while a `blocks` dependency is open (the claim fails with `task_blocked`): message the owner of the blocking task. Building on a unit that isn't closed yet: `$S stack <bottom-ID> <next-ID> ...`, bottom first.
 
 ## 4. Do the work
 
