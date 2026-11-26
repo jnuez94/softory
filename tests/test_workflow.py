@@ -502,6 +502,12 @@ class WorkflowTest(unittest.TestCase):
             with self.assertRaises(owner.SoftoryError):
                 owner.approve(project, board, ["PROP-3"], confirm=lambda _text: None)
         self.assertEqual(owner.proposals(project)[0]["id"], "PROP-3")  # still open: the grant wasn't written
+        with self.assertRaises(owner.SoftoryError) as refused:  # a change of mind can't lose it either
+            owner.approve(project, board, ["PROP-3"], reject=True, confirm=lambda _text: None)
+        self.assertEqual(refused.exception.code, "already_accepted")
+        self.assertEqual(owner.proposals(project)[0]["id"], "PROP-3")
+        self.assertFalse(local().get("waivers"))
+        self.assertEqual([f.name for f in project.proposals_path().parent.glob("proposals.json*")], ["proposals.json"])
         done = owner.approve(project, board, ["PROP-3"], confirm=lambda _text: None)  # the owner runs it again
         self.assertEqual(done["status"], "approved")
         owner._apply_waiver(project, board, done["waived"], third["decision"])  # and once more writes nothing new

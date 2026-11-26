@@ -102,6 +102,21 @@ class DesignUnitTest(unittest.TestCase):
             "BUG-4": "2026-11-23T20:00:00Z", "BUG-5": "2026-11-23T19:00:00Z", "BUG-9": "2026-11-23T20:00:00Z"})
         self.assertEqual(design.held(board, {"design": {"wait_for_design": False}}), {})
 
+    def test_a_dropped_design_task_designed_nothing(self) -> None:
+        tasks = [
+            unit("STORY-1", "todo", "unit:story"),
+            {**unit("TASK-1", "done", "unit:task,parent:STORY-1,lane:design,resolution:wont-do"),
+             "updated_at": "2026-11-06T10:00:00Z"},
+            unit("TASK-2", "todo", "unit:task,parent:STORY-1,lane:frontend,ui"),
+            unit("TASK-3", "todo", "unit:task,parent:STORY-1,lane:backend"),
+        ]
+        board = Board(tasks)
+        self.assertEqual(design.held(board, CHARTER), {"TASK-2": design.TARGET})
+        self.assertEqual(design.targets_due(board, CHARTER, "darwin"), ["TASK-2"])
+        self.assertEqual(design.released(board, CHARTER), {})  # the drop is not a finished design
+        tasks.append(unit("TASK-4", "done", "unit:task,parent:STORY-1,lane:design"))  # its replacement is
+        self.assertEqual(design.held(Board(tasks), CHARTER), {})
+
     def test_a_stand_in_for_the_designer_may_give_the_target(self) -> None:
         row = {"evidence_type": "design", "uri": "x.md", "added_by": "avery", "created_at": "2026-11-23T20:00:00Z"}
         board = Board([{**unit("BUG-1", "todo", "unit:bug,ui"), "evidence": [row]}])

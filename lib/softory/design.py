@@ -21,7 +21,7 @@ from typing import Any
 from .gate import with_stand_ins
 from .install import SKILL_ROOTS
 from .project import Project
-from .units import lane_of, live_evidence, parent_of, tags_of, unit_of
+from .units import lane_of, live_evidence, parent_of, resolution_of, tags_of, unit_of
 
 LAUNCHER = "impeccable/scripts/impeccable"
 #: What the detector reads (Impeccable's hook list), so a backend diff on a ui task scans nothing.
@@ -94,9 +94,11 @@ def _builds_ui(task: dict[str, Any]) -> bool:
 
 
 def _story_designs(board: Any, task: dict[str, Any]) -> list[dict[str, Any]]:
+    """The story's design tasks that stand. A dropped one is done in the tracker and designed nothing, so
+    it doesn't count: the story's ui units then need a target each, as in a story filed without design."""
     story = parent_of(task)
     return [d for d in board.children.get(story, []) if lane_of(d) == "design"
-            and unit_of(d, board.gates) == "task"] if story else []
+            and unit_of(d, board.gates) == "task" and not resolution_of(d)] if story else []
 
 
 def _needs_target(board: Any, task: dict[str, Any]) -> bool:

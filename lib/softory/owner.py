@@ -132,7 +132,12 @@ def _load_proposals(project: Project) -> list[dict[str, Any]]:
 
 
 def _save_proposals(project: Project, proposals: list[dict[str, Any]]) -> None:
-    project.proposals_path().write_text(json.dumps(proposals, indent=2) + "\n", encoding="utf-8")
+    """Replace the file whole. ``proposals`` reads it without the lock, and the digest reads it before the
+    runner starts any role: a reader sees the old list or the new one, and a write that dies leaves the old."""
+    path = project.proposals_path()
+    fresh = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    fresh.write_text(json.dumps(proposals, indent=2) + "\n", encoding="utf-8")
+    os.replace(fresh, path)
 
 
 @contextmanager
@@ -298,6 +303,12 @@ def _decide(project: Project, coord: Coordination, proposal_id: str, reject: boo
             wanted = "superseded"
             note = f"{', '.join(_units(proposal))} finished before the owner decided {proposal_id}, so softory closed it"
         stands = _settle(coord, owner, proposal, wanted, note)
+        if stands == "accepted" and reject and not _granted(project, proposal):
+            # An approval recorded its decision and failed before the grant. Marking the proposal now would
+            # take it off the open list with nothing granted and no way back.
+            raise SoftoryError(f"{proposal_id} can't be rejected: its decision {proposal['decision']} already "
+                               f"stands as accepted, from an approval that didn't finish. It stays open. Run "
+                               f"softory approve {proposal_id} to finish it.", "already_accepted")
         if stands == "accepted" and not reject:
             change = proposal["change"]
             if proposal["kind"] == "standin":
