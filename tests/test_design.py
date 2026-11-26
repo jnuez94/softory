@@ -189,6 +189,18 @@ class DesignWorkflowTest(unittest.TestCase):
         self.assertEqual([r["id"] for r in due], [bug])
         asked = json.loads(softory(self.root, "pending", "darwin", check=False).stdout)
         self.assertIn(bug, next(r["ids"] for r in asked["reasons"] if "design target" in r["why"]))
+        note = lambda n, sender, to, *more: softory(  # noqa: E731
+            self.root, "coord", "message", "send", "--id", f"M-{n}", "--sender", sender, "--recipient", to,
+            "--task", bug, "--body", "The label is cut off at 320 pixels wide.", *more,
+            env={**os.environ, "SOFTORY_ROLE": sender})
+        note(1, "gold", "jade")  # a plain note on the waiting bug is news: it starts nobody, even on the retry
+        quiet = json.loads(softory(self.root, "pending", "jade", "--retry-hours", "0.0001", check=False).stdout)
+        self.assertFalse(quiet["pending"], quiet)
+        note(2, "gold", "jade", "--tags", "question")  # a question still reaches her
+        self.assertEqual([r["why"] for r in json.loads(softory(self.root, "pending", "jade", check=False).stdout)
+                          ["reasons"]], ["messages that need you"])
+        through = json.loads(softory(self.root, "inbox", "--agent", "jade").stdout)["read_through"]
+        softory(self.root, "inbox", "--agent", "jade", "--mark-read", str(through))
         spec = self.root / "docs/design" / f"{bug}.md"
         spec.parent.mkdir(parents=True)
         spec.write_text("The button keeps its full label at 320px.\n")

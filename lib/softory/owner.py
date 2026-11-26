@@ -13,12 +13,14 @@ the read-only files, is working around the owner on purpose, and the gate's
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import sys
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import grants, ops, verify
 from .coordination import Coordination
@@ -87,8 +89,10 @@ def _apply_grant(project: Project, coord: Coordination, grant: dict[str, Any], d
                                    "The owner named a stand-in under softory's flex rule (boundaries.md).")
     grant = {**grant, "decision": decision}
     settings = project.local()
-    settings["stand_ins"] = [*grants.normalize_stand_ins(settings.get("stand_ins")), grant]
-    project.save_local(settings)
+    held = grants.normalize_stand_ins(settings.get("stand_ins"))
+    if not any(g.get("decision") == decision for g in held):  # an approval run again writes it once
+        settings["stand_ins"] = [*held, grant]
+        project.save_local(settings)
     return {"granted": grant, "decision": decision, "regenerated": ops.sync(project)}
 
 
@@ -131,35 +135,87 @@ def _save_proposals(project: Project, proposals: list[dict[str, Any]]) -> None:
     project.proposals_path().write_text(json.dumps(proposals, indent=2) + "\n", encoding="utf-8")
 
 
+@contextmanager
+def _editing_proposals(project: Project) -> Iterator[list[dict[str, Any]]]:
+    """Read, change, and write the proposals under one lock. A role proposing, the owner approving, and the
+    runner's digest run in separate processes: without the lock each could write back a list the other
+    had since added to. What was changed before an error is kept."""
+    project.state.mkdir(parents=True, exist_ok=True)
+    with (project.state / "proposals.lock").open("w", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        rows = _load_proposals(project)
+        try:
+            yield rows
+        finally:
+            _save_proposals(project, rows)
+
+
 def proposals(project: Project, show_all: bool = False) -> list[dict[str, Any]]:
     rows = _load_proposals(project)
     return rows if show_all else [p for p in rows if p["status"] == "open"]
 
 
+#: What a proposal is called once its decision in the tracker has left ``proposed``. The decision is the
+#: record of what happened; the proposal's own status follows it.
+_SETTLED = {"accepted": "approved", "rejected": "rejected", "superseded": "lapsed"}
+
+
+def _units(proposal: dict[str, Any]) -> list[str]:
+    change = proposal["change"]
+    return [change["task"]] if proposal["kind"] == "waiver" else change.get("tasks") or []
+
+
+def _finished(coord: Coordination, proposal: dict[str, Any]) -> bool:
+    """Whether every unit the proposal names is done, so there is nothing left to waive or stand in on."""
+    units = _units(proposal)
+    return bool(units) and all(coord.task(unit)["status"] == "done" for unit in units)
+
+
+def _settle(coord: Coordination, owner: str, proposal: dict[str, Any], to: str, note: str) -> str:
+    """Move the proposal's decision from ``proposed`` to ``to`` and return where it stands. One that already
+    left ``proposed`` is returned as it is: an earlier run got that far, or someone else decided first."""
+    try:
+        coord.run("decision", "status", proposal["decision"], to, "--actor", owner, "--if-status", "proposed",
+                  "--note", note)
+    except SoftoryError:
+        now = coord.run("decision", "show", proposal["decision"])["status"]
+        if now == "proposed":
+            raise
+        return now
+    return to
+
+
+def _granted(project: Project, proposal: dict[str, Any]) -> bool:
+    """Whether local.json already holds what the proposal asks for, under the proposal's decision."""
+    key = "stand_ins" if proposal["kind"] == "standin" else "waivers"
+    return any(row.get("decision") == proposal["decision"] for row in project.local().get(key) or [])
+
+
 def lapse_finished(project: Project, coord: Coordination) -> list[str]:
-    """Close open proposals whose every unit is done: there is nothing left to waive or stand in on. Three
-    waiver requests sat open in Tablet for weeks after their tasks closed, and the owner's digest kept
-    listing them. The proposal and its decision stay on record, marked as lapsed."""
-    rows = _load_proposals(project)
+    """Close open proposals whose every unit is done. Three waiver requests sat open in Tablet for weeks
+    after their tasks closed, and the owner's digest kept listing them. The proposal and its decision stay
+    on record, marked as lapsed.
+
+    The digest calls this before the runner starts any role, so it never raises and is safe to repeat. A
+    run that stopped after the tracker was told and before the proposal was marked is finished by the next
+    one, and a proposal the tracker won't answer for is left for the next run.
+    """
     lapsed = []
-    for proposal in rows:
-        change = proposal["change"]
-        units = [change["task"]] if proposal["kind"] == "waiver" else change.get("tasks") or []
-        if proposal["status"] != "open" or not units:
-            continue
+    for seen in proposals(project):
         try:
-            finished = all(coord.task(unit)["status"] == "done" for unit in units)
+            if not _finished(coord, seen):
+                continue
+            stands = _settle(coord, project.owner_id, seen, "superseded", f"{', '.join(_units(seen))} finished "
+                             f"before the owner decided {seen['id']}, so softory closed it")
+            if stands == "accepted" and not _granted(project, seen):
+                continue  # an approval that didn't finish: softory approve completes it
         except SoftoryError:
-            continue  # a unit the tracker no longer has: leave the question to the owner
-        if not finished:
             continue
-        coord.run("decision", "status", proposal["decision"], "superseded", "--actor", project.owner_id,
-                  "--if-status", "proposed", "--note", f"{', '.join(units)} finished before the owner decided "
-                  f"{proposal['id']}, so softory closed it")
-        proposal.update(status="lapsed", decided_at=_now())
-        lapsed.append(proposal["id"])
-    if lapsed:
-        _save_proposals(project, rows)
+        with _editing_proposals(project) as rows:
+            for row in rows:
+                if row["id"] == seen["id"] and row["status"] == "open":
+                    row.update(status=_SETTLED.get(stands, "lapsed"), decided_at=_now())
+                    lapsed += [row["id"]] if stands == "superseded" else []
     return lapsed
 
 
@@ -177,16 +233,15 @@ def propose(project: Project, coord: Coordination, kind: str, change: dict[str, 
         title = f"Waive {checked['check']} on {checked['task']}"
     else:
         raise SoftoryError(f"Unknown proposal kind {kind!r}", "invalid_arguments")
-    existing = _load_proposals(project)
-    proposal_id = _next_id(existing)
     owner = project.owner_id
     session = os.environ.get("COORDINATION_SESSION") or "no session"
-    decision = record_decision(coord, owner, "PROP", f"Proposed by {actor}: {title}", title,
-                               f"Proposed by {actor} ({session}): {why}. Waiting for the owner's softory approve {proposal_id}.",
-                               status="proposed", recorded_by=actor)
-    proposal = {"id": proposal_id, "kind": kind, "change": checked, "why": why, "proposed_by": actor,
-                "session": session, "created_at": _now(), "decision": decision, "status": "open"}
-    _save_proposals(project, [*existing, proposal])
+    with _editing_proposals(project) as rows:  # the number and the row are taken under one lock
+        proposal_id = _next_id(rows)
+        decision = record_decision(coord, owner, "PROP", f"Proposed by {actor}: {title}", title,
+                                   f"Proposed by {actor} ({session}): {why}. Waiting for the owner's softory approve {proposal_id}.",
+                                   status="proposed", recorded_by=actor)
+        rows.append({"id": proposal_id, "kind": kind, "change": checked, "why": why, "proposed_by": actor,
+                     "session": session, "created_at": _now(), "decision": decision, "status": "open"})
     return {"proposal": proposal_id, "decision": decision,
             "next": f"Tell the owner: softory approve {proposal_id} (run it in a terminal). Nothing changes until then."}
 
@@ -209,45 +264,67 @@ def _describe(proposal: dict[str, Any]) -> str:
 def approve(project: Project, coord: Coordination, proposal_ids: list[str], reject: bool = False,
             confirm: Confirm = confirm_at_terminal) -> dict[str, Any]:
     """Apply (or reject) proposals, after one typed yes. Only the owner, at a terminal."""
-    rows = _load_proposals(project)
-    open_rows = [p for p in rows if p["status"] == "open"]
+    open_rows = proposals(project)
     missing = [i for i in proposal_ids if i not in {p["id"] for p in open_rows}]
     if missing or not proposal_ids:
         raise SoftoryError(f"No open proposal {', '.join(missing) or '(none named)'}; softory proposals lists them",
                            "not_found")
     chosen = [p for p in open_rows if p["id"] in proposal_ids]
     confirm("\n".join([f"{'Reject' if reject else 'Approve'} {len(chosen)} proposal(s):", *map(_describe, chosen)]))
-    owner = project.owner_id
-    results = []
-    for proposal in chosen:
-        results.append(_decide(project, coord, proposal, reject, owner))
-        proposal["decided_at"] = _now()
-    _save_proposals(project, rows)
+    if not reject and "local.json" in (project.integrity_changes() or []):
+        # Said before anything is recorded: the grant below could not be written.
+        raise SoftoryError(f"{project.local_path} was edited outside softory. Restore it, or reinstall softory to "
+                           "accept it as is.", "configuration_tampered")
+    results = [_decide(project, coord, proposal["id"], reject, project.owner_id) for proposal in chosen]
     return {"results": results} if len(results) > 1 else results[0]
 
 
-def _decide(project: Project, coord: Coordination, proposal: dict[str, Any], reject: bool, owner: str) -> dict[str, Any]:
-    proposal_id = proposal["id"]
-    change = proposal["change"]
+def _decide(project: Project, coord: Coordination, proposal_id: str, reject: bool, owner: str) -> dict[str, Any]:
+    """Decide one proposal as it stands now, not as it stood when the owner was asked: the prompt can sit
+    open while the runner's digest lapses the proposal or the unit closes.
+
+    The decision is recorded first and the grant written second, so a refused or failed record leaves
+    local.json as it was. If the grant then fails, the proposal stays open and ``softory approve`` again
+    finishes it: the decision already stands, and a grant already written isn't written twice.
+    """
     result: dict[str, Any] = {"proposal": proposal_id}
-    if not reject:
-        if proposal["kind"] == "standin":
-            result.update(_apply_grant(project, coord, change, proposal["decision"]))
-        else:
-            settings = project.local()
-            waiver = {**change, "commit": change.get("commit") or "", "decision": proposal["decision"],
-                      "approved_at": _now()}
-            settings["waivers"] = [*grants.normalize_waivers(settings.get("waivers")), waiver]
-            project.save_local(settings)
-            result["waived"] = waiver
-            now = verify.commit_of(project.root, coord.task(change["task"])) or ""
-            if now != waiver["commit"]:
-                result["note"] = (f"{change['task']} has delivered {now[:12] or 'no commit'} since this was asked for at "
-                                  f"{waiver['commit'][:12] or 'no commit'}. The waiver covers what was asked for only.")
-    coord.run("decision", "status", proposal["decision"], "rejected" if reject else "accepted", "--actor", owner,
-              "--if-status", "proposed", "--note", f"softory approve {proposal_id}{' --reject' if reject else ''}")
-    proposal["status"] = "rejected" if reject else "approved"
-    result["status"] = proposal["status"]
+    with _editing_proposals(project) as rows:
+        proposal = next(p for p in rows if p["id"] == proposal_id)
+        if proposal["status"] != "open":
+            return {**result, "status": proposal["status"], "note": "It was settled while you were asked. Nothing changed."}
+        wanted = "rejected" if reject else "accepted"
+        note = f"softory approve {proposal_id}{' --reject' if reject else ''}"
+        if not reject and _finished(coord, proposal):
+            wanted = "superseded"
+            note = f"{', '.join(_units(proposal))} finished before the owner decided {proposal_id}, so softory closed it"
+        stands = _settle(coord, owner, proposal, wanted, note)
+        if stands == "accepted" and not reject:
+            change = proposal["change"]
+            if proposal["kind"] == "standin":
+                result.update(_apply_grant(project, coord, change, proposal["decision"]))
+            else:
+                result.update(_apply_waiver(project, coord, change, proposal["decision"]))
+        proposal.update(status=_SETTLED[stands], decided_at=_now())
+        result["status"] = proposal["status"]
+        if stands != ("rejected" if reject else "accepted"):
+            result["note"] = ("Every unit it names is done, so there is nothing to grant. It is closed as lapsed."
+                              if stands == "superseded" else f"Its decision already stood as {stands}. Nothing else changed.")
+    return result
+
+
+def _apply_waiver(project: Project, coord: Coordination, change: dict[str, Any], decision: str) -> dict[str, Any]:
+    settings = project.local()
+    held = grants.normalize_waivers(settings.get("waivers"))
+    waiver = next((w for w in held if w.get("decision") == decision), None)
+    if waiver is None:
+        waiver = {**change, "commit": change.get("commit") or "", "decision": decision, "approved_at": _now()}
+        settings["waivers"] = [*held, waiver]
+        project.save_local(settings)
+    result: dict[str, Any] = {"waived": waiver}
+    now = verify.commit_of(project.root, coord.task(change["task"])) or ""
+    if now != waiver["commit"]:
+        result["note"] = (f"{change['task']} has delivered {now[:12] or 'no commit'} since this was asked for at "
+                          f"{waiver['commit'][:12] or 'no commit'}. The waiver covers what was asked for only.")
     return result
 
 
