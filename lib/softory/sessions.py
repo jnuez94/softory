@@ -13,6 +13,7 @@ back when it ends.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -47,6 +48,21 @@ def recall(project: Project, role: str | None, is_open: Callable[[str], bool]) -
         return None
     session = _read(_path(project, role)).get("session")
     return session if session and is_open(session) else None
+
+
+def own(project: Project, coord: Any, role: str) -> str | None:
+    """An open session the tracker holds as ``role``'s: the one this command runs in, or the one softory
+    remembers for the role. A record written in it carries the session in the tracker's audit log, and
+    the tracker refuses a session that isn't the writer's, so softory can tell who wrote it. A caller
+    whose ``SOFTORY_ROLE`` names someone else gets none: naming a role is not being it."""
+    if os.environ.get("SOFTORY_ROLE") not in (None, "", role):
+        return None
+    for session in dict.fromkeys(s for s in (coord.session, _read(_path(project, role)).get("session")) if s):
+        shown = coord.call("session", "show", session)
+        found = shown.get("data") or {}
+        if shown.get("ok") and found.get("status") == "active" and found.get("agent_id") == role:
+            return session
+    return None
 
 
 def forget(project: Project, session: str) -> None:

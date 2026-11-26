@@ -82,6 +82,13 @@ class Project:
         gates["stand_ins"] = grants.normalize_stand_ins(settings.get("stand_ins"))
         gates["waivers"] = grants.normalize_waivers(settings.get("waivers"))
         gates["today"] = grants.today()
+        if gates["waivers"]:  # what a waiver is checked against: the unit's commit, and its last close
+            gates["root"] = str(self.root)
+            try:
+                closed = json.loads((self.state / "closed.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                closed = {}
+            gates["closed_at"] = {unit: row.get("at") for unit, row in closed.items()}
         changed = self.integrity_changes()
         if changed is not None:
             gates["integrity"] = {"changed": changed}
@@ -110,11 +117,19 @@ class Project:
                 f"{self.local_path} was edited outside softory. Restore it, or reinstall softory to accept it as is.",
                 "configuration_tampered",
             )
-        write_protected(self.local_path, json.dumps(settings, indent=2, sort_keys=True) + "\n")
+        text = json.dumps(settings, indent=2, sort_keys=True) + "\n"
         manifest = self.manifest()
-        if "integrity" in manifest:
-            manifest["integrity"]["local.json"] = file_hash(self.local_path)
-            self.save_manifest(manifest)
+        if "integrity" not in manifest:
+            write_protected(self.local_path, text)
+            return
+        # The file and its hash are two writes. The hash to come is recorded first, so a run that stops
+        # between them leaves a local.json the integrity check still knows as softory's own.
+        fresh = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        self.save_manifest({**manifest, "integrity_next": {"local.json": fresh}})
+        write_protected(self.local_path, text)
+        manifest["integrity"]["local.json"] = fresh
+        manifest.pop("integrity_next", None)
+        self.save_manifest(manifest)
 
     def manifest(self) -> dict[str, Any]:
         path = self.bundle / "manifest.json"
@@ -129,12 +144,15 @@ class Project:
 
     def integrity_changes(self) -> list[str] | None:
         """Protected files that differ from the install, or None for an install from before 0.3.0."""
-        recorded = self.manifest().get("integrity")
+        manifest = self.manifest()
+        recorded = manifest.get("integrity")
         if recorded is None:
             return None
         current = integrity_hashes(self.bundle)
+        coming = manifest.get("integrity_next") or {}  # a save_local that stopped before its second write
         names = sorted(set(recorded) | set(current))
-        changed = [name for name in names if recorded.get(name) != current.get(name)]
+        changed = [name for name in names
+                   if current.get(name) not in (recorded.get(name), coming.get(name, recorded.get(name)))]
         from .policy import problems  # noqa: PLC0415 - policy imports the coordination wrapper
 
         return changed + [f".coordination/config.yml ({p})" for p in problems(self.root)]

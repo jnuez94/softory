@@ -46,6 +46,12 @@ class Board:
         self.tasks, self.gates = tasks, GATES
         self.children = children_by_parent(tasks)
 
+    def show(self, task_id: str) -> dict:
+        return next(t for t in self.tasks if t["id"] == task_id)
+
+    def in_session(self, kind: str, object_id: str) -> bool:  # the tracker's audit: written in its author's session
+        return (kind, object_id) not in getattr(self, "outside", set())
+
 
 def unit(task_id: str, status: str, tags: str) -> dict:
     return {"id": task_id, "status": status, "tags": tags}
@@ -75,6 +81,64 @@ class DesignUnitTest(unittest.TestCase):
         self.assertEqual(design.released(Board(tasks), CHARTER), {"TASK-2": "2026-11-06T10:00:00Z"})
         tasks[1]["status"] = "review"
         self.assertEqual(design.released(Board(tasks), CHARTER), {})
+
+    def test_a_ui_bug_or_task_outside_a_designed_story_waits_for_the_designers_target(self) -> None:
+        target = {"evidence_type": "design", "uri": "docs/design/BUG-1.md", "added_by": "darwin",
+                  "created_at": "2026-11-23T20:00:00Z"}
+        tasks = [
+            unit("BUG-1", "todo", "unit:bug,ui"),
+            unit("BUG-2", "todo", "unit:bug"),  # no ui tag: nothing to design
+            {**unit("BUG-3", "todo", "unit:bug,ui"), "evidence": [{**target, "added_by": "jade"}]},  # the builder's own
+            {**unit("BUG-4", "todo", "unit:bug,ui"), "evidence": [target]},
+            {**unit("BUG-5", "todo", "unit:bug,ui"), "created_by": "darwin", "created_at": "2026-11-23T19:00:00Z"},
+            {**unit("TASK-6", "todo", "unit:task,ui"), "assignees": ["darwin"]},  # the designer builds it
+            unit("STORY-7", "todo", "unit:story"),
+            unit("TASK-8", "todo", "unit:task,parent:STORY-7,ui"),  # a story filed without --design
+            {**unit("BUG-9", "todo", "unit:bug,ui"), "evidence": [{**target, "added_by": "owner"}]},
+        ]
+        board = Board(tasks)
+        self.assertEqual(design.held(board, CHARTER),
+                         {"BUG-1": design.TARGET, "BUG-3": design.TARGET, "TASK-8": design.TARGET})
+        self.assertEqual(design.targets_due(board, CHARTER, "darwin"), ["BUG-1", "BUG-3", "TASK-8"])
+        self.assertEqual(design.targets_due(board, CHARTER, "jade"), [])
+        self.assertEqual(design.released(board, CHARTER), {
+            "BUG-4": "2026-11-23T20:00:00Z", "BUG-5": "2026-11-23T19:00:00Z", "BUG-9": "2026-11-23T20:00:00Z"})
+        self.assertEqual(design.held(board, {"design": {"wait_for_design": False}}), {})
+
+    def test_a_name_alone_gives_no_target(self) -> None:
+        row = {"id": 7, "evidence_type": "design", "uri": "x.md", "added_by": "darwin", "created_at": "2026-11-23T20:00:00Z"}
+        board = Board([
+            {**unit("BUG-1", "todo", "unit:bug,ui"), "evidence": [row]},
+            {**unit("BUG-2", "todo", "unit:bug,ui"), "created_by": "darwin", "created_at": "2026-11-23T19:00:00Z"},
+        ])
+        self.assertEqual(design.held(board, CHARTER), {})
+        board.outside = {("evidence", "7"), ("task", "BUG-2")}  # written under Darwin's name, outside his session
+        self.assertEqual(design.held(board, CHARTER), {"BUG-1": design.TARGET, "BUG-2": design.TARGET})
+        self.assertEqual(design.released(board, CHARTER), {})
+        self.assertIn("waits for the designer's target", design.claim_refusal(board, CHARTER, "BUG-1", "jade"))
+        self.assertIsNone(design.claim_refusal(board, CHARTER, "BUG-1", "darwin"))  # his build is the design
+
+    def test_a_dropped_design_task_designed_nothing(self) -> None:
+        tasks = [
+            unit("STORY-1", "todo", "unit:story"),
+            {**unit("TASK-1", "done", "unit:task,parent:STORY-1,lane:design,resolution:wont-do"),
+             "updated_at": "2026-11-06T10:00:00Z"},
+            unit("TASK-2", "todo", "unit:task,parent:STORY-1,lane:frontend,ui"),
+            unit("TASK-3", "todo", "unit:task,parent:STORY-1,lane:backend"),
+        ]
+        board = Board(tasks)
+        self.assertEqual(design.held(board, CHARTER), {"TASK-2": design.TARGET})
+        self.assertEqual(design.targets_due(board, CHARTER, "darwin"), ["TASK-2"])
+        self.assertEqual(design.released(board, CHARTER), {})  # the drop is not a finished design
+        tasks.append(unit("TASK-4", "done", "unit:task,parent:STORY-1,lane:design"))  # its replacement is
+        self.assertEqual(design.held(Board(tasks), CHARTER), {})
+
+    def test_a_stand_in_for_the_designer_may_give_the_target(self) -> None:
+        row = {"evidence_type": "design", "uri": "x.md", "added_by": "avery", "created_at": "2026-11-23T20:00:00Z"}
+        board = Board([{**unit("BUG-1", "todo", "unit:bug,ui"), "evidence": [row]}])
+        self.assertEqual(design.held(board, CHARTER), {"BUG-1": design.TARGET})
+        board.gates = {**GATES, "stand_ins": [{"agent": "avery", "roles": ["darwin"]}]}
+        self.assertEqual(design.held(board, CHARTER), {})
 
     def test_the_detector_fails_on_warnings_and_counts_advisories(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -144,6 +208,76 @@ class DesignWorkflowTest(unittest.TestCase):
         queue = json.loads(softory(self.root, "queue", "--agent", "jade").stdout)
         row = next(r for r in queue["assigned"] if r["id"] == self.task)
         self.assertEqual(row["waits_for"], f"its story's design, {self.design_task}")
+
+    def test_a_ui_bug_waits_for_darwins_target_and_wakes_him_then_its_builder(self) -> None:
+        bug = json.loads(softory(self.root, "new", "bug", "--title", "Save button is cut off", "--lane", "frontend",
+                                 "--tags", "ui", "--type", "visual", "--actor", "quinn").stdout)["id"]
+        row = next(r for r in json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["assigned"]
+                   if r["id"] == bug)
+        self.assertIn("designer's target", row["waits_for"])
+        self.assertNotIn(bug, json.dumps(json.loads(softory(self.root, "pending", "jade", check=False).stdout)))
+        due = json.loads(softory(self.root, "queue", "--agent", "darwin").stdout)["design_targets_due"]
+        self.assertEqual([r["id"] for r in due], [bug])
+        asked = json.loads(softory(self.root, "pending", "darwin", check=False).stdout)
+        self.assertIn(bug, next(r["ids"] for r in asked["reasons"] if "design target" in r["why"]))
+        note = lambda n, sender, to, *more: softory(  # noqa: E731
+            self.root, "coord", "message", "send", "--id", f"M-{n}", "--sender", sender, "--recipient", to,
+            "--task", bug, "--body", "The label is cut off at 320 pixels wide.", *more,
+            env={**os.environ, "SOFTORY_ROLE": sender})
+        note(1, "gold", "jade")  # a plain note on the waiting bug is news: it starts nobody, even on the retry
+        quiet = json.loads(softory(self.root, "pending", "jade", "--retry-hours", "0.0001", check=False).stdout)
+        self.assertFalse(quiet["pending"], quiet)
+        note(2, "gold", "jade", "--tags", "question")  # a question still reaches her
+        self.assertEqual([r["why"] for r in json.loads(softory(self.root, "pending", "jade", check=False).stdout)
+                          ["reasons"]], ["messages that need you"])
+        through = json.loads(softory(self.root, "inbox", "--agent", "jade").stdout)["read_through"]
+        softory(self.root, "inbox", "--agent", "jade", "--mark-read", str(through))
+        spec = self.root / "docs/design" / f"{bug}.md"
+        spec.parent.mkdir(parents=True)
+        spec.write_text("The button keeps its full label at 320px.\n")
+        claim = lambda: softory(self.root, "coord", "task", "claim", bug, "--agent", "jade",  # noqa: E731
+                                env={**os.environ, **start(self.root, "jade")}, check=False)
+        refused = claim()  # a builder who is already running can't take it either
+        self.assertEqual(json.loads(refused.stderr)["error"]["code"], "waits_for_design")
+        self.assertEqual(coord(self.root, "task", "show", bug)["data"]["status"], "todo")
+        # Darwin's name on a row is not Darwin: softory refuses it from another role, and a row the tracker
+        # didn't see written in his session releases nothing.
+        forged = softory(self.root, "coord", "evidence", "add", "--task", bug, "--uri", str(spec), "--type", "design",
+                         "--actor", "darwin", env={**os.environ, "SOFTORY_ROLE": "jade"}, check=False)
+        self.assertEqual(json.loads(forged.stderr)["error"]["code"], "not_allowed")
+        coord(self.root, "evidence", "add", "--task", bug, "--uri", str(spec), "--type", "design", "--actor", "darwin")
+        self.assertEqual([r["id"] for r in json.loads(softory(self.root, "queue", "--agent", "darwin").stdout)
+                          ["design_targets_due"]], [bug])
+        unsigned = softory(self.root, "report", bug, str(spec), "--type", "design", "--actor", "darwin", check=False)
+        self.assertEqual(json.loads(unsigned.stderr)["error"]["code"], "session_required")
+        softory(self.root, "report", bug, str(spec), "--type", "design", "--actor", "darwin",
+                env={**os.environ, **start(self.root, "darwin")})
+        self.assertNotIn("waits_for_design", claim().stderr)  # softory no longer stands in the way
+        row = next(r for r in json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["assigned"]
+                   if r["id"] == bug)
+        self.assertNotIn("waits_for", row)
+        self.assertNotIn("design_targets_due", json.loads(softory(self.root, "queue", "--agent", "darwin").stdout))
+        woken = json.loads(softory(self.root, "pending", "jade", check=False).stdout)
+        self.assertIn(bug, json.dumps(woken["reasons"]))
+
+    def test_the_owner_gives_a_target_at_a_terminal_and_a_designers_own_bug_needs_none(self) -> None:
+        bug = json.loads(softory(self.root, "new", "bug", "--title", "Save button is cut off", "--lane", "frontend",
+                                 "--tags", "ui", "--type", "visual", "--actor", "quinn").stdout)["id"]
+        note = self.root / "target.md"
+        note.write_text("Keep the full label.\n")
+        piped = softory(self.root, "report", bug, str(note), "--type", "design", "--actor", "owner", "--keep", check=False)
+        self.assertEqual(json.loads(piped.stderr)["error"]["code"], "owner_terminal_required")
+        at_terminal(self.root, "report", bug, str(note), "--type", "design", "--actor", "owner", "--keep")
+        own = json.loads(softory(self.root, "new", "bug", "--title", "Heading wraps", "--lane", "frontend", "--tags", "ui",
+                                 "--type", "visual", "--actor", "darwin",
+                                 env={**os.environ, **start(self.root, "darwin")}).stdout)["id"]
+        named = json.loads(softory(self.root, "new", "bug", "--title", "Footer overlaps", "--lane", "frontend",
+                                   "--tags", "ui", "--type", "visual", "--actor", "darwin",
+                                   env={**os.environ, **start(self.root, "jade")}).stdout)["id"]
+        rows = {r["id"]: r for r in json.loads(softory(self.root, "queue", "--agent", "jade").stdout)["assigned"]}
+        self.assertNotIn("waits_for", rows[bug])
+        self.assertNotIn("waits_for", rows[own])
+        self.assertIn("designer's target", rows[named]["waits_for"])  # filed under his name from Jade's session
 
     def test_verify_runs_the_detector_on_a_ui_units_own_files(self) -> None:
         fake_launcher(self.root)

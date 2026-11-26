@@ -67,7 +67,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     rounds = review_rounds(board, int(caps.get("free_evidence_rounds", 1)))
     capped = {i for i, n in rounds.items() if n >= int(caps["review_rounds"])}
     waits = feasibility.held(board, charter)  # todo tasks whose story hasn't passed its feasibility check
-    waits |= set(design.held(board, charter))  # and UI build tasks whose story's design isn't done
+    designs = design.held(board, charter)
+    waits |= set(designs)  # and UI build work whose design isn't done
     reasons = []
     hold = is_paused(project, agent)
     # The owner let this role work on a few tasks while the pause holds. Scope every list before anything
@@ -75,7 +76,7 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
     scope = allowed_tasks(project, agent) if hold else set()
     in_scope = (lambda ids: [i for i in ids if i in scope]) if scope else (lambda ids: ids)
     if not scope:
-        wanted, rest = unread_messages(coord, agent, board, work)
+        wanted, rest = unread_messages(coord, agent, board, work, design_waits=set(designs))
         direct = [m for m in rest if m.get("recipient") == agent] if own else []  # only for a session that is open
         if wanted:
             reasons.append({"why": "messages that need you", "count": len(wanted)})
@@ -112,6 +113,8 @@ def pending(project: Project, coord: Coordination, agent: str | None, since: str
         "tests not passed at the commit (run softory verify, fix if it fails)": untested,
         "ui unit in review without its reference check (add one; reviewers wait for it)": no_reference,
         "reviews waiting": [] if batching else reviews,
+        "ui work waiting for your design target (softory report <ID> <file> --type design)":
+            [i for i in design.targets_due(board, charter, agent) if i not in on_hold],
         "claimed work changed": work["claimed"],
         "assigned work changed": [t["id"] for t in work["assigned"] if t["status"] != "blocked"
                                   and t["id"] not in waits],
@@ -199,8 +202,8 @@ def _sweep_due(project: Project, simplify: dict[str, Any], now: datetime,
 ACTION_TAGS = {"request", "question", "ruling", "answer", "blocker", "urgent"}
 
 
-def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any],
-                    page: int = 100) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any], page: int = 100,
+                    design_waits: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """The role's unread messages, split as ``split_messages`` does. Pages run oldest first, so a page of
     FYIs can't hide a later owner message: read on until one needs the role or the inbox runs out."""
     wanted: list[dict[str, Any]] = []
@@ -209,7 +212,7 @@ def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any],
     while not wanted:
         inbox = coord.run("inbox", "list", "--agent", agent, "--limit", str(page), "--offset", str(offset))
         messages = inbox.get("messages", []) if isinstance(inbox, dict) else inbox
-        need, other = split_messages(messages, agent, board, work)
+        need, other = split_messages(messages, agent, board, work, design_waits)
         wanted += need
         rest += other
         if len(messages) < page:
@@ -222,8 +225,8 @@ def unread_messages(coord: Any, agent: str, board: Any, work: dict[str, Any],
 REVIEW_REQUEST = "SOFTORY-REVIEW-"
 
 
-def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
-                   work: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def split_messages(unread: list[dict[str, Any]], agent: str, board: Board, work: dict[str, Any],
+                   design_waits: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(messages that need the role, the rest). A message needs the role when the owner sent it, it carries an
     action tag, or it names a unit the role builds, holds, reviewed, or owes a review or a close on.
     Acknowledgements and news wake nobody: each woke a paid run in Tablet, and replies woke the sender back.
@@ -233,6 +236,9 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
     A handoff's own review request counts for neither list either: reviews wake a reviewer through the review
     queue, which waits for the tests and the charter's batch. A task the queue doesn't list (one from before
     softory's units) has only the request, so there it counts like any tagged message.
+    ``design_waits`` are the ui units still waiting for design: a plain note on one counts for neither list, as
+    for a held unit, so it can't start its builder. A message from the owner, one with an action tag, and any
+    message to the designer whose target the unit waits for count as usual.
     """
     on_hold = getattr(board, "held", {})
     mine = {t["id"] for t in board.tasks if agent in (t.get("assignees") or []) or t.get("claimed_by") == agent}
@@ -252,6 +258,9 @@ def split_messages(unread: list[dict[str, Any]], agent: str, board: Board,
             continue  # a handoff's request: the unit's place in the review queue wakes the reviewer, once the
             # tests pass and the batch is ready, and the message tells them where to look when they start
         tags = {t.strip().lower() for t in str(message.get("tags") or "").split(",") if t.strip()}
+        if (message.get("task_id") in design_waits and not from_owner and not tags & ACTION_TAGS
+                and agent not in design.designers(board.gates, message["task_id"])):
+            continue  # a plain note on work that waits for design: no run can use it yet, now or on the retry
         needed = from_owner or tags & ACTION_TAGS or message.get("task_id") in mine
         (wanted if needed else rest).append(message)
     return wanted, rest

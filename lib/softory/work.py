@@ -145,6 +145,9 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             raise SoftoryError(f"{assignee} already has {twin} open for a task this review names. Continue that "
                                "record, or close it first.", "conflict", {"existing": twin})
     existing = [task["id"] for task in everything]
+    # A ui unit a designer files carries its own design target, if the tracker can tell the designer filed it.
+    own = sessions.own(project, coord, actor) if unit in ("task", "bug") and actor in design_rules.designers(gates) else None
+    session = ["--session", own] if own else []
     for _attempt in range(5):
         task_id = next_id(spec["id_prefix"], existing)
         args = ["task", "create", "--id", task_id, "--title", options["title"], "--actor", actor,
@@ -153,7 +156,7 @@ def new_unit(project: Project, coord: Coordination, unit: str, options: dict[str
             args += ["--acceptance", options["acceptance"]]
         if assignee:
             args += ["--assignee", assignee]
-        envelope = coord.call(*args)
+        envelope = coord.call(*session, *args)
         if envelope.get("ok"):
             break
         error = envelope.get("error") or {}
@@ -423,6 +426,7 @@ class Board:
         self._shown: dict[str, dict[str, Any]] = {}
         self._held: dict[str, str] | None = None
         self._unreferenced: set[str] | None = None
+        self._in_session: dict[tuple[str, str], bool] = {}
 
     @property
     def held(self) -> dict[str, str]:
@@ -438,6 +442,17 @@ class Board:
             self._unreferenced = {t["id"] for t in self.tasks if t["status"] == "review" and not (
                 gate_rules.ui_reference_check(self.show(t["id"]), self.gates) or {"pass": True})["pass"]}
         return self._unreferenced
+
+    def in_session(self, kind: str, object_id: str) -> bool:
+        """Whether the evidence row or task was written in a session of whoever it names. The tracker's audit
+        row carries the session, and the tracker takes a session only from the agent it belongs to."""
+        key = (kind, object_id)
+        if key not in self._in_session:
+            rows = self.coord.call("audit", "list", "--object-type", kind, "--object-id", object_id,
+                                   "--action", "add" if kind == "evidence" else "create", "--limit", "1")
+            found = (rows.get("data") or []) if rows.get("ok") else []
+            self._in_session[key] = bool(found and found[0].get("session_id"))
+        return self._in_session[key]
 
     def show(self, task_id: str) -> dict[str, Any]:
         if task_id not in self._shown:
@@ -526,7 +541,7 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         if row["id"] in waits:
             row["waits_for"] = "its story's feasibility check"
         elif row["id"] in designs:
-            row["waits_for"] = f"its story's design, {designs[row['id']]}"
+            row["waits_for"] = design_rules.waits_for(designs[row["id"]])
     on_hold = board.held
     # Assigned and claimed lists skip review, and ready_to_close skips held units, so look at the board too:
     # a held unit the role builds or would close shows under held, whatever its status.
@@ -548,6 +563,10 @@ def queue(project: Project, coord: Coordination, agent: str | None, board: Board
         result["held"] = [{"id": i, "why": on_hold[i]} for i in mine_held]
     if scope is not None:
         result["scoped_to"] = sorted(scope)
+    targets = [i for i in design_rules.targets_due(board, settings, agent)
+               if i not in on_hold and (scope is None or i in scope)]
+    if targets:  # ui work nobody may start until this role says how it should look
+        result["design_targets_due"] = [{"id": i, "title": board.by_id[i]["title"]} for i in targets]
     if agent == feasibility.CHECKER:  # the runner won't start a check beside a live session, so the queue shows them
         checks = [row for row in feasibility.due_rows(board, settings) if scope is None or row["story"] in scope]
         if checks:

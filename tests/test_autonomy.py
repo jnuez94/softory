@@ -22,6 +22,11 @@ class AutonomyTest(unittest.TestCase):
         softory(self.root, "new", "story", "--title", "See today", "--actor", "greg")
         softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "frontend", "--title", "List",
                 "--tags", "ui", "--actor", "quinn")
+        # A ui task waits for the designer's target (test_design); these tests are about what comes after.
+        coord(self.root, "session", "start", "--id", "darwin-1", "--agent", "darwin", "--harness", "test")
+        coord(self.root, "--session", "darwin-1", "evidence", "add", "--task", "TASK-1", "--uri", "docs/design/STORY-1.md",
+              "--type", "design", "--actor", "darwin")
+        coord(self.root, "session", "end", "darwin-1")
 
     def approve(self, settings: dict) -> dict:
         path = self.root / ".git" / "charter.json"

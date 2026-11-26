@@ -171,6 +171,7 @@ def coord(project: Project, args: list[str]) -> int:
     binary = str(project.coordination_bin)
     _refuse_bare_handoff(project, Coordination(binary, project.root), args)
     _refuse_wrong_record(project, args)
+    _refuse_claim_before_design(project, Coordination(binary, project.root), args)
     prose.check(prose.values(args), project.role_ids())
     if "--session" not in args and not os.environ.get("COORDINATION_SESSION"):
         role = next((args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--agent", "--actor")), None)
@@ -249,12 +250,13 @@ def _with_option(args: list[str], name: str, value: str) -> list[str]:
 
 
 #: The option that says who a record is from, for the commands a role could file under another name.
-_WRITTEN_BY = {("message", "send"): "--sender", ("review", "add"): "--reviewer"}
+_WRITTEN_BY = {("message", "send"): "--sender", ("review", "add"): "--reviewer", ("evidence", "add"): "--actor"}
 _NAMED_COMMIT = re.compile(r"(?:\bcommit:|\bhead=|\bbase=)([0-9a-f]{7,40})\b")
 
 
 def _refuse_wrong_record(project: Project, args: list[str]) -> None:
-    """Refuse a message or review filed under another role's name, and a review of a commit git doesn't have.
+    """Refuse a message or review filed under another role's name, and a review of a commit git doesn't have
+    or of several commits at once.
     In Tablet Jade sent a message as Avery, and a review named a hash that didn't exist. ``SOFTORY_ROLE`` says
     who is calling; a shell that dropped it can't be checked here, and the session check still applies."""
     from .errors import SoftoryError  # noqa: PLC0415
@@ -282,6 +284,42 @@ def _refuse_wrong_record(project: Project, args: list[str]) -> None:
         if missing:
             raise SoftoryError(f"{', '.join(missing)} is not a commit in this repository. Name the commit you "
                                "reviewed by its full hash (git rev-parse HEAD in your workspace).", "not_found")
+        from . import verify  # noqa: PLC0415
+
+        several = verify.commits_in(project.root, artifact)
+        heads = verify.heads_in(project.root, artifact)
+        if len(heads) > 1:
+            raise SoftoryError(f"--artifact gives {len(heads)} different head= commits, so softory can't tell which "
+                               "one you reviewed. Give one head (the reviewed commit); a base= beside it is fine.",
+                               "invalid_arguments")
+        if len(several) > 1 and verify.named_commit(project.root, artifact) is None:
+            # Tablet's RELEASE-1 sign-off read "<sha>;base=<sha>;evidence=...": accepted here, refused at close.
+            raise SoftoryError(f"--artifact names {len(several)} commits, so softory can't tell which one you reviewed "
+                               "and the gate would not count this review for any of them. Give the reviewed commit "
+                               "alone (--artifact commit:<full hash>) and put its base and evidence in --scope.",
+                               "invalid_arguments")
+
+
+def _refuse_claim_before_design(project: Project, coordination: Coordination, args: list[str]) -> None:
+    """Refuse ``task claim`` on ui work that still waits for design (``design.held``). The queue and the
+    scheduler already skip it; a builder that is already running could claim it anyway."""
+    i = _command_at(args)
+    if args[i:i + 2] != ["task", "claim"]:
+        return
+    from . import charter, design  # noqa: PLC0415
+    from .errors import SoftoryError  # noqa: PLC0415
+    from .units import tags_of, lane_of  # noqa: PLC0415
+    from .work import Board  # noqa: PLC0415
+
+    target = next((a for a in args[i + 2:] if not a.startswith("-")), None)
+    agent = _option(args, "--agent")
+    shown = coordination.call("task", "show", target) if target and agent else {}
+    task = shown.get("data") if shown.get("ok") else None
+    if not task or task["status"] != "todo" or not ("ui" in tags_of(task) or lane_of(task) == "frontend"):
+        return
+    why = design.claim_refusal(Board(project, coordination, reviews={}), charter.load(project), target, agent)
+    if why:
+        raise SoftoryError(why, "waits_for_design")
 
 
 def _option(args: list[str], name: str) -> str | None:

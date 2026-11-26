@@ -61,10 +61,11 @@ To amend a story's criteria after work started, Greg records the decision first 
 ## Task flow (function or bug fix)
 
 1. **Quinn** creates and assigns it. A bug can be filed by anyone with `softory new bug --type functional|visual [--found-at build|verify|review|acceptance|staging|production]`. A bug that turns out not to be a defect is dropped with `softory drop BUG-n --withdrawn --reason ...`. Greg sets its priority and Quinn sets its lane and assignee.
-2. **The builder** (Jade or Gold) starts a session, claims the task, and follows the engineer's loop: plan, test first, build, verify, and add evidence.
-3. The builder moves it to `review` and messages the peer reviewer plus any tag reviewers.
-4. **Reviewers** record `review add --task TASK-n` with a decision. A `changes_requested` review sends it back to `in_progress` when the builder reclaims it.
-5. **The builder** closes it with `softory close TASK-n`.
+2. A `ui` task or bug with no finished story design behind it (a bug, a one-off task, a task under a story filed without `--design`) waits for **Darwin's** target before its builder is woken: evidence of type `design` on the unit, recorded with `softory report <ID> <file> --type design`. A unit Darwin filed, or one Darwin builds, needs none. The target, and a unit Darwin filed, count only when written in his own session (the owner's at a terminal), and a claim on a waiting unit is refused.
+3. **The builder** (Jade or Gold) starts a session, claims the task, and follows the engineer's loop: plan, test first, build, verify, and add evidence.
+4. The builder moves it to `review` and messages the peer reviewer plus any tag reviewers.
+5. **Reviewers** record `review add --task TASK-n` with a decision. A `changes_requested` review sends it back to `in_progress` when the builder reclaims it.
+6. **The builder** closes it with `softory close TASK-n`.
 
 A bug fix always includes a test that fails before the fix and passes after it.
 

@@ -9,7 +9,7 @@ The owner's exceptions:
 - ``gates["stand_ins"]`` lists grants (see grants.py). A stand-in may review
   and close wherever its roles may. A grant that names tasks counts on those
   tasks only, and a grant with an end date lapses after it.
-- ``gates["waivers"]`` lets one review check pass on one task, by the owner.
+- ``gates["waivers"]`` lets one review check pass on one task at one commit, for one close, by the owner.
 
 A task with no unit has no spec and passes no gate.
 
@@ -316,7 +316,7 @@ def evaluate(
         allowed = closers(task, gates)
         checks.append(_check("closer", actor in allowed, f"{actor} may close" if actor in allowed else f"only {', '.join(sorted(allowed)) or 'the assignee'} may close"))
 
-    checks = [_waive(task.get("id", ""), check, gates) for check in checks]
+    checks = [_waive(task, check, gates) for check in checks]
     return {"id": task.get("id"), "unit": unit, "pass": all(c["pass"] for c in checks), "checks": checks}
 
 
@@ -381,15 +381,25 @@ def _record_checks(task: dict[str, Any], built_by: set[str], latest: dict[str, d
     return checks
 
 
-def _waive(task_id: str, check: dict[str, Any], gates: dict[str, Any]) -> dict[str, Any]:
-    if check["pass"]:
+def _waive(task: dict[str, Any], check: dict[str, Any], gates: dict[str, Any]) -> dict[str, Any]:
+    """The check, passed when the owner waived it for the commit the unit delivers now."""
+    waivers = gates.get("waivers") or []
+    if check["pass"] or not waivers:
         return check
-    waiver = grants.waiver_for(task_id, check["check"], gates.get("waivers") or [])
+    task_id = task.get("id", "")
+    commit = None
+    if gates.get("root"):  # a project's gates: the pure rules in tests have no repository to ask
+        from pathlib import Path  # noqa: PLC0415
+        from . import verify  # noqa: PLC0415  (verify imports this module)
+
+        commit = verify.commit_of(Path(gates["root"]), task)
+    reopened = (gates.get("closed_at") or {}).get(task_id) if task.get("status") != "done" else None
+    waiver, lapsed = grants.waiver_for(task_id, check["check"], waivers, commit, reopened)
     if waiver is None:
-        return check
+        return _check(check["check"], False, f"{check['detail']}. Not waived: {lapsed}") if lapsed else check
     return _check(check["check"], True,
-                  f"waived by the owner ({waiver.get('decision') or 'no decision id'}): {waiver['reason']}. "
-                  f"Without the waiver: {check['detail']}")
+                  f"waived by the owner ({waiver.get('decision') or 'no decision id'}) at "
+                  f"{waiver['commit'][:12] or 'no commit'}: {waiver['reason']}. Without the waiver: {check['detail']}")
 
 
 def ui_reference_check(task: dict[str, Any], gates: dict[str, Any]) -> dict[str, Any] | None:
@@ -402,7 +412,7 @@ def ui_reference_check(task: dict[str, Any], gates: dict[str, Any]) -> dict[str,
         return None
     kinds = set(reference.get("evidence_types") or [])
     found = [r for r in live_evidence(task.get("evidence") or []) if str(r.get("evidence_type", "")).lower() in kinds]
-    return _waive(task.get("id", ""), _check("ui_reference", bool(found),
+    return _waive(task, _check("ui_reference", bool(found),
                   f"checked against its reference: {found[-1].get('uri')}" if found else
                   "a ui unit needs one check against its design reference before review: add evidence "
                   f"of type {' or '.join(sorted(kinds))} (a screenshot beside the reference, or a visual diff)"), gates)

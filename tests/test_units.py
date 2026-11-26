@@ -295,12 +295,28 @@ class ScopedStandInTest(unittest.TestCase):
 class WaiverAndIntegrityTest(unittest.TestCase):
     def test_owner_waiver_passes_one_check_on_one_task(self) -> None:
         item = task(tags="unit:task,parent:STORY-1,lane:frontend,security", reviews=[review("gold", "accepted")])
-        waiver = {"task": "TASK-1", "check": "review:tag:security", "reason": "no security surface", "decision": "D-1"}
+        waiver = {"task": "TASK-1", "check": "review:tag:security", "reason": "no security surface", "decision": "D-1",
+                  "commit": ""}
         report = gate.evaluate(item, dict(GATES, waivers=[waiver]), {}, [], "jade")
         self.assertTrue(report["pass"], report)
         self.assertIn("waived by the owner (D-1)", next(c for c in report["checks"] if c["check"] == "review:tag:security")["detail"])
         other = task(id="TASK-2", tags=item["tags"], reviews=item["reviews"])
         self.assertFalse(gate.evaluate(other, dict(GATES, waivers=[waiver]), {}, [], "jade")["pass"])
+
+    def test_a_waiver_covers_the_commit_it_was_asked_for_and_one_close(self) -> None:
+        waiver = {"task": "TASK-1", "check": "no_secrets", "reason": "a made-up fixture", "decision": "D-1",
+                  "commit": "a" * 40, "approved_at": "2026-11-23T03:06:04+00:00"}
+        found = lambda *facts: grants.waiver_for("TASK-1", "no_secrets", [waiver], *facts)  # noqa: E731
+        self.assertEqual(found("a" * 40), (waiver, ""))
+        self.assertIn("another commit needs its own", found("b" * 40)[1])
+        self.assertIsNone(found("b" * 40)[0])
+        self.assertIn("was used when the unit closed", found("a" * 40, "2026-11-23T03:22:05+00:00")[1])
+        again = {**waiver, "decision": "D-2", "approved_at": "2026-11-24T00:00:00+00:00"}  # the owner approves anew
+        self.assertEqual(grants.waiver_for("TASK-1", "no_secrets", [waiver, again], "a" * 40,
+                                           "2026-11-23T03:22:05+00:00"), (again, ""))
+        old = grants.normalize_waivers([{"task": "TASK-1", "check": "no_secrets", "reason": "from 0.6.6"}])
+        self.assertIn("names no commit", grants.waiver_for("TASK-1", "no_secrets", old, "a" * 40)[1])
+        self.assertEqual(grants.waiver_for("TASK-2", "no_secrets", [waiver], "a" * 40), (None, ""))
 
     def test_core_checks_cannot_be_waived(self) -> None:
         waiver = {"task": "TASK-1", "check": "evidence", "reason": "x"}

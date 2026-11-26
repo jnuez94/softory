@@ -346,6 +346,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             change = {"task": args.id, "check": args.check}
         print(ops.dumps(owner.propose(project, coord, args.propose_command, change, args.why, actor)), end="")
     elif args.command == "proposals":
+        owner.lapse_finished(project, coord)
         print(ops.dumps(owner.proposals(project, args.all)), end="")
     elif args.command == "approve":
         print(ops.dumps(owner.approve(project, coord, split_list(args.proposal), args.reject)), end="")

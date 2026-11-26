@@ -11,7 +11,11 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.helpers import coord, in_terminal, git_project, git_status, install, needs_sources, revision, run, softory
+import sys
+
+from tests.helpers import REPO, coord, in_terminal, git_project, git_status, install, needs_sources, revision, run, softory
+
+sys.path.insert(0, str(REPO / "lib"))
 
 
 def start(root: Path, role: str) -> dict[str, str]:
@@ -421,6 +425,140 @@ class WorkflowTest(unittest.TestCase):
         waiver = json.loads(softory(self.root, "propose", "waiver", "TASK-2", "--check", "evidence", "--why", "x",
                                     "--actor", "quinn", check=False).stderr)
         self.assertEqual(waiver["error"]["code"], "invalid_arguments")
+
+    def test_a_proposal_about_finished_work_closes_itself(self) -> None:
+        asked = json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "review:peer",
+                                   "--why", "Gold is away", "--actor", "jade").stdout)
+        self.assertEqual([p["id"] for p in json.loads(softory(self.root, "proposals").stdout)], ["PROP-1"])
+        session = self.build("TASK-1", "jade")["session"]
+        self.review("TASK-1", "gold", "accepted", 1)
+        softory(self.root, "close", "TASK-1", "--actor", "jade", env={"COORDINATION_SESSION": session})
+        self.assertEqual(json.loads(softory(self.root, "proposals").stdout), [])  # nothing left for the owner
+        kept = json.loads(softory(self.root, "proposals", "--all").stdout)
+        self.assertEqual([(p["id"], p["status"]) for p in kept], [("PROP-1", "lapsed")])
+        self.assertEqual(coord(self.root, "decision", "show", asked["decision"])["data"]["status"], "superseded")
+        self.assertIn("No open proposal", json.dumps(at_terminal(self.root, "approve", "PROP-1")))
+
+    def test_proposal_cleanup_finishes_what_an_earlier_run_left_half_done(self) -> None:
+        from softory import owner  # noqa: PLC0415
+        from softory.coordination import Coordination  # noqa: PLC0415
+        from softory.project import Project  # noqa: PLC0415
+
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        ask = lambda who: json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "review:peer",  # noqa: E731
+                                             "--why", "Gold is away", "--actor", who).stdout)
+        first, second = ask("jade"), ask("quinn")
+        session = self.build("TASK-1", "jade")["session"]
+        self.review("TASK-1", "gold", "accepted", 1)
+        softory(self.root, "close", "TASK-1", "--actor", "jade", env={"COORDINATION_SESSION": session})
+        # A run told the tracker about PROP-1 and died before it marked the proposal.
+        coord(self.root, "decision", "status", first["decision"], "superseded", "--actor", "owner")
+        self.assertEqual(owner.lapse_finished(project, board), ["PROP-1", "PROP-2"])  # finished, not refused
+        self.assertEqual([(p["id"], p["status"]) for p in owner.proposals(project, True)],
+                         [("PROP-1", "lapsed"), ("PROP-2", "lapsed")])
+        self.assertEqual(coord(self.root, "decision", "show", second["decision"])["data"]["status"], "superseded")
+        self.assertEqual(owner.lapse_finished(project, board), [])  # and again changes nothing
+        softory(self.root, "digest")  # the digest, which runs before any role starts, builds
+
+    def test_proposal_cleanup_that_cannot_write_leaves_the_proposal_for_the_next_run(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        from softory import owner  # noqa: PLC0415
+        from softory.coordination import Coordination  # noqa: PLC0415
+        from softory.project import Project  # noqa: PLC0415
+
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        softory(self.root, "propose", "waiver", "TASK-1", "--check", "review:peer", "--why", "Gold is away",
+                "--actor", "jade")
+        session = self.build("TASK-1", "jade")["session"]
+        self.review("TASK-1", "gold", "accepted", 1)
+        softory(self.root, "close", "TASK-1", "--actor", "jade", env={"COORDINATION_SESSION": session})
+        owner.lapse_finished(project, board)  # the close above already ran it; make the proposal open again
+        rows = owner.proposals(project, True)
+        rows[0]["status"] = "open"
+        owner._save_proposals(project, rows)
+        for broken in ("_save_proposals", "_load_proposals"):
+            with mock.patch.object(owner, broken, side_effect=OSError(28, "No space left on device")):
+                self.assertEqual(owner.lapse_finished(project, board), [])  # said nothing, raised nothing
+        self.assertEqual([p["status"] for p in owner.proposals(project, True)], ["open"])
+        self.assertEqual(owner.lapse_finished(project, board), ["PROP-1"])  # the next run finishes it
+
+    def test_approval_decides_the_proposal_as_it_stands_after_the_owner_answers(self) -> None:
+        from softory import owner  # noqa: PLC0415
+        from softory.coordination import Coordination  # noqa: PLC0415
+        from softory.project import Project  # noqa: PLC0415
+
+        project = Project(self.root)
+        board = Coordination(project.coordination_bin, self.root)
+        local = lambda: json.loads(project.local_path.read_text()) if project.local_path.is_file() else {}  # noqa: E731
+        asked = json.loads(softory(self.root, "propose", "waiver", "TASK-1", "--check", "review:peer",
+                                   "--why", "Gold is away", "--actor", "jade").stdout)
+        session = self.build("TASK-1", "jade")["session"]
+        self.review("TASK-1", "gold", "accepted", 1)
+
+        def the_unit_closes_while_the_prompt_is_open(_text: str) -> None:
+            softory(self.root, "close", "TASK-1", "--actor", "jade", env={"COORDINATION_SESSION": session})
+
+        result = owner.approve(project, board, ["PROP-1"], confirm=the_unit_closes_while_the_prompt_is_open)
+        self.assertEqual(result["status"], "lapsed")
+        self.assertIn("nothing to grant", result["note"])
+        self.assertFalse(local().get("waivers"))  # nothing was written for finished work
+        self.assertEqual(coord(self.root, "decision", "show", asked["decision"])["data"]["status"], "superseded")
+
+        softory(self.root, "new", "task", "--parent", "STORY-1", "--lane", "backend", "--title", "Second",
+                "--actor", "quinn")
+        again = json.loads(softory(self.root, "propose", "waiver", "TASK-2", "--check", "review:peer",
+                                   "--why", "Jade is away", "--actor", "gold").stdout)
+
+        def someone_rejects_it_first(_text: str) -> None:
+            coord(self.root, "decision", "status", again["decision"], "rejected", "--actor", "owner")
+
+        result = owner.approve(project, board, ["PROP-2"], confirm=someone_rejects_it_first)
+        self.assertEqual(result["status"], "rejected")
+        self.assertFalse(local().get("waivers"))  # the record was refused, so the settings are untouched
+
+        third = json.loads(softory(self.root, "propose", "waiver", "TASK-2", "--check", "review:peer",
+                                   "--why", "Jade is away", "--actor", "gold").stdout)
+        from unittest import mock  # noqa: PLC0415
+        with mock.patch.object(owner, "_apply_waiver", side_effect=owner.SoftoryError("disk full", "io")):
+            with self.assertRaises(owner.SoftoryError):
+                owner.approve(project, board, ["PROP-3"], confirm=lambda _text: None)
+        self.assertEqual(owner.proposals(project)[0]["id"], "PROP-3")  # still open: the grant wasn't written
+        with self.assertRaises(owner.SoftoryError) as refused:  # a change of mind can't lose it either
+            owner.approve(project, board, ["PROP-3"], reject=True, confirm=lambda _text: None)
+        self.assertEqual(refused.exception.code, "already_accepted")
+        self.assertEqual(owner.proposals(project)[0]["id"], "PROP-3")
+        self.assertFalse(local().get("waivers"))
+        self.assertEqual([f.name for f in project.proposals_path().parent.glob("proposals.json*")], ["proposals.json"])
+        done = owner.approve(project, board, ["PROP-3"], confirm=lambda _text: None)  # the owner runs it again
+        self.assertEqual(done["status"], "approved")
+        owner._apply_waiver(project, board, done["waived"], third["decision"])  # and once more writes nothing new
+        self.assertEqual([w["decision"] for w in local()["waivers"]], [third["decision"]])
+
+        # The grant is two writes, local.json and its hash. A run that stops between them is finished by the
+        # next approve, and the gate doesn't read the half-written state as tampering.
+        fourth = json.loads(softory(self.root, "propose", "waiver", "TASK-2", "--check", "verified",
+                                    "--why", "No test runner here", "--actor", "gold").stdout)
+        saved = []
+
+        def stop_before_the_hash(manifest: dict) -> None:
+            if saved:
+                raise OSError("stopped before the hash was recorded")
+            saved.append(manifest)
+            Project.save_manifest(project, manifest)
+
+        with mock.patch.object(project, "save_manifest", side_effect=stop_before_the_hash):
+            with self.assertRaises(OSError):
+                owner.approve(project, board, ["PROP-4"], confirm=lambda _text: None)
+        self.assertEqual(len(local()["waivers"]), 2)  # written
+        self.assertEqual(owner.proposals(project)[0]["id"], "PROP-4")  # and not yet settled
+        self.assertEqual(project.integrity_changes(), [])
+        self.assertEqual(owner.approve(project, board, ["PROP-4"], confirm=lambda _text: None)["status"], "approved")
+        self.assertEqual([w["decision"] for w in local()["waivers"]], [third["decision"], fourth["decision"]])
+        project.local_path.chmod(0o644)
+        project.local_path.write_text(project.local_path.read_text().replace("No test runner", "Any"))
+        self.assertEqual(project.integrity_changes(), ["local.json"])  # a hand edit is still caught
 
     def test_rules_are_read_only_and_checked(self) -> None:
         gate_file = self.root / ".agents/softory/factory/governance/gates.json"

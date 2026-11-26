@@ -125,6 +125,7 @@ def report(project: Project, coord: Coordination, task_id: str, source: Path, ki
         raise SoftoryError(f"{source} is not a file", "not_found")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", task_id):
         raise SoftoryError(f"{task_id} can't name a folder", "invalid_arguments")
+    session = _designer_session(project, coord, task_id, kind, actor)  # refused before the file is moved
     folder = evidence_folder(project, task_id)
     folder.mkdir(parents=True, exist_ok=True)
     inside = source.is_relative_to(project.root.resolve())
@@ -140,8 +141,35 @@ def report(project: Project, coord: Coordination, task_id: str, source: Path, ki
         else:
             shutil.move(str(source), target)
     uri = str(target.relative_to(project.root))
-    coord.run("evidence", "add", "--task", task_id, "--uri", uri, "--type", kind, "--actor", actor)
+    add = ["evidence", "add", "--task", task_id, "--uri", uri, "--type", kind, "--actor", actor]
+    try:
+        coord.run(*(["--session", session] if session else []), *add)
+    finally:
+        if session and actor == project.owner_id:  # opened for this one record
+            coord.call("session", "end", session)
     return {"task": task_id, "uri": uri, "type": kind, "moved": not keep and target != source}
+
+
+def _designer_session(project: Project, coord: Coordination, task_id: str, kind: str, actor: str) -> str | None:
+    """The session a design target is written in, or None for any other evidence. ``--actor`` is only a
+    name, so a target releases ui work only when the tracker can tell who wrote it: a role writes it in
+    its own session, and the owner types yes at a terminal, as for any change only the owner makes."""
+    from . import design, sessions  # noqa: PLC0415
+    from .owner import confirm_at_terminal  # noqa: PLC0415
+
+    gates = project.gates()
+    if kind.lower() not in design.target_types(gates) or actor not in design.designers(gates, task_id):
+        return None
+    if actor == project.owner_id:
+        confirm_at_terminal(f"Record your design target on {task_id}. It releases the unit to its builder.")
+        session = f"{actor}-terminal-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}"
+        coord.run("session", "start", "--id", session, "--agent", actor, "--harness", "terminal")
+        return session
+    session = sessions.own(project, coord, actor)
+    if not session:
+        raise SoftoryError(f"A design target counts only from {actor}'s own session, and none is open. "
+                           f"Run: eval \"$(softory start {actor})\"", "session_required")
+    return session
 
 
 def _reserve(folder: Path, name: str) -> Path:
